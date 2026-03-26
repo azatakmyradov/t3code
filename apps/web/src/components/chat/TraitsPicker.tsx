@@ -1,6 +1,7 @@
 import {
   type ClaudeModelOptions,
   type CodexModelOptions,
+  type PiModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
   type ThreadId,
@@ -49,6 +50,9 @@ function getRawEffort(
   if (provider === "codex") {
     return trimOrNull((modelOptions as CodexModelOptions | undefined)?.reasoningEffort);
   }
+  if (provider === "pi") {
+    return trimOrNull((modelOptions as PiModelOptions | undefined)?.thinkingLevel);
+  }
   return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
 }
 
@@ -59,6 +63,9 @@ function buildNextOptions(
 ): ProviderOptions {
   if (provider === "codex") {
     return { ...(modelOptions as CodexModelOptions | undefined), ...patch } as CodexModelOptions;
+  }
+  if (provider === "pi") {
+    return { ...(modelOptions as PiModelOptions | undefined), ...patch } as PiModelOptions;
   }
   return { ...(modelOptions as ClaudeModelOptions | undefined), ...patch } as ClaudeModelOptions;
 }
@@ -173,7 +180,8 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         onPromptChange(nextPrompt);
         return;
       }
-      const effortKey = provider === "codex" ? "reasoningEffort" : "effort";
+      const effortKey =
+        provider === "codex" ? "reasoningEffort" : provider === "pi" ? "thinkingLevel" : "effort";
       updateModelOptions(
         buildNextOptions(provider, modelOptions, { [effortKey]: nextOption.value }),
       );

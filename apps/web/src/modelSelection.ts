@@ -1,6 +1,9 @@
 import {
+  type ClaudeModelOptions,
+  type CodexModelOptions,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   type ModelSelection,
+  type PiModelOptions,
   type ProviderKind,
 } from "@t3tools/contracts";
 import {
@@ -17,6 +20,7 @@ export const MAX_CUSTOM_MODEL_LENGTH = 256;
 export type CustomModelSettings = {
   customCodexModels: readonly string[];
   customClaudeModels: readonly string[];
+  customPiModels?: readonly string[];
 };
 
 export type ProviderCustomModelConfig = {
@@ -54,11 +58,21 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     placeholder: "your-claude-model-slug",
     example: "claude-sonnet-5-0",
   },
+  pi: {
+    provider: "pi",
+    settingsKey: "customPiModels",
+    defaultSettingsKey: "customPiModels",
+    title: "Pi",
+    description: "Keep stale or manually-entered Pi model slugs available in the picker.",
+    placeholder: "openai/gpt-5.4",
+    example: "anthropic/claude-opus-4-5",
+  },
 };
 
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
   claudeAgent: new Set(getModelOptions("claudeAgent").map((option) => option.slug)),
+  pi: new Set(getModelOptions("pi").map((option) => option.slug)),
 };
 
 export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
@@ -96,14 +110,14 @@ export function getCustomModelsForProvider(
   settings: CustomModelSettings,
   provider: ProviderKind,
 ): readonly string[] {
-  return settings[PROVIDER_CUSTOM_MODEL_CONFIG[provider].settingsKey];
+  return settings[PROVIDER_CUSTOM_MODEL_CONFIG[provider].settingsKey] ?? [];
 }
 
 export function getDefaultCustomModelsForProvider(
   defaults: CustomModelSettings,
   provider: ProviderKind,
 ): readonly string[] {
-  return defaults[PROVIDER_CUSTOM_MODEL_CONFIG[provider].defaultSettingsKey];
+  return defaults[PROVIDER_CUSTOM_MODEL_CONFIG[provider].defaultSettingsKey] ?? [];
 }
 
 export function patchCustomModels(
@@ -121,6 +135,7 @@ export function getCustomModelsByProvider(
   return {
     codex: getCustomModelsForProvider(settings, "codex"),
     claudeAgent: getCustomModelsForProvider(settings, "claudeAgent"),
+    pi: getCustomModelsForProvider(settings, "pi"),
   };
 }
 
@@ -171,10 +186,10 @@ export function getAppModelOptions(
 
 export function resolveAppModelSelection(
   provider: ProviderKind,
-  customModels: Record<ProviderKind, readonly string[]>,
+  customModels: Partial<Record<ProviderKind, readonly string[]>>,
   selectedModel: string | null | undefined,
 ): string {
-  const customModelsForProvider = customModels[provider];
+  const customModelsForProvider = customModels[provider] ?? [];
   const options = getAppModelOptions(provider, customModelsForProvider, selectedModel);
   return resolveSelectableModel(provider, selectedModel, options) ?? getDefaultModel(provider);
 }
@@ -195,6 +210,11 @@ export function getCustomModelOptionsByProvider(
       "claudeAgent",
       customModelsByProvider.claudeAgent,
       selectedProvider === "claudeAgent" ? selectedModel : undefined,
+    ),
+    pi: getAppModelOptions(
+      "pi",
+      customModelsByProvider.pi,
+      selectedProvider === "pi" ? selectedModel : undefined,
     ),
   };
 }
@@ -220,9 +240,25 @@ export function resolveAppModelSelectionState(
     },
   });
 
+  if (provider === "codex") {
+    return {
+      provider,
+      model,
+      ...(modelOptionsForDispatch ? { options: modelOptionsForDispatch as CodexModelOptions } : {}),
+    };
+  }
+  if (provider === "claudeAgent") {
+    return {
+      provider,
+      model,
+      ...(modelOptionsForDispatch
+        ? { options: modelOptionsForDispatch as ClaudeModelOptions }
+        : {}),
+    };
+  }
   return {
     provider,
     model,
-    ...(modelOptionsForDispatch ? { options: modelOptionsForDispatch } : {}),
+    ...(modelOptionsForDispatch ? { options: modelOptionsForDispatch as PiModelOptions } : {}),
   };
 }

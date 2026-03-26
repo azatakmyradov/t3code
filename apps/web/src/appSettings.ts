@@ -38,6 +38,8 @@ export const AppSettingsSchema = Schema.Struct({
   claudeBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   codexBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   codexHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
+  piBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
+  piAgentDir: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   defaultThreadEnvMode: EnvMode.pipe(withDefaults(() => "local" as const satisfies EnvMode)),
   confirmThreadDelete: Schema.Boolean.pipe(withDefaults(() => true)),
   diffWordWrap: Schema.Boolean.pipe(withDefaults(() => false)),
@@ -51,6 +53,7 @@ export const AppSettingsSchema = Schema.Struct({
   timestampFormat: TimestampFormat.pipe(withDefaults(() => DEFAULT_TIMESTAMP_FORMAT)),
   customCodexModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   customClaudeModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
+  customPiModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   textGenerationModelSelection: ModelSelection.pipe(
     withDefaults(() => ({
       provider: "codex" as const,
@@ -67,11 +70,17 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     ...settings,
     customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
     customClaudeModels: normalizeCustomModelSlugs(settings.customClaudeModels, "claudeAgent"),
+    customPiModels: normalizeCustomModelSlugs(settings.customPiModels, "pi"),
   };
 }
 
 export function getProviderStartOptions(
-  settings: Pick<AppSettings, "claudeBinaryPath" | "codexBinaryPath" | "codexHomePath">,
+  settings: Partial<
+    Pick<
+      AppSettings,
+      "claudeBinaryPath" | "codexBinaryPath" | "codexHomePath" | "piBinaryPath" | "piAgentDir"
+    >
+  >,
 ): ProviderStartOptions | undefined {
   const providerOptions: ProviderStartOptions = {
     ...(settings.codexBinaryPath || settings.codexHomePath
@@ -86,6 +95,14 @@ export function getProviderStartOptions(
       ? {
           claudeAgent: {
             binaryPath: settings.claudeBinaryPath,
+          },
+        }
+      : {}),
+    ...(settings.piBinaryPath || settings.piAgentDir
+      ? {
+          pi: {
+            ...(settings.piBinaryPath ? { binaryPath: settings.piBinaryPath } : {}),
+            ...(settings.piAgentDir ? { agentDir: settings.piAgentDir } : {}),
           },
         }
       : {}),

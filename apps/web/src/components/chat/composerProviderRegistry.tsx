@@ -1,5 +1,8 @@
 import {
+  type ClaudeModelOptions,
+  type CodexModelOptions,
   type ModelSlug,
+  type PiModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
   type ThreadId,
@@ -9,6 +12,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeClaudeModelOptions,
   normalizeCodexModelOptions,
+  normalizePiModelOptions,
   trimOrNull,
   getDefaultEffort,
   hasEffortLevel,
@@ -81,8 +85,10 @@ function getProviderStateFromCapabilities(
   // Normalize options for dispatch
   const normalizedOptions =
     provider === "codex"
-      ? normalizeCodexModelOptions(model, providerOptions)
-      : normalizeClaudeModelOptions(model, providerOptions);
+      ? normalizeCodexModelOptions(model, providerOptions as CodexModelOptions | undefined)
+      : provider === "pi"
+        ? normalizePiModelOptions(providerOptions as PiModelOptions | undefined)
+        : normalizeClaudeModelOptions(model, providerOptions as ClaudeModelOptions | undefined);
 
   // Ultrathink styling (driven by capabilities data, not provider identity)
   const ultrathinkActive =
@@ -139,6 +145,29 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     renderTraitsPicker: ({ threadId, model, modelOptions, prompt, onPromptChange }) => (
       <TraitsPicker
         provider="claudeAgent"
+        threadId={threadId}
+        model={model}
+        modelOptions={modelOptions}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
+      />
+    ),
+  },
+  pi: {
+    getState: (input) => getProviderStateFromCapabilities(input),
+    renderTraitsMenuContent: ({ threadId, model, modelOptions, prompt, onPromptChange }) => (
+      <TraitsMenuContent
+        provider="pi"
+        threadId={threadId}
+        model={model}
+        modelOptions={modelOptions}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
+      />
+    ),
+    renderTraitsPicker: ({ threadId, model, modelOptions, prompt, onPromptChange }) => (
+      <TraitsPicker
+        provider="pi"
         threadId={threadId}
         model={model}
         modelOptions={modelOptions}

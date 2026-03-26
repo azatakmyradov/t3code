@@ -39,7 +39,7 @@ const makeRoutingTextGeneration = Effect.gen(function* () {
   const codex = yield* CodexTextGen;
   const claude = yield* ClaudeTextGen;
 
-  const route = (provider?: TextGenerationProvider): TextGenerationShape =>
+  const route = (provider?: TextGenerationProvider | "pi"): TextGenerationShape =>
     provider === "claudeAgent" ? claude : codex;
 
   return {

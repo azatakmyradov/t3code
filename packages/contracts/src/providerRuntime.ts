@@ -24,6 +24,8 @@ const RuntimeEventRawSource = Schema.Literals([
   "claude.sdk.message",
   "claude.sdk.permission",
   "codex.sdk.thread-event",
+  "pi.sdk.event",
+  "pi.binary.health",
 ]);
 export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;
 

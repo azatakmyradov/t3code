@@ -1,9 +1,12 @@
 import {
   type ApprovalRequestId,
+  type ClaudeModelOptions,
+  type CodexModelOptions,
   DEFAULT_MODEL_BY_PROVIDER,
   type ClaudeCodeEffort,
   type MessageId,
   type ModelSelection,
+  type PiModelOptions,
   type ProjectScript,
   type ModelSlug,
   type ProviderKind,
@@ -33,7 +36,11 @@ import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { gitBranchesQueryOptions, gitCreateWorktreeMutationOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
-import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
+import {
+  serverConfigQueryOptions,
+  serverProviderModelsQueryOptions,
+  serverQueryKeys,
+} from "~/lib/serverReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
@@ -610,7 +617,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
     : null;
   const selectedProvider: ProviderKind =
     lockedProvider ?? selectedProviderByThreadId ?? threadProvider ?? "codex";
-  const customModelsByProvider = useMemo(() => getCustomModelsByProvider(settings), [settings]);
+  const providerOptionsForDispatch = useMemo(() => getProviderStartOptions(settings), [settings]);
+  const piModelsQuery = useQuery(
+    serverProviderModelsQueryOptions("pi", providerOptionsForDispatch),
+  );
+  const customModelsByProvider = useMemo(() => {
+    const baseModels = getCustomModelsByProvider(settings);
+    const discoveredPiModels = piModelsQuery.data?.models.map(({ slug }) => slug) ?? [];
+    if (discoveredPiModels.length === 0) {
+      return baseModels;
+    }
+    return {
+      ...baseModels,
+      pi: Array.from(new Set([...baseModels.pi, ...discoveredPiModels])),
+    };
+  }, [piModelsQuery.data, settings]);
   const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
     threadId,
     selectedProvider,
@@ -630,20 +651,57 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
-  const selectedModelSelection = useMemo<ModelSelection>(
-    () => ({
+  const selectedModelSelection = useMemo<ModelSelection>(() => {
+    if (selectedProvider === "codex") {
+      return {
+        provider: selectedProvider,
+        model: selectedModel,
+        ...(selectedModelOptionsForDispatch
+          ? { options: selectedModelOptionsForDispatch as CodexModelOptions }
+          : {}),
+      };
+    }
+    if (selectedProvider === "claudeAgent") {
+      return {
+        provider: selectedProvider,
+        model: selectedModel,
+        ...(selectedModelOptionsForDispatch
+          ? { options: selectedModelOptionsForDispatch as ClaudeModelOptions }
+          : {}),
+      };
+    }
+    return {
       provider: selectedProvider,
       model: selectedModel,
-      ...(selectedModelOptionsForDispatch ? { options: selectedModelOptionsForDispatch } : {}),
-    }),
-    [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
-  );
-  const providerOptionsForDispatch = useMemo(() => getProviderStartOptions(settings), [settings]);
+      ...(selectedModelOptionsForDispatch
+        ? { options: selectedModelOptionsForDispatch as PiModelOptions }
+        : {}),
+    };
+  }, [selectedModel, selectedModelOptionsForDispatch, selectedProvider]);
   const selectedModelForPicker = selectedModel;
-  const modelOptionsByProvider = useMemo(
-    () => getCustomModelOptionsByProvider(settings, selectedProvider, selectedModel),
-    [settings, selectedProvider, selectedModel],
-  );
+  const modelOptionsByProvider = useMemo(() => {
+    const baseOptions = getCustomModelOptionsByProvider(settings, selectedProvider, selectedModel);
+    const piDiscovered = piModelsQuery.data?.models.map(({ slug, name }) => ({ slug, name })) ?? [];
+    if (piDiscovered.length === 0) {
+      return baseOptions;
+    }
+    const selectedPiModel =
+      selectedProvider === "pi" && selectedModel
+        ? [{ slug: selectedModel, name: selectedModel }]
+        : [];
+    const pi = Array.from(
+      new Map(
+        [...piDiscovered, ...baseOptions.pi, ...selectedPiModel].map((option) => [
+          option.slug,
+          option,
+        ]),
+      ).values(),
+    );
+    return {
+      ...baseOptions,
+      pi,
+    };
+  }, [settings, selectedProvider, selectedModel, piModelsQuery.data]);
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
     const currentOptions = modelOptionsByProvider[selectedProvider];
     return currentOptions.some((option) => option.slug === selectedModelForPicker)
@@ -2561,14 +2619,34 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
       }
       const title = truncateTitle(titleSeed);
-      const threadCreateModelSelection: ModelSelection = {
-        provider: selectedProvider,
-        model:
-          selectedModel ||
-          activeProject.defaultModelSelection?.model ||
-          DEFAULT_MODEL_BY_PROVIDER.codex,
-        ...(selectedModelSelection.options ? { options: selectedModelSelection.options } : {}),
-      };
+      const nextThreadModel =
+        selectedModel ||
+        activeProject.defaultModelSelection?.model ||
+        DEFAULT_MODEL_BY_PROVIDER.codex;
+      const threadCreateModelSelection: ModelSelection =
+        selectedProvider === "codex"
+          ? {
+              provider: selectedProvider,
+              model: nextThreadModel,
+              ...(selectedModelSelection.options
+                ? { options: selectedModelSelection.options as CodexModelOptions }
+                : {}),
+            }
+          : selectedProvider === "claudeAgent"
+            ? {
+                provider: selectedProvider,
+                model: nextThreadModel,
+                ...(selectedModelSelection.options
+                  ? { options: selectedModelSelection.options as ClaudeModelOptions }
+                  : {}),
+              }
+            : {
+                provider: selectedProvider,
+                model: nextThreadModel,
+                ...(selectedModelSelection.options
+                  ? { options: selectedModelSelection.options as PiModelOptions }
+                  : {}),
+              };
 
       if (isLocalDraftThread) {
         await api.orchestration.dispatchCommand({

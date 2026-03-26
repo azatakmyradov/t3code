@@ -9,6 +9,7 @@
  * @module ProviderHealthLive
  */
 import * as OS from "node:os";
+import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type {
   ServerProviderAuthStatus,
   ServerProviderStatus,
@@ -27,6 +28,7 @@ import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHe
 const DEFAULT_TIMEOUT_MS = 4_000;
 const CODEX_PROVIDER = "codex" as const;
 const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
+const PI_PROVIDER = "pi" as const;
 
 // ── Pure helpers ────────────────────────────────────────────────────
 
@@ -269,6 +271,26 @@ const runClaudeCommand = (args: ReadonlyArray<string>) =>
 
     const child = yield* spawner.spawn(command);
 
+    const [stdout, stderr, exitCode] = yield* Effect.all(
+      [
+        collectStreamAsString(child.stdout),
+        collectStreamAsString(child.stderr),
+        child.exitCode.pipe(Effect.map(Number)),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    return { stdout, stderr, code: exitCode } satisfies CommandResult;
+  }).pipe(Effect.scoped);
+
+const runPiCommand = (args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const command = ChildProcess.make("pi", [...args], {
+      shell: process.platform === "win32",
+    });
+
+    const child = yield* spawner.spawn(command);
     const [stdout, stderr, exitCode] = yield* Effect.all(
       [
         collectStreamAsString(child.stdout),
@@ -587,14 +609,91 @@ export const checkClaudeProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
+export const checkPiProviderStatus: Effect.Effect<
+  ServerProviderStatus,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner
+> = Effect.gen(function* () {
+  const checkedAt = new Date().toISOString();
+  const versionProbe = yield* runPiCommand(["--version"]).pipe(
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.result,
+  );
+
+  if (Result.isFailure(versionProbe)) {
+    const error = versionProbe.failure;
+    return {
+      provider: PI_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: isCommandMissingCause(error)
+        ? "Pi CLI (`pi`) is not installed or not on PATH."
+        : `Failed to execute Pi CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
+    };
+  }
+
+  if (Option.isNone(versionProbe.success) || versionProbe.success.value.code !== 0) {
+    return {
+      provider: PI_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: "Pi CLI is installed but failed to run.",
+    };
+  }
+
+  const authStatus = yield* Effect.sync(() => {
+    try {
+      const authStorage = AuthStorage.create();
+      const modelRegistry = new ModelRegistry(authStorage);
+      const available = modelRegistry.getAvailable();
+      if (available.length > 0) {
+        return {
+          provider: PI_PROVIDER,
+          status: "ready" as const,
+          available: true,
+          authStatus: "authenticated" as const,
+          checkedAt,
+        } satisfies ServerProviderStatus;
+      }
+      return {
+        provider: PI_PROVIDER,
+        status: "warning" as const,
+        available: true,
+        authStatus: "unauthenticated" as const,
+        checkedAt,
+        message:
+          "Pi is installed but no authenticated models are available. Run `pi` and `/login` or configure API keys.",
+      } satisfies ServerProviderStatus;
+    } catch {
+      return {
+        provider: PI_PROVIDER,
+        status: "warning" as const,
+        available: true,
+        authStatus: "unknown" as const,
+        checkedAt,
+        message: "Could not verify Pi authentication status.",
+      } satisfies ServerProviderStatus;
+    }
+  });
+
+  return authStatus;
+});
+
 // ── Layer ───────────────────────────────────────────────────────────
 
 export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
-    const statusesFiber = yield* Effect.all([checkCodexProviderStatus, checkClaudeProviderStatus], {
-      concurrency: "unbounded",
-    }).pipe(Effect.forkScoped);
+    const statusesFiber = yield* Effect.all(
+      [checkCodexProviderStatus, checkClaudeProviderStatus, checkPiProviderStatus],
+      {
+        concurrency: "unbounded",
+      },
+    ).pipe(Effect.forkScoped);
 
     return {
       getStatuses: Fiber.join(statusesFiber),
