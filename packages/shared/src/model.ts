@@ -8,6 +8,7 @@ import {
   type CodexModelOptions,
   type ModelCapabilities,
   type ModelSlug,
+  type PiModelOptions,
   type ProviderKind,
   CodexReasoningEffort,
 } from "@t3tools/contracts";
@@ -15,6 +16,7 @@ import {
 const MODEL_SLUG_SET_BY_PROVIDER: Record<ProviderKind, ReadonlySet<ModelSlug>> = {
   claudeAgent: new Set(MODEL_OPTIONS_BY_PROVIDER.claudeAgent.map((option) => option.slug)),
   codex: new Set(MODEL_OPTIONS_BY_PROVIDER.codex.map((option) => option.slug)),
+  pi: new Set(MODEL_OPTIONS_BY_PROVIDER.pi.map((option) => option.slug)),
 };
 
 export interface SelectableModelOption {
@@ -51,6 +53,9 @@ export function getModelCapabilities(
   const slug = normalizeModelSlug(model, provider);
   if (slug && MODEL_CAPABILITIES_INDEX[provider]?.[slug]) {
     return MODEL_CAPABILITIES_INDEX[provider][slug];
+  }
+  if (provider === "pi") {
+    return MODEL_OPTIONS_BY_PROVIDER.pi[0].capabilities;
   }
   return {
     reasoningEffortLevels: [],
@@ -126,6 +131,10 @@ export function resolveModelSlug(
     return DEFAULT_MODEL_BY_PROVIDER[provider];
   }
 
+  if (provider === "pi") {
+    return normalized;
+  }
+
   return MODEL_SLUG_SET_BY_PROVIDER[provider].has(normalized)
     ? normalized
     : DEFAULT_MODEL_BY_PROVIDER[provider];
@@ -184,6 +193,13 @@ export function normalizeClaudeModelOptions(
     ...(fastMode ? { fastMode: true } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
+}
+
+export function normalizePiModelOptions(
+  modelOptions: PiModelOptions | null | undefined,
+): PiModelOptions | undefined {
+  const thinkingLevel = trimOrNull(modelOptions?.thinkingLevel);
+  return thinkingLevel ? { thinkingLevel } : undefined;
 }
 
 export function applyClaudePromptEffortPrefix(

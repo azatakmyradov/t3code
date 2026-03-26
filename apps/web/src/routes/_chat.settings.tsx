@@ -2,7 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDownIcon, PlusIcon, RotateCcwIcon, Undo2Icon, XIcon } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
-import { type ProviderKind } from "@t3tools/contracts";
+import {
+  type ClaudeModelOptions,
+  type CodexModelOptions,
+  type PiModelOptions,
+  type ProviderKind,
+} from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { useAppSettings } from "../appSettings";
 import {
@@ -61,14 +66,14 @@ const TIMESTAMP_FORMAT_LABELS = {
   "24-hour": "24-hour",
 } as const;
 
-type InstallBinarySettingsKey = "claudeBinaryPath" | "codexBinaryPath";
+type InstallBinarySettingsKey = "claudeBinaryPath" | "codexBinaryPath" | "piBinaryPath";
 type InstallProviderSettings = {
   provider: ProviderKind;
   title: string;
   binaryPathKey: InstallBinarySettingsKey;
   binaryPlaceholder: string;
   binaryDescription: ReactNode;
-  homePathKey?: "codexHomePath";
+  homePathKey?: "codexHomePath" | "piAgentDir";
   homePlaceholder?: string;
   homeDescription?: ReactNode;
 };
@@ -98,6 +103,20 @@ const INSTALL_PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
         Leave blank to use <code>claude</code> from your PATH.
       </>
     ),
+  },
+  {
+    provider: "pi",
+    title: "Pi",
+    binaryPathKey: "piBinaryPath",
+    binaryPlaceholder: "Pi binary path",
+    binaryDescription: (
+      <>
+        Leave blank to use <code>pi</code> from your PATH.
+      </>
+    ),
+    homePathKey: "piAgentDir",
+    homePlaceholder: "PI agent dir",
+    homeDescription: "Optional custom Pi config, auth, and session directory.",
   },
 ];
 
@@ -197,6 +216,7 @@ function SettingsRouteView() {
   const [openInstallProviders, setOpenInstallProviders] = useState<Record<ProviderKind, boolean>>({
     codex: Boolean(settings.codexBinaryPath || settings.codexHomePath),
     claudeAgent: Boolean(settings.claudeBinaryPath),
+    pi: Boolean(settings.piBinaryPath || settings.piAgentDir),
   });
   const [selectedCustomModelProvider, setSelectedCustomModelProvider] =
     useState<ProviderKind>("codex");
@@ -205,6 +225,7 @@ function SettingsRouteView() {
   >({
     codex: "",
     claudeAgent: "",
+    pi: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>
@@ -371,11 +392,13 @@ function SettingsRouteView() {
     setOpenInstallProviders({
       codex: false,
       claudeAgent: false,
+      pi: false,
     });
     setSelectedCustomModelProvider("codex");
     setCustomModelInputByProvider({
       codex: "",
       claudeAgent: "",
+      pi: "",
     });
     setCustomModelErrorByProvider({});
   }
@@ -674,14 +697,34 @@ function SettingsRouteView() {
                       triggerVariant="outline"
                       triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
                       onModelOptionsChange={(nextOptions) => {
+                        const nextSelection =
+                          textGenProvider === "codex"
+                            ? {
+                                provider: textGenProvider,
+                                model: textGenModel,
+                                ...(nextOptions
+                                  ? { options: nextOptions as CodexModelOptions }
+                                  : {}),
+                              }
+                            : textGenProvider === "claudeAgent"
+                              ? {
+                                  provider: textGenProvider,
+                                  model: textGenModel,
+                                  ...(nextOptions
+                                    ? { options: nextOptions as ClaudeModelOptions }
+                                    : {}),
+                                }
+                              : {
+                                  provider: textGenProvider,
+                                  model: textGenModel,
+                                  ...(nextOptions
+                                    ? { options: nextOptions as PiModelOptions }
+                                    : {}),
+                                };
                         updateSettings({
                           textGenerationModelSelection: resolveAppModelSelectionState({
                             ...settings,
-                            textGenerationModelSelection: {
-                              provider: textGenProvider,
-                              model: textGenModel,
-                              ...(nextOptions ? { options: nextOptions } : {}),
-                            },
+                            textGenerationModelSelection: nextSelection,
                           }),
                         });
                       }}
@@ -834,10 +877,13 @@ function SettingsRouteView() {
                           claudeBinaryPath: defaults.claudeBinaryPath,
                           codexBinaryPath: defaults.codexBinaryPath,
                           codexHomePath: defaults.codexHomePath,
+                          piBinaryPath: defaults.piBinaryPath,
+                          piAgentDir: defaults.piAgentDir,
                         });
                         setOpenInstallProviders({
                           codex: false,
                           claudeAgent: false,
+                          pi: false,
                         });
                       }}
                     />

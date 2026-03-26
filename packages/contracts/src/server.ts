@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
-import { ProviderKind } from "./orchestration";
+import { ProviderKind, ProviderStartOptions } from "./orchestration";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
   kind: Schema.Literal("keybindings.malformed-config"),
@@ -42,6 +42,41 @@ export const ServerProviderStatus = Schema.Struct({
   message: Schema.optional(TrimmedNonEmptyString),
 });
 export type ServerProviderStatus = typeof ServerProviderStatus.Type;
+
+export const ServerModelEffortOption = Schema.Struct({
+  value: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  isDefault: Schema.optional(Schema.Literal(true)),
+});
+export type ServerModelEffortOption = typeof ServerModelEffortOption.Type;
+
+export const ServerProviderModelCapabilities = Schema.Struct({
+  reasoningEffortLevels: Schema.Array(ServerModelEffortOption),
+  supportsFastMode: Schema.Boolean,
+  supportsThinkingToggle: Schema.Boolean,
+  promptInjectedEffortLevels: Schema.Array(TrimmedNonEmptyString),
+});
+export type ServerProviderModelCapabilities = typeof ServerProviderModelCapabilities.Type;
+
+export const ServerProviderModelOption = Schema.Struct({
+  slug: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  capabilities: ServerProviderModelCapabilities,
+  isDiscovered: Schema.Boolean,
+});
+export type ServerProviderModelOption = typeof ServerProviderModelOption.Type;
+
+export const ServerListProviderModelsInput = Schema.Struct({
+  provider: ProviderKind,
+  providerOptions: Schema.optional(ProviderStartOptions),
+});
+export type ServerListProviderModelsInput = typeof ServerListProviderModelsInput.Type;
+
+export const ServerListProviderModelsResult = Schema.Struct({
+  provider: ProviderKind,
+  models: Schema.Array(ServerProviderModelOption),
+});
+export type ServerListProviderModelsResult = typeof ServerListProviderModelsResult.Type;
 
 const ServerProviderStatuses = Schema.Array(ServerProviderStatus);
 

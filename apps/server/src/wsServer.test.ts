@@ -46,6 +46,10 @@ import { makeSqlitePersistenceLive, SqlitePersistenceMemory } from "./persistenc
 import { SqlClient, SqlError } from "effect/unstable/sql";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
 import { ProviderHealth, type ProviderHealthShape } from "./provider/Services/ProviderHealth";
+import {
+  ProviderModelCatalog,
+  type ProviderModelCatalogShape,
+} from "./provider/Services/ProviderModelCatalog";
 import { Open, type OpenShape } from "./open";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
 import type { GitCoreShape } from "./git/Services/GitCore.ts";
@@ -76,6 +80,10 @@ const defaultProviderStatuses: ReadonlyArray<ServerProviderStatus> = [
 
 const defaultProviderHealthService: ProviderHealthShape = {
   getStatuses: Effect.succeed(defaultProviderStatuses),
+};
+
+const defaultProviderModelCatalogService: ProviderModelCatalogShape = {
+  listModels: (provider) => Effect.succeed({ provider, models: [] }),
 };
 
 class MockTerminalManager implements TerminalManagerShape {
@@ -486,8 +494,9 @@ describe("WebSocket Server", () => {
       authToken?: string;
       baseDir?: string;
       staticDir?: string;
-      providerLayer?: Layer.Layer<ProviderService, never>;
+      providerLayer?: Layer.Layer<ProviderService | ProviderModelCatalog, never>;
       providerHealth?: ProviderHealthShape;
+      providerModelCatalog?: ProviderModelCatalogShape;
       open?: OpenShape;
       gitManager?: GitManagerShape;
       gitCore?: Pick<GitCoreShape, "listBranches" | "initRepo" | "pullCurrentBranch">;
@@ -507,6 +516,10 @@ describe("WebSocket Server", () => {
     const providerHealthLayer = Layer.succeed(
       ProviderHealth,
       options.providerHealth ?? defaultProviderHealthService,
+    );
+    const providerModelCatalogLayer = Layer.succeed(
+      ProviderModelCatalog,
+      options.providerModelCatalog ?? defaultProviderModelCatalogService,
     );
     const openLayer = Layer.succeed(Open, options.open ?? defaultOpenService);
     const serverConfigLayer = Layer.succeed(ServerConfig, {
@@ -543,6 +556,7 @@ describe("WebSocket Server", () => {
     );
     const dependenciesLayer = Layer.empty.pipe(
       Layer.provideMerge(runtimeLayer),
+      Layer.provideMerge(providerModelCatalogLayer),
       Layer.provideMerge(providerHealthLayer),
       Layer.provideMerge(openLayer),
       Layer.provideMerge(serverConfigLayer),
@@ -1268,7 +1282,10 @@ describe("WebSocket Server", () => {
       rollbackConversation: () => unsupported(),
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
     };
-    const providerLayer = Layer.succeed(ProviderService, providerService);
+    const providerLayer = Layer.succeed(ProviderService, providerService) as Layer.Layer<
+      ProviderService | ProviderModelCatalog,
+      never
+    >;
 
     server = await createTestServer({
       cwd: "/test",

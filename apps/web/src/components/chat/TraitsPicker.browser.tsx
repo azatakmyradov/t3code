@@ -38,7 +38,7 @@ function ClaudeTraitsPickerHarness(props: {
     selectedProvider: "claudeAgent",
     threadModelSelection: props.fallbackModelSelection,
     projectModelSelection: null,
-    customModelsByProvider: { codex: [], claudeAgent: [] },
+    customModelsByProvider: { codex: [], claudeAgent: [], pi: [] },
   });
   const handlePromptChange = useCallback(
     (nextPrompt: string) => {
