@@ -1,4 +1,4 @@
-export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "skill";
+export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "skill" | "snippet";
 export type ComposerSlashCommand = "model" | "plan" | "default";
 
 export interface ComposerTrigger {
@@ -107,6 +107,14 @@ export function detectComposerTrigger(
   if (token.startsWith("$")) {
     return {
       kind: "skill",
+      query: token.slice(1),
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
+  }
+  if (token.startsWith(":")) {
+    return {
+      kind: "snippet",
       query: token.slice(1),
       rangeStart: tokenStart,
       rangeEnd: cursor,

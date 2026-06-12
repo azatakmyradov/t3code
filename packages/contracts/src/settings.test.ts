@@ -64,6 +64,76 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   });
 });
 
+describe("ServerSettings.snippets", () => {
+  it("defaults to an empty snippet list", () => {
+    expect(DEFAULT_SERVER_SETTINGS.snippets).toEqual([]);
+  });
+
+  it("decodes legacy settings without snippets", () => {
+    const decoded = decodeServerSettings({});
+    expect(decoded.snippets).toEqual([]);
+  });
+
+  it("decodes valid snippets and normalizes keywords", () => {
+    const decoded = decodeServerSettings({
+      snippets: [
+        { keyword: "  :Bug_Fix  ", value: "  Please fix this bug.  " },
+        { keyword: "review-notes", value: "Review the diff." },
+      ],
+    });
+
+    expect(decoded.snippets).toEqual([
+      { keyword: "bug_fix", value: "Please fix this bug." },
+      { keyword: "review-notes", value: "Review the diff." },
+    ]);
+  });
+
+  it("rejects invalid snippet keywords", () => {
+    expect(() =>
+      decodeServerSettings({
+        snippets: [{ keyword: "bad keyword", value: "valid value" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects empty snippet values", () => {
+    expect(() =>
+      decodeServerSettings({
+        snippets: [{ keyword: "bug", value: "   " }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects duplicate snippet keywords after normalization", () => {
+    expect(() =>
+      decodeServerSettings({
+        snippets: [
+          { keyword: ":Bug", value: "First" },
+          { keyword: "bug", value: "Second" },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("decodes snippet whole-array replacement patches", () => {
+    const patch = decodeServerSettingsPatch({
+      snippets: [{ keyword: ":Bug", value: " Fix it " }],
+    });
+
+    expect(patch.snippets).toEqual([{ keyword: "bug", value: "Fix it" }]);
+  });
+
+  it("trims and normalizes encoded snippet settings", () => {
+    const defaultSettings = decodeServerSettings({});
+    const encoded = encodeServerSettings({
+      ...defaultSettings,
+      snippets: [{ keyword: "  :Bug  ", value: "  Fix it exactly.  " }],
+    });
+
+    expect(encoded.snippets).toEqual([{ keyword: "bug", value: "Fix it exactly." }]);
+  });
+});
+
 describe("ServerSettingsPatch.providerInstances", () => {
   it("treats providerInstances as an optional whole-map replacement", () => {
     const patch = decodeServerSettingsPatch({});
@@ -145,9 +215,11 @@ describe("ServerSettingsPatch string normalization", () => {
           binaryPath: "  /opt/homebrew/bin/codex  ",
         },
       },
+      snippets: [{ keyword: "  :Bug  ", value: "  Fix it  " }],
     });
 
     expect(encoded.addProjectBaseDirectory).toBe("~/Development");
     expect(encoded.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
+    expect(encoded.snippets).toEqual([{ keyword: "bug", value: "Fix it" }]);
   });
 });

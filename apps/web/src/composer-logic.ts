@@ -1,7 +1,7 @@
 import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
-export type ComposerTriggerKind = "path" | "slash-command" | "skill";
+export type ComposerTriggerKind = "path" | "slash-command" | "skill" | "snippet";
 export type ComposerSlashCommand = "model" | "plan" | "default";
 
 export interface ComposerTrigger {
@@ -238,6 +238,14 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   if (token.startsWith("$")) {
     return {
       kind: "skill",
+      query: token.slice(1),
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
+  }
+  if (token.startsWith(":")) {
+    return {
+      kind: "snippet",
       query: token.slice(1),
       rangeStart: tokenStart,
       rangeEnd: cursor,
