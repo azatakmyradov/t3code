@@ -194,4 +194,29 @@ describe("serverSettings helpers", () => {
       config: { homePath: "~/.codex" },
     });
   });
+
+  it("replaces snippets arrays so omitted snippets are cleared", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      snippets: [
+        { keyword: "bug", value: "Fix the bug." },
+        { keyword: "review", value: "Review the diff." },
+      ],
+    };
+
+    expect(
+      applyServerSettingsPatch(current, {
+        snippets: [{ keyword: "bug", value: "Fix only this bug." }],
+      }).snippets,
+    ).toEqual([{ keyword: "bug", value: "Fix only this bug." }]);
+  });
+
+  it("resets snippets to the default empty array", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      snippets: [{ keyword: "bug", value: "Fix the bug." }],
+    };
+
+    expect(applyServerSettingsPatch(current, { snippets: [] }).snippets).toEqual([]);
+  });
 });
