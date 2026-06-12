@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
@@ -361,6 +363,56 @@ export const ObservabilitySettings = Schema.Struct({
 });
 export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
+const CHAT_SNIPPET_KEYWORD_PATTERN = /^[a-z0-9_-]+$/;
+const normalizeChatSnippetKeyword = (value: string): string =>
+  value.trim().replace(/^:/, "").toLowerCase();
+const normalizeValidChatSnippetKeyword = (value: string) => {
+  const normalized = normalizeChatSnippetKeyword(value);
+  if (normalized.length > 0 && CHAT_SNIPPET_KEYWORD_PATTERN.test(normalized)) {
+    return Effect.succeed(normalized);
+  }
+  return Effect.fail(
+    new SchemaIssue.InvalidValue(Option.some(value), {
+      message: "Expected a snippet keyword using only letters, numbers, dashes, and underscores.",
+    }),
+  );
+};
+
+export const ChatSnippetKeyword = Schema.String.pipe(
+  Schema.decodeTo(
+    Schema.String,
+    SchemaTransformation.transformOrFail({
+      decode: normalizeValidChatSnippetKeyword,
+      encode: normalizeValidChatSnippetKeyword,
+    }),
+  ),
+);
+export type ChatSnippetKeyword = typeof ChatSnippetKeyword.Type;
+
+export const ChatSnippet = Schema.Struct({
+  keyword: ChatSnippetKeyword,
+  value: TrimmedNonEmptyString,
+});
+export type ChatSnippet = typeof ChatSnippet.Type;
+
+const ChatSnippets = Schema.Array(ChatSnippet).check(
+  Schema.makeFilter(
+    (snippets) => {
+      const seen = new Set<string>();
+      for (const snippet of snippets) {
+        if (seen.has(snippet.keyword)) {
+          return new SchemaIssue.InvalidValue(Option.some(snippet.keyword), {
+            message: "Duplicate chat snippet keyword.",
+          });
+        }
+        seen.add(snippet.keyword);
+      }
+      return true;
+    },
+    { identifier: "UniqueChatSnippetKeywords" },
+  ),
+);
+
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 
 export const ServerSettings = Schema.Struct({
@@ -404,6 +456,7 @@ export const ServerSettings = Schema.Struct({
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  snippets: ChatSnippets.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
@@ -503,6 +556,9 @@ export const ServerSettingsPatch = Schema.Struct({
   // patches risk leaving driver-specific config in a half-merged state.
   // The web UI sends a fully-formed map every time it edits this field.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
+  // Whole-array replacement. The settings UI owns ordering and sends the full
+  // snippet list on every edit.
+  snippets: Schema.optionalKey(ChatSnippets),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

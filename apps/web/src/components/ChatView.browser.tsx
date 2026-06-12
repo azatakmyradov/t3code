@@ -3756,6 +3756,42 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("shows snippet completion after : and inserts the exact snippet value", async () => {
+    useComposerDraftStore.getState().setPrompt(THREAD_REF, ":bug");
+    const snippetValue = "Fix this exactly\nNo trailing space";
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-snippet-completion" as MessageId,
+        targetText: "snippet completion",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          settings: {
+            ...nextFixture.serverConfig.settings,
+            snippets: [{ keyword: "bug", value: snippetValue }],
+          },
+        };
+      },
+    });
+
+    try {
+      const item = await waitForComposerMenuItem("snippet:0:bug");
+      expect(item.textContent).toContain(":bug");
+      expect(item.textContent).toContain("Fix this exactly No trailing space");
+      item.click();
+
+      await waitForComposerText(snippetValue);
+      expect(useComposerDraftStore.getState().draftsByThreadKey[THREAD_KEY]?.prompt).toBe(
+        snippetValue,
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("shows runtime mode descriptions in the desktop composer access select", async () => {
     setDraftThreadWithoutWorktree();
 

@@ -39,6 +39,7 @@ import { useUiStateStore } from "../../uiStateStore";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 import { DiagnosticsSettingsPanel } from "./DiagnosticsSettings";
 import { GeneralSettingsPanel, ProviderSettingsPanel } from "./SettingsPanels";
+import { SnippetsSettingsPanel } from "./SnippetsSettings";
 import { SourceControlSettingsPanel } from "./SourceControlSettings";
 
 function renderWithTestRouter(children: ReactNode) {
@@ -1253,6 +1254,56 @@ describe("GeneralSettingsPanel observability", () => {
       expect(popupRect.width).toBeLessThanOrEqual(337);
       expect(viewportRect.right).toBeLessThanOrEqual(popupRect.right + 0.5);
       expect(scrollViewport!.scrollWidth).toBeGreaterThan(scrollViewport!.clientWidth);
+    });
+  });
+
+  it("adds, edits, and deletes snippets with whole-array settings updates", async () => {
+    const updateSettings = vi.fn<LocalApi["server"]["updateSettings"]>().mockResolvedValue({
+      ...DEFAULT_SERVER_SETTINGS,
+    });
+    window.nativeApi = {
+      persistence: {
+        getClientSettings: vi.fn().mockResolvedValue(null),
+        setClientSettings: vi.fn().mockResolvedValue(undefined),
+      },
+      server: {
+        updateSettings,
+      },
+    } as unknown as LocalApi;
+
+    setServerConfigSnapshot(createBaseServerConfig());
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <SnippetsSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await page.getByRole("button", { name: "Add snippet" }).first().click();
+    const snippetValue = page.getByLabelText("Snippet value");
+    await page.getByLabelText("Snippet keyword").fill(" :Bug ");
+    await snippetValue.fill("Fix this exactly");
+    snippetValue.element().blur();
+
+    await vi.waitFor(() => {
+      expect(updateSettings).toHaveBeenLastCalledWith({
+        snippets: [{ keyword: "bug", value: "Fix this exactly" }],
+      });
+    });
+
+    await snippetValue.fill("Fix this exactly\nPreserve the newline ");
+    snippetValue.element().blur();
+
+    await vi.waitFor(() => {
+      expect(updateSettings).toHaveBeenLastCalledWith({
+        snippets: [{ keyword: "bug", value: "Fix this exactly\nPreserve the newline" }],
+      });
+    });
+
+    await page.getByRole("button", { name: "Delete :bug" }).click();
+
+    await vi.waitFor(() => {
+      expect(updateSettings).toHaveBeenLastCalledWith({ snippets: [] });
     });
   });
 });
