@@ -938,8 +938,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       cwd: stageAppDir,
       // Windows needs shell mode to resolve .cmd shims (e.g. vp.cmd).
       shell: process.platform === "win32",
-    })`vp install --prod --no-optional`,
-    { label: "vp install --prod --no-optional", verbose: options.verbose },
+    })`vp install --prod`,
+    { label: "vp install --prod", verbose: options.verbose },
   );
 
   const buildEnv: NodeJS.ProcessEnv = {

@@ -14,7 +14,7 @@ import { isElectron } from "./env";
 import { DesktopClerkProvider } from "./cloud/desktopClerk";
 import { ManagedRelayAuthProvider } from "./cloud/managedAuth";
 import { hasCloudPublicConfig } from "./cloud/publicConfig";
-import { getRouter } from "./router";
+import { getRouter, registerAppRouter } from "./router";
 import { APP_DISPLAY_NAME } from "./branding";
 import { syncDocumentWindowControlsOverlayClass } from "./lib/windowControlsOverlay";
 
@@ -22,6 +22,7 @@ import { syncDocumentWindowControlsOverlayClass } from "./lib/windowControlsOver
 const history = isElectron ? createHashHistory() : createBrowserHistory();
 
 const router = getRouter(history);
+registerAppRouter(router);
 
 if (isElectron) {
   syncDocumentWindowControlsOverlayClass();
