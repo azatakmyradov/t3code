@@ -71,6 +71,7 @@ import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
+import { formatSnippetDescriptionPreview, searchSnippetItems } from "./composerSnippetSearch";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
 import {
   getComposerProviderState,
@@ -987,8 +988,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }),
       );
     }
+    if (composerTrigger.kind === "snippet") {
+      const snippetItems = settings.snippets.map((snippet, index) => ({
+        id: `snippet:${index}:${snippet.keyword}`,
+        type: "snippet" as const,
+        keyword: snippet.keyword,
+        value: snippet.value,
+        label: `:${snippet.keyword}`,
+        description: formatSnippetDescriptionPreview(snippet.value),
+      }));
+      return searchSnippetItems(snippetItems, composerTrigger.query);
+    }
     return [];
-  }, [composerTrigger, selectedProvider, selectedProviderStatus, workspaceEntries.entries]);
+  }, [
+    composerTrigger,
+    selectedProvider,
+    selectedProviderStatus,
+    settings.snippets,
+    workspaceEntries.entries,
+  ]);
 
   const composerMenuOpen = Boolean(composerTrigger);
   const composerMenuSearchKey = composerTrigger
@@ -1057,6 +1075,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
+    }
+    if (composerTriggerKind === "snippet") {
+      return "No matching snippets.";
     }
     return composerTriggerKind === "path"
       ? "No matching files or folders."
@@ -1622,6 +1643,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           replacement,
           { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
         );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "snippet") {
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, item.value, {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
         if (applied) {
           setComposerHighlightedItemId(null);
         }

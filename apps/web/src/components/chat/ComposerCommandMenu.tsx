@@ -4,7 +4,7 @@ import {
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
-import { BotIcon } from "lucide-react";
+import { BotIcon, TextCursorInputIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
@@ -51,6 +51,14 @@ export type ComposerCommandItem =
       skill: ServerProviderSkill;
       label: string;
       description: string;
+    }
+  | {
+      id: string;
+      type: "snippet";
+      keyword: string;
+      value: string;
+      label: string;
+      description: string;
     };
 
 type ComposerCommandGroup = {
@@ -85,6 +93,9 @@ function groupCommandItems(
 ): ComposerCommandGroup[] {
   if (triggerKind === "skill") {
     return items.length > 0 ? [{ id: "skills", label: "Skills", items }] : [];
+  }
+  if (triggerKind === "snippet") {
+    return items.length > 0 ? [{ id: "snippets", label: "Snippets", items }] : [];
   }
   if (triggerKind !== "slash-command" || !groupSlashCommandSections) {
     return [{ id: "default", label: null, items }];
@@ -182,6 +193,15 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                       "No skills found. Try / to browse provider commands.")}
                 </p>
               </CommandGroup>
+            ) : props.triggerKind === "snippet" ? (
+              <CommandGroup>
+                <CommandGroupLabel className="px-0 pt-0 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55">
+                  Snippets
+                </CommandGroupLabel>
+                <p className="text-muted-foreground/70 text-xs">
+                  {props.emptyStateText ?? "No matching snippets."}
+                </p>
+              </CommandGroup>
             ) : (
               <p className="text-muted-foreground/70 text-xs">
                 {props.isLoading
@@ -246,6 +266,9 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         <span className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/80">
           <SkillGlyph className="size-3.5" />
         </span>
+      ) : null}
+      {props.item.type === "snippet" ? (
+        <TextCursorInputIcon className="size-4 shrink-0 text-muted-foreground/80" />
       ) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="shrink-0">{props.item.label}</span>

@@ -91,6 +91,59 @@ describe("detectComposerTrigger", () => {
     });
   });
 
+  it("detects :keyword as a snippet trigger", () => {
+    const text = ":bug";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "snippet",
+      query: "bug",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects : with an empty snippet query", () => {
+    const text = ":";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "snippet",
+      query: "",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects snippet triggers in the middle of text", () => {
+    const text = "hello :bug";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "snippet",
+      query: "bug",
+      rangeStart: "hello ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("does not detect prose colons inside a token as snippet triggers", () => {
+    expect(detectComposerTrigger("hello:bug", "hello:bug".length)).toBeNull();
+  });
+
+  it("stops snippet query detection at whitespace", () => {
+    const text = "foo :bug bar";
+    const cursorAfterSnippet = "foo :bug".length;
+
+    expect(detectComposerTrigger(text, cursorAfterSnippet)).toEqual({
+      kind: "snippet",
+      query: "bug",
+      rangeStart: "foo ".length,
+      rangeEnd: cursorAfterSnippet,
+    });
+    expect(detectComposerTrigger(text, text.length)).toBeNull();
+  });
+
   it("detects @path trigger in the middle of existing text", () => {
     // User typed @ between "inspect " and "in this sentence"
     const text = "Please inspect @in this sentence";
