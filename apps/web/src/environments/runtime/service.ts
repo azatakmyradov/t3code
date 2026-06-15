@@ -41,6 +41,7 @@ import {
   useComposerDraftStore,
 } from "~/composerDraftStore";
 import { ensureLocalApi } from "~/localApi";
+import { startAgentNotificationWatcher } from "~/lib/agentNotificationWatcher";
 import { collectActiveTerminalUiThreadKeys } from "~/lib/terminalUiStateCleanup";
 import { deriveOrchestrationBatchEffects } from "~/orchestrationEventEffects";
 import { getPrimaryKnownEnvironment } from "../primary";
@@ -2025,6 +2026,8 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
 
   const unsubscribeBrowserResumeReconnects = subscribeBrowserResumeReconnects();
 
+  const stopAgentNotificationWatcher = startAgentNotificationWatcher();
+
   activeService = {
     queryClient,
     queryInvalidationThrottler,
@@ -2032,6 +2035,7 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
     stop: () => {
       unsubscribeSavedEnvironments();
       unsubscribeBrowserResumeReconnects();
+      stopAgentNotificationWatcher();
       queryInvalidationThrottler.cancel();
     },
   };

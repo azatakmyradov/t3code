@@ -12,7 +12,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import { type AgentNotificationMode, DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
@@ -48,6 +48,7 @@ import {
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { useShallow } from "zustand/react/shallow";
 import { selectProjectsAcrossEnvironments, useStore } from "../../store";
+import { ensureNotificationPermission } from "../../lib/agentNotifications";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
 import { Button } from "../ui/button";
@@ -99,6 +100,12 @@ const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
   "12-hour": "12-hour",
   "24-hour": "24-hour",
+} as const;
+
+const AGENT_NOTIFICATION_MODE_LABELS = {
+  off: "Off",
+  on: "On",
+  "when-not-focused": "Only when not focused",
 } as const;
 
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
@@ -588,6 +595,64 @@ export function GeneralSettingsPanel() {
                 </SelectItem>
                 <SelectItem hideIndicator value="24-hour">
                   {TIMESTAMP_FORMAT_LABELS["24-hour"]}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Agent notifications"
+          description="Show a desktop notification when an agent finishes, fails, or needs your attention."
+          resetAction={
+            settings.agentNotificationMode !== DEFAULT_UNIFIED_SETTINGS.agentNotificationMode ? (
+              <SettingResetButton
+                label="agent notifications"
+                onClick={() =>
+                  updateSettings({
+                    agentNotificationMode: DEFAULT_UNIFIED_SETTINGS.agentNotificationMode,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.agentNotificationMode}
+              onValueChange={(value) => {
+                if (value !== "off" && value !== "on" && value !== "when-not-focused") {
+                  return;
+                }
+                const mode = value as AgentNotificationMode;
+                updateSettings({ agentNotificationMode: mode });
+                if (mode !== "off") {
+                  void ensureNotificationPermission().then((permission) => {
+                    if (permission === "denied") {
+                      toastManager.add({
+                        type: "error",
+                        title: "Notifications blocked",
+                        description:
+                          "Your browser or operating system is blocking notifications. Enable them in your system settings to receive agent notifications.",
+                      });
+                    }
+                  });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Agent notifications">
+                <SelectValue>
+                  {AGENT_NOTIFICATION_MODE_LABELS[settings.agentNotificationMode]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="off">
+                  {AGENT_NOTIFICATION_MODE_LABELS.off}
+                </SelectItem>
+                <SelectItem hideIndicator value="on">
+                  {AGENT_NOTIFICATION_MODE_LABELS.on}
+                </SelectItem>
+                <SelectItem hideIndicator value="when-not-focused">
+                  {AGENT_NOTIFICATION_MODE_LABELS["when-not-focused"]}
                 </SelectItem>
               </SelectPopup>
             </Select>

@@ -25,6 +25,18 @@ export function getRouter(history: RouterHistory) {
 
 export type AppRouter = ReturnType<typeof getRouter>;
 
+// Module-level holder so non-React code paths (e.g. desktop notification
+// click handlers) can navigate without access to React context.
+let appRouter: AppRouter | null = null;
+
+export function registerAppRouter(router: AppRouter): void {
+  appRouter = router;
+}
+
+export function getAppRouter(): AppRouter | null {
+  return appRouter;
+}
+
 declare module "@tanstack/react-router" {
   interface Register {
     router: AppRouter;
