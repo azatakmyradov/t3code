@@ -1,0 +1,76 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # 12:00 AM ET is either 04:00 UTC or 05:00 UTC depending on DST.
+    # Both cron entries run, but the `Check ET hour` step below exits unless
+    # the current Eastern Time hour is 00.
+    - cron: "0 4 * * *"
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  sync:
+    name: Sync upstream pingdotgg/t3code into fork
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check ET hour
+        id: et-hour
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "schedule" ]]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual run; proceeding with upstream sync."
+            exit 0
+          fi
+
+          hour_et=$(TZ=America/New_York date +%H)
+          if [[ "$hour_et" != "00" ]]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Current ET hour is $hour_et; skipping because this is not 12:00 AM ET."
+            exit 0
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "Current ET hour is 00; proceeding with upstream sync."
+
+      - name: Checkout repository
+        if: steps.et-hour.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run OpenCode sync
+        if: steps.et-hour.outputs.should_run == 'true'
+        # Pinned github-v1.2.19.
+        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          model: opencode-go/kimi-k2.7-code
+          use_github_token: true
+          prompt: |
+            This repository is a fork of https://github.com/pingdotgg/t3code.
+            Your task is to sync upstream changes into this fork.
+
+            Steps:
+            1. Fetch https://github.com/pingdotgg/t3code.git as a remote named `upstream`.
+            2. Compare the current repository's default branch (main) against upstream/main.
+            3. If there are no new upstream commits, exit cleanly and report "No upstream changes."
+             4. If there are upstream changes:
+                - Create or force-update a branch named `sync/upstream-main` from the current main.
+                - Merge `upstream/main` into `sync/upstream-main`.
+                - If the merge has conflicts, resolve them conservatively (prefer upstream changes unless it would break obvious project logic). If conflicts are too risky to resolve automatically, stop and open a PR with the conflicted state so a human can review.
+                - Run `vp check` and `vp run typecheck`. If either fails, do not merge; instead open/update a PR with the failing state and report the failure.
+                - Open or update a pull request from `sync/upstream-main` to `main` with a clear title and description summarizing the upstream commits.
+                - Merge that pull request into `main` using a merge commit (do not squash) once the PR is created and checks pass.
+             5. Never push directly to `main` except by merging the PR created above.
+             6. Keep the session output concise and report the final status.
