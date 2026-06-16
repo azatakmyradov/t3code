@@ -5,7 +5,11 @@ import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
-import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
+import {
+  DEFAULT_BUILDER_MODEL,
+  DEFAULT_GIT_TEXT_GENERATION_MODEL,
+  ProviderOptionSelections,
+} from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
 
@@ -441,6 +445,14 @@ export const ServerSettings = Schema.Struct({
       }),
     ),
   ),
+  builderModelSelection: ModelSelection.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        instanceId: ProviderInstanceId.make("codex"),
+        model: DEFAULT_BUILDER_MODEL,
+      }),
+    ),
+  ),
 
   // Legacy single-instance-per-driver settings. Continues to be the source
   // of truth until `providerInstances` (below) lands per-driver migration
@@ -543,6 +555,7 @@ export const ServerSettingsPatch = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  builderModelSelection: Schema.optionalKey(ModelSelectionPatch),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),

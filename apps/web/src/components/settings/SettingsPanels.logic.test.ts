@@ -101,4 +101,24 @@ describe("buildProviderInstanceUpdatePatch", () => {
     expect(patch.providerInstances?.[instanceId]).toEqual(nextInstance);
     expect(patch.providers).toBeUndefined();
   });
+
+  it("includes optional builder model resets", () => {
+    const instanceId = ProviderInstanceId.make("codex");
+    const nextInstance = {
+      driver: ProviderDriverKind.make("codex"),
+      enabled: false,
+      config: {},
+    } satisfies ProviderInstanceConfig;
+
+    const patch = buildProviderInstanceUpdatePatch({
+      settings: DEFAULT_SERVER_SETTINGS,
+      instanceId,
+      instance: nextInstance,
+      driver: ProviderDriverKind.make("codex"),
+      isDefault: true,
+      builderModelSelection: DEFAULT_SERVER_SETTINGS.builderModelSelection,
+    });
+
+    expect(patch.builderModelSelection).toEqual(DEFAULT_SERVER_SETTINGS.builderModelSelection);
+  });
 });

@@ -6858,6 +6858,116 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("starts ready-plan implementation threads with the configured builder model", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotWithPlanFollowUpPrompt({
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5",
+        },
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          providers: [
+            {
+              ...nextFixture.serverConfig.providers[0]!,
+              models: [
+                {
+                  slug: "gpt-5",
+                  name: "GPT-5",
+                  isCustom: false,
+                  capabilities: {},
+                },
+                {
+                  slug: "gpt-5.4",
+                  name: "GPT-5.4",
+                  isCustom: false,
+                  capabilities: {},
+                },
+              ],
+            },
+          ],
+          settings: {
+            ...nextFixture.serverConfig.settings,
+            builderModelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5.4",
+            },
+          },
+        };
+      },
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForButtonByText("Implement");
+      const modelPicker = await waitForElement(
+        findComposerProviderModelPicker,
+        "Unable to find provider model picker.",
+      );
+      const modelPickerTextBefore = modelPicker.textContent;
+
+      const actionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Implementation actions"]'),
+        "Unable to find implementation actions trigger.",
+      );
+      actionsButton.click();
+      await page.getByText("Implement with builder").click();
+
+      await vi.waitFor(
+        () => {
+          const createRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.create",
+          ) as
+            | {
+                modelSelection?: { instanceId?: string; model?: string };
+              }
+            | undefined;
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          ) as
+            | {
+                modelSelection?: { instanceId?: string; model?: string };
+                sourceProposedPlan?: { threadId?: string; planId?: string };
+              }
+            | undefined;
+
+          expect(createRequest?.modelSelection).toMatchObject({
+            instanceId: "codex",
+            model: "gpt-5.4",
+          });
+          expect(turnStartRequest?.modelSelection).toMatchObject({
+            instanceId: "codex",
+            model: "gpt-5.4",
+          });
+          expect(turnStartRequest?.sourceProposedPlan).toEqual({
+            threadId: THREAD_ID,
+            planId: "plan-follow-up-browser-test",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(findComposerProviderModelPicker()?.textContent).toBe(modelPickerTextBefore);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps the wide desktop follow-up layout expanded when the footer still fits", async () => {
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,

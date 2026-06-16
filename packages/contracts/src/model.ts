@@ -135,6 +135,7 @@ const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 
 export const DEFAULT_MODEL = "gpt-5.4";
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL = "gpt-5.4-mini";
+export const DEFAULT_BUILDER_MODEL = DEFAULT_MODEL;
 
 export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, string>> = {
   [CODEX_DRIVER_KIND]: DEFAULT_MODEL,
@@ -143,6 +144,8 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [GROK_DRIVER_KIND]: "grok-build",
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
 };
+
+export const DEFAULT_BUILDER_MODEL_BY_PROVIDER = DEFAULT_MODEL_BY_PROVIDER;
 
 /** Per-provider text generation model defaults. */
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER: Partial<

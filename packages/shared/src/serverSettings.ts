@@ -42,9 +42,18 @@ export function parsePersistedServerObservabilitySettings(
   return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
 }
 
-function shouldReplaceTextGenerationModelSelection(
-  patch: ServerSettingsPatch["textGenerationModelSelection"] | undefined,
-): boolean {
+type ModelSelectionPatch =
+  | ServerSettingsPatch["textGenerationModelSelection"]
+  | ServerSettingsPatch["builderModelSelection"];
+
+export type ModelSelectionSettingsKey = "textGenerationModelSelection" | "builderModelSelection";
+
+export const MODEL_SELECTION_SETTINGS_KEYS: ReadonlyArray<ModelSelectionSettingsKey> = [
+  "textGenerationModelSelection",
+  "builderModelSelection",
+];
+
+function shouldReplaceModelSelection(patch: ModelSelectionPatch | undefined): boolean {
   return Boolean(patch && (patch.instanceId !== undefined || patch.model !== undefined));
 }
 
@@ -75,10 +84,13 @@ export function applyServerSettingsPatch(
   current: ServerSettings,
   patch: ServerSettingsPatch,
 ): ServerSettings {
-  const selectionPatch = patch.textGenerationModelSelection;
-  const { automaticGitFetchInterval, snippets, ...patchForMerge } = patch;
+  const { automaticGitFetchInterval, snippets, ...patchForMergeWithModelSelections } = patch;
+  const patchForMerge = { ...patchForMergeWithModelSelections };
+  for (const key of MODEL_SELECTION_SETTINGS_KEYS) {
+    delete patchForMerge[key];
+  }
   const next = deepMerge(current, patchForMerge);
-  const nextWithReplacements = {
+  let nextWithReplacements: ServerSettings = {
     ...next,
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
@@ -86,21 +98,27 @@ export function applyServerSettingsPatch(
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
     ...(snippets !== undefined ? { snippets } : {}),
   };
-  if (!selectionPatch) {
-    return nextWithReplacements;
+
+  for (const key of MODEL_SELECTION_SETTINGS_KEYS) {
+    const selectionPatch = patch[key];
+    if (!selectionPatch) {
+      continue;
+    }
+
+    const currentSelection = current[key];
+    const instanceId = selectionPatch.instanceId ?? currentSelection.instanceId;
+    const model = selectionPatch.model ?? currentSelection.model;
+    const options = shouldReplaceModelSelection(selectionPatch)
+      ? selectionPatch.options
+      : mergeModelSelectionOptionsById({
+          current: currentSelection.options,
+          patch: selectionPatch.options,
+        });
+
+    Object.assign(nextWithReplacements, {
+      [key]: createModelSelection(instanceId, model, options),
+    });
   }
 
-  const instanceId = selectionPatch.instanceId ?? current.textGenerationModelSelection.instanceId;
-  const model = selectionPatch.model ?? current.textGenerationModelSelection.model;
-  const options = shouldReplaceTextGenerationModelSelection(selectionPatch)
-    ? selectionPatch.options
-    : mergeModelSelectionOptionsById({
-        current: current.textGenerationModelSelection.options,
-        patch: selectionPatch.options,
-      });
-
-  return {
-    ...nextWithReplacements,
-    textGenerationModelSelection: createModelSelection(instanceId, model, options),
-  };
+  return nextWithReplacements;
 }

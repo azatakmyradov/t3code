@@ -343,6 +343,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
+  onImplementPlanWithBuilder: () => void;
 }) {
   return (
     <>
@@ -370,6 +371,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
+        onImplementPlanWithBuilder={props.onImplementPlanWithBuilder}
       />
     </>
   );
@@ -504,6 +506,7 @@ export interface ChatComposerProps {
   onSend: (e?: { preventDefault: () => void }) => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
+  onImplementPlanWithBuilder: () => void;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -590,6 +593,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onSend,
     onInterrupt,
     onImplementPlanInNewThread,
+    onImplementPlanWithBuilder,
     onRespondToApproval,
     onSelectActivePendingUserInputOption,
     onAdvanceActivePendingUserInput,
@@ -1889,6 +1893,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const handleImplementPlanInNewThreadPrimaryAction = useCallback(() => {
     void onImplementPlanInNewThread();
   }, [onImplementPlanInNewThread]);
+  const handleImplementPlanWithBuilderPrimaryAction = useCallback(() => {
+    void onImplementPlanWithBuilder();
+  }, [onImplementPlanWithBuilder]);
   const scheduleComposerCollapseCheck = useCallback(() => {
     if (!isMobileViewport) {
       return;
@@ -2208,6 +2215,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                       onInterrupt={handleInterruptPrimaryAction}
                       onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                      onImplementPlanWithBuilder={handleImplementPlanWithBuilderPrimaryAction}
                     />
                   ) : null}
                 </div>
@@ -2458,6 +2466,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                    onImplementPlanWithBuilder={handleImplementPlanWithBuilderPrimaryAction}
                   />
                 </div>
               ) : null}
@@ -2569,6 +2578,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                   onInterrupt={handleInterruptPrimaryAction}
                   onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                  onImplementPlanWithBuilder={handleImplementPlanWithBuilderPrimaryAction}
                 />
               </div>
             </div>

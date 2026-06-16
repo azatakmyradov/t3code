@@ -153,6 +153,7 @@ const mockGetClerkToken = vi.hoisted(() => vi.fn(async () => null));
 const mockOpenClerkWaitlist = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/react", () => ({
+  UserButton: () => null,
   useAuth: () => ({
     getToken: mockGetClerkToken,
     isSignedIn: false,
@@ -211,6 +212,7 @@ vi.mock("../../environments/runtime", () => {
     resetEnvironmentServiceForTests: () => undefined,
     startEnvironmentConnectionService: () => undefined,
     subscribeEnvironmentConnections: () => () => {},
+    subscribeProviderInvalidations: () => () => {},
     useSavedEnvironmentRegistryStore: (
       selector: (state: { byId: Record<string, never> }) => unknown,
     ) => selector({ byId: {} }),
@@ -788,6 +790,80 @@ describe("GeneralSettingsPanel observability", () => {
         ),
       )
       .toBeInTheDocument();
+  });
+
+  it("renders and updates the Builder model setting", async () => {
+    const updateSettings = vi.fn<LocalApi["server"]["updateSettings"]>().mockResolvedValue({
+      ...DEFAULT_SERVER_SETTINGS,
+    });
+    window.nativeApi = {
+      persistence: {
+        getClientSettings: vi.fn().mockResolvedValue(null),
+        setClientSettings: vi.fn().mockResolvedValue(undefined),
+      },
+      server: {
+        updateSettings,
+      },
+    } as unknown as LocalApi;
+
+    const { versionAdvisory: _versionAdvisory, ...codexProvider } = createOutdatedProvider("codex");
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      providers: [
+        {
+          ...codexProvider,
+          models: [
+            {
+              slug: "gpt-5.4",
+              name: "GPT-5.4",
+              isCustom: false,
+              capabilities: {},
+            },
+            {
+              slug: "gpt-5.3-codex",
+              name: "GPT-5.3 Codex",
+              isCustom: false,
+              capabilities: {},
+            },
+          ],
+        },
+      ],
+    });
+
+    mounted = await renderWithTestRouter(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await expect
+      .element(page.getByRole("heading", { name: "Builder model", exact: true }))
+      .toBeInTheDocument();
+
+    const modelPickers = document.querySelectorAll<HTMLButtonElement>(
+      '[data-chat-provider-model-picker="true"]',
+    );
+    expect(modelPickers.length).toBeGreaterThanOrEqual(2);
+    modelPickers[1]!.click();
+    await page.getByText("GPT-5.3 Codex").click();
+
+    await vi.waitFor(() => {
+      expect(updateSettings).toHaveBeenLastCalledWith({
+        builderModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.3-codex",
+        },
+      });
+    });
+
+    await page.getByLabelText("Reset builder model to default").click();
+
+    await vi.waitFor(() => {
+      expect(updateSettings).toHaveBeenLastCalledWith({
+        builderModelSelection: DEFAULT_SERVER_SETTINGS.builderModelSelection,
+      });
+    });
   });
 
   it("creates and shows a pairing link when network access is enabled", async () => {

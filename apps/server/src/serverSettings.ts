@@ -11,6 +11,8 @@
  * @module ServerSettings
  */
 import {
+  DEFAULT_BUILDER_MODEL,
+  DEFAULT_BUILDER_MODEL_BY_PROVIDER,
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -47,7 +49,11 @@ import { writeFileStringAtomically } from "./atomicWrite.ts";
 import { ServerConfig } from "./config.ts";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
-import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
+import {
+  applyServerSettingsPatch,
+  MODEL_SELECTION_SETTINGS_KEYS,
+  type ModelSelectionSettingsKey,
+} from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 
 const encodeServerSettings = Schema.encodeEffect(ServerSettings);
@@ -172,17 +178,47 @@ const getLegacyProviderSettings = (
 ): LegacyProviderSettings | undefined =>
   (settings.providers as Record<string, LegacyProviderSettings | undefined>)[provider];
 
+const MODEL_SELECTION_DEFAULTS: Record<
+  ModelSelectionSettingsKey,
+  {
+    readonly fallbackModel: string;
+    readonly fallbackModelsByProvider: Partial<Record<ProviderDriverKind, string>>;
+  }
+> = {
+  textGenerationModelSelection: {
+    fallbackModel: DEFAULT_GIT_TEXT_GENERATION_MODEL,
+    fallbackModelsByProvider: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  },
+  builderModelSelection: {
+    fallbackModel: DEFAULT_BUILDER_MODEL,
+    fallbackModelsByProvider: DEFAULT_BUILDER_MODEL_BY_PROVIDER,
+  },
+};
+
 /**
- * Ensure the `textGenerationModelSelection` points to an enabled provider.
- * If the selected provider is disabled, fall back to the first enabled
- * provider with its default model.  This is applied at read-time so the
- * persisted preference is preserved for when a provider is re-enabled.
+ * Ensure settings-backed model selections point to enabled providers.
+ * If a selected provider is disabled, fall back to the first enabled
+ * provider with that setting's default model. This is applied at read-time
+ * so persisted preferences are preserved for when a provider is re-enabled.
  */
-function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
-  const selection = settings.textGenerationModelSelection;
+function resolveEnabledModelSelectionProviders(settings: ServerSettings): ServerSettings {
+  let next = settings;
+  for (const key of MODEL_SELECTION_SETTINGS_KEYS) {
+    next = resolveEnabledModelSelectionProvider(next, key);
+  }
+  return next;
+}
+
+function resolveEnabledModelSelectionProvider(
+  settings: ServerSettings,
+  key: ModelSelectionSettingsKey,
+): ServerSettings {
+  const selection = settings[key];
   const instanceConfig = settings.providerInstances[selection.instanceId];
   if (instanceConfig !== undefined) {
-    return (instanceConfig.enabled ?? true) ? settings : fallbackTextGenerationProvider(settings);
+    return (instanceConfig.enabled ?? true)
+      ? settings
+      : fallbackModelSelectionProvider(settings, key);
   }
 
   if (
@@ -192,24 +228,49 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
     return settings;
   }
 
-  return fallbackTextGenerationProvider(settings);
+  return fallbackModelSelectionProvider(settings, key);
 }
 
-function fallbackTextGenerationProvider(settings: ServerSettings): ServerSettings {
-  const fallbackEntry = Object.entries(settings.providers).find(([, provider]) => provider.enabled);
-  const fallback = fallbackEntry ? ProviderDriverKind.make(fallbackEntry[0]) : undefined;
+function fallbackModelSelectionProvider(
+  settings: ServerSettings,
+  key: ModelSelectionSettingsKey,
+): ServerSettings {
+  const fallbackInstanceEntry = Object.entries(settings.providerInstances).find(
+    ([, instance]) => instance.enabled ?? true,
+  );
+  const fallbackInstance = fallbackInstanceEntry
+    ? {
+        instanceId: ProviderInstanceId.make(fallbackInstanceEntry[0]),
+        driver: fallbackInstanceEntry[1].driver,
+      }
+    : undefined;
+  const fallbackLegacyEntry = Object.entries(settings.providers).find(([providerId, provider]) => {
+    if (!provider.enabled) {
+      return false;
+    }
+    const explicitDefaultInstance = settings.providerInstances[ProviderInstanceId.make(providerId)];
+    return explicitDefaultInstance === undefined || (explicitDefaultInstance.enabled ?? true);
+  });
+  const fallbackLegacy = fallbackLegacyEntry
+    ? {
+        instanceId: ProviderInstanceId.make(fallbackLegacyEntry[0]),
+        driver: ProviderDriverKind.make(fallbackLegacyEntry[0]),
+      }
+    : undefined;
+  const fallback = fallbackInstance ?? fallbackLegacy;
   if (!fallback) {
     return settings;
   }
 
+  const defaults = MODEL_SELECTION_DEFAULTS[key];
   return {
     ...settings,
-    textGenerationModelSelection: {
-      instanceId: ProviderInstanceId.make(fallback),
+    [key]: {
+      instanceId: fallback.instanceId,
       model:
-        DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[fallback] ??
-        DEFAULT_MODEL_BY_PROVIDER[fallback] ??
-        DEFAULT_GIT_TEXT_GENERATION_MODEL,
+        defaults.fallbackModelsByProvider[fallback.driver] ??
+        DEFAULT_MODEL_BY_PROVIDER[fallback.driver] ??
+        defaults.fallbackModel,
     } satisfies ModelSelection,
   };
 }
@@ -218,6 +279,7 @@ function fallbackTextGenerationProvider(settings: ServerSettings): ServerSetting
 const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "automaticGitFetchInterval",
   "textGenerationModelSelection",
+  "builderModelSelection",
 ]);
 
 function stripDefaultServerSettings(current: unknown, defaults: unknown): unknown | undefined {
@@ -545,7 +607,7 @@ const makeServerSettings = Effect.gen(function* () {
     ready: Deferred.await(startedDeferred),
     getSettings: getSettingsFromCache.pipe(
       Effect.flatMap(materializeProviderEnvironmentSecrets),
-      Effect.map(resolveTextGenerationProvider),
+      Effect.map(resolveEnabledModelSelectionProviders),
     ),
     updateSettings: (patch) =>
       writeSemaphore.withPermits(1)(
@@ -560,7 +622,7 @@ const makeServerSettings = Effect.gen(function* () {
           yield* Cache.set(settingsCache, cacheKey, next);
           yield* emitChange(next);
           const materialized = yield* materializeProviderEnvironmentSecrets(next);
-          return resolveTextGenerationProvider(materialized);
+          return resolveEnabledModelSelectionProviders(materialized);
         }),
       ),
     get streamChanges() {
@@ -574,7 +636,7 @@ const makeServerSettings = Effect.gen(function* () {
             ),
           ),
         ),
-        Stream.map(resolveTextGenerationProvider),
+        Stream.map(resolveEnabledModelSelectionProviders),
       );
     },
   } satisfies ServerSettingsShape;

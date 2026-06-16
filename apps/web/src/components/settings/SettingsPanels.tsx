@@ -5,11 +5,14 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import {
   defaultInstanceIdForDriver,
   type DesktopUpdateChannel,
+  type ModelSelection,
   PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ScopedThreadRef,
+  type ServerProvider,
+  type UnifiedSettings,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime";
 import { type AgentNotificationMode, DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
@@ -39,6 +42,7 @@ import {
 } from "../../lib/desktopUpdateReactQuery";
 import {
   getCustomModelOptionsByInstance,
+  resolveAppBuilderModelSelectionState,
   resolveAppModelSelectionState,
 } from "../../modelSelection";
 import {
@@ -395,6 +399,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isBuilderModelDirty = !Equal.equals(
+    settings.builderModelSelection ?? null,
+    DEFAULT_UNIFIED_SETTINGS.builderModelSelection ?? null,
+  );
 
   const changedSettingLabels = useMemo(
     () => [
@@ -434,8 +442,10 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Delete confirmation"]
         : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
+      ...(isBuilderModelDirty ? ["Builder model"] : []),
     ],
     [
+      isBuilderModelDirty,
       isGitWritingModelDirty,
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
@@ -476,6 +486,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+      builderModelSelection: DEFAULT_UNIFIED_SETTINGS.builderModelSelection,
     });
     onRestored?.();
   }, [changedSettingLabels, onRestored, setTheme, updateSettings]);
@@ -484,6 +495,63 @@ export function useSettingsRestore(onRestored?: () => void) {
     changedSettingLabels,
     restoreDefaults,
   };
+}
+
+function SettingsModelSelectionControl({
+  settings,
+  serverProviders,
+  selection,
+  onChange,
+}: {
+  readonly settings: UnifiedSettings;
+  readonly serverProviders: ReadonlyArray<ServerProvider>;
+  readonly selection: ModelSelection;
+  readonly onChange: (selection: ModelSelection) => void;
+}) {
+  const instanceId = selection.instanceId;
+  const model = selection.model;
+  const modelOptions = selection.options;
+  const instanceEntries = useMemo(
+    () => sortProviderInstanceEntries(deriveProviderInstanceEntries(serverProviders)),
+    [serverProviders],
+  );
+  const instanceEntry = instanceEntries.find((entry) => entry.instanceId === instanceId);
+  const provider: ProviderDriverKind = instanceEntry?.driverKind ?? DEFAULT_DRIVER_KIND;
+  const modelOptionsByInstance = useMemo(
+    () => getCustomModelOptionsByInstance(settings, serverProviders, instanceId, model),
+    [settings, serverProviders, instanceId, model],
+  );
+
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      <ProviderModelPicker
+        activeInstanceId={instanceId}
+        model={model}
+        lockedProvider={null}
+        instanceEntries={instanceEntries}
+        modelOptionsByInstance={modelOptionsByInstance}
+        triggerVariant="outline"
+        triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+        onInstanceModelChange={(nextInstanceId, nextModel) => {
+          onChange(createModelSelection(nextInstanceId, nextModel));
+        }}
+      />
+      <TraitsPicker
+        provider={provider}
+        models={instanceEntry?.models ?? []}
+        model={model}
+        prompt=""
+        onPromptChange={() => {}}
+        modelOptions={modelOptions}
+        allowPromptInjectedEffort={false}
+        triggerVariant="outline"
+        triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+        onModelOptionsChange={(nextOptions) => {
+          onChange(createModelSelection(instanceId, model, nextOptions));
+        }}
+      />
+    </div>
+  );
 }
 
 export function GeneralSettingsPanel() {
@@ -501,26 +569,14 @@ export function GeneralSettingsPanel() {
   });
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
-  const textGenInstanceId = textGenerationModelSelection.instanceId;
-  const textGenModel = textGenerationModelSelection.model;
-  const textGenModelOptions = textGenerationModelSelection.options;
-  const gitModelInstanceEntries = sortProviderInstanceEntries(
-    deriveProviderInstanceEntries(serverProviders),
-  );
-  const textGenInstanceEntry = gitModelInstanceEntries.find(
-    (entry) => entry.instanceId === textGenInstanceId,
-  );
-  const textGenProvider: ProviderDriverKind =
-    textGenInstanceEntry?.driverKind ?? DEFAULT_DRIVER_KIND;
-  const gitModelOptionsByInstance = getCustomModelOptionsByInstance(
-    settings,
-    serverProviders,
-    textGenInstanceId,
-    textGenModel,
-  );
+  const builderModelSelection = resolveAppBuilderModelSelectionState(settings, serverProviders);
   const isGitWritingModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
+  );
+  const isBuilderModelDirty = !Equal.equals(
+    settings.builderModelSelection ?? null,
+    DEFAULT_UNIFIED_SETTINGS.builderModelSelection ?? null,
   );
 
   return (
@@ -900,60 +956,57 @@ export function GeneralSettingsPanel() {
             ) : null
           }
           control={
-            <div className="flex flex-wrap items-center justify-end gap-1.5">
-              <ProviderModelPicker
-                activeInstanceId={textGenInstanceId}
-                model={textGenModel}
-                lockedProvider={null}
-                instanceEntries={gitModelInstanceEntries}
-                modelOptionsByInstance={gitModelOptionsByInstance}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onInstanceModelChange={(instanceId, model) => {
+            <SettingsModelSelectionControl
+              settings={settings}
+              serverProviders={serverProviders}
+              selection={textGenerationModelSelection}
+              onChange={(nextSelection) => {
+                updateSettings({
+                  textGenerationModelSelection: resolveAppModelSelectionState(
+                    {
+                      ...settings,
+                      textGenerationModelSelection: nextSelection,
+                    },
+                    serverProviders,
+                  ),
+                });
+              }}
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Builder model"
+          description="Used when starting implementation threads from ready plans."
+          resetAction={
+            isBuilderModelDirty ? (
+              <SettingResetButton
+                label="builder model"
+                onClick={() =>
                   updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: createModelSelection(instanceId, model),
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
-              />
-              <TraitsPicker
-                provider={textGenProvider}
-                models={
-                  // Use the exact instance's models (rather than the
-                  // first-kind-match) so a custom text-gen instance like
-                  // `codex_personal` gets its own model list, not the
-                  // default Codex one.
-                  textGenInstanceEntry?.models ?? []
+                    builderModelSelection: DEFAULT_UNIFIED_SETTINGS.builderModelSelection,
+                  })
                 }
-                model={textGenModel}
-                prompt=""
-                onPromptChange={() => {}}
-                modelOptions={textGenModelOptions}
-                allowPromptInjectedEffort={false}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onModelOptionsChange={(nextOptions) => {
-                  updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: createModelSelection(
-                          textGenInstanceId,
-                          textGenModel,
-                          nextOptions,
-                        ),
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
               />
-            </div>
+            ) : null
+          }
+          control={
+            <SettingsModelSelectionControl
+              settings={settings}
+              serverProviders={serverProviders}
+              selection={builderModelSelection}
+              onChange={(nextSelection) => {
+                updateSettings({
+                  builderModelSelection: resolveAppBuilderModelSelectionState(
+                    {
+                      ...settings,
+                      builderModelSelection: nextSelection,
+                    },
+                    serverProviders,
+                  ),
+                });
+              }}
+            />
           }
         />
       </SettingsSection>
@@ -1011,6 +1064,8 @@ export function ProviderSettingsPanel() {
   );
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenInstanceId = textGenerationModelSelection.instanceId;
+  const builderModelSelection = resolveAppBuilderModelSelectionState(settings, serverProviders);
+  const builderInstanceId = builderModelSelection.instanceId;
   const lastCheckedAt =
     serverProviders.length > 0
       ? serverProviders.reduce(
@@ -1159,6 +1214,9 @@ export function ProviderSettingsPanel() {
       readonly textGenerationModelSelection?: Parameters<
         typeof buildProviderInstanceUpdatePatch
       >[0]["textGenerationModelSelection"];
+      readonly builderModelSelection?: Parameters<
+        typeof buildProviderInstanceUpdatePatch
+      >[0]["builderModelSelection"];
     },
   ) => {
     updateSettings(
@@ -1169,6 +1227,7 @@ export function ProviderSettingsPanel() {
         driver: row.driver,
         isDefault: row.isDefault,
         textGenerationModelSelection: options?.textGenerationModelSelection,
+        builderModelSelection: options?.builderModelSelection,
       }),
     );
   };
@@ -1178,6 +1237,9 @@ export function ProviderSettingsPanel() {
       providerInstances: withoutProviderInstanceKey(settings.providerInstances, id),
       providerModelPreferences: withoutProviderInstanceKey(settings.providerModelPreferences, id),
       favorites: withoutProviderInstanceFavorites(settings.favorites ?? [], id),
+      ...(builderInstanceId === id
+        ? { builderModelSelection: DEFAULT_UNIFIED_SETTINGS.builderModelSelection }
+        : {}),
     });
   };
 
@@ -1350,14 +1412,18 @@ export function ProviderSettingsPanel() {
                 const wasEnabled = row.instance.enabled ?? true;
                 const isDisabling = next.enabled === false && wasEnabled;
                 const shouldClearTextGen = isDisabling && textGenInstanceId === row.instanceId;
-                if (shouldClearTextGen) {
-                  updateProviderInstance(row, next, {
-                    textGenerationModelSelection:
-                      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                  });
-                } else {
-                  updateProviderInstance(row, next);
-                }
+                const shouldClearBuilder = isDisabling && builderInstanceId === row.instanceId;
+                updateProviderInstance(row, next, {
+                  ...(shouldClearTextGen
+                    ? {
+                        textGenerationModelSelection:
+                          DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+                      }
+                    : {}),
+                  ...(shouldClearBuilder
+                    ? { builderModelSelection: DEFAULT_UNIFIED_SETTINGS.builderModelSelection }
+                    : {}),
+                });
               }}
               onDelete={row.isDefault ? undefined : () => deleteProviderInstance(row.instanceId)}
               headerAction={headerAction}

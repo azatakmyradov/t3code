@@ -1,4 +1,6 @@
 import {
+  DEFAULT_BUILDER_MODEL,
+  DEFAULT_BUILDER_MODEL_BY_PROVIDER,
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
@@ -28,6 +30,7 @@ import { sortModelsForProviderInstance } from "./modelOrdering";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 const DEFAULT_TEXT_GENERATION_INSTANCE_ID = ProviderInstanceId.make("codex");
+const DEFAULT_BUILDER_INSTANCE_ID = ProviderInstanceId.make("codex");
 
 /**
  * Resolve the custom-model list for a given instance, preferring the
@@ -277,10 +280,76 @@ export function resolveAppModelSelectionState(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
 ): ModelSelection {
-  const selection = settings.textGenerationModelSelection ?? {
-    instanceId: DEFAULT_TEXT_GENERATION_INSTANCE_ID,
-    model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
-  };
+  return resolveSettingsModelSelectionState({
+    settings,
+    providers,
+    selection: settings.textGenerationModelSelection,
+    defaultSelection: {
+      instanceId: DEFAULT_TEXT_GENERATION_INSTANCE_ID,
+      model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
+    },
+    defaultModelByProvider: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+    defaultModel: DEFAULT_GIT_TEXT_GENERATION_MODEL,
+  });
+}
+
+export function resolveAppBuilderModelSelectionState(
+  settings: UnifiedSettings,
+  providers: ReadonlyArray<ServerProvider>,
+): ModelSelection {
+  return resolveSettingsModelSelectionState({
+    settings,
+    providers,
+    selection: settings.builderModelSelection,
+    defaultSelection: {
+      instanceId: DEFAULT_BUILDER_INSTANCE_ID,
+      model: DEFAULT_BUILDER_MODEL,
+    },
+    defaultModelByProvider: DEFAULT_BUILDER_MODEL_BY_PROVIDER,
+    defaultModel: DEFAULT_BUILDER_MODEL,
+  });
+}
+
+interface SettingsModelSelectionResolverInput {
+  readonly settings: UnifiedSettings;
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly selection: ModelSelection | null | undefined;
+  readonly defaultSelection: ModelSelection;
+  readonly defaultModelByProvider: Partial<Record<ProviderDriverKind, string>>;
+  readonly defaultModel: string;
+}
+
+export interface AppModelSelectionDispatchContext {
+  readonly selectedProvider: ProviderDriverKind;
+  readonly selectedModel: string;
+  readonly selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
+  readonly selectedPromptEffort: string | null;
+  readonly selectedModelSelection: ModelSelection;
+}
+
+function resolveSettingsModelSelectionState(
+  input: SettingsModelSelectionResolverInput,
+): ModelSelection {
+  return resolveAppModelSelectionDispatchContext(
+    input.settings,
+    input.providers,
+    input.selection ?? input.defaultSelection,
+    {
+      defaultModelByProvider: input.defaultModelByProvider,
+      defaultModel: input.defaultModel,
+    },
+  ).selectedModelSelection;
+}
+
+export function resolveAppModelSelectionDispatchContext(
+  settings: UnifiedSettings,
+  providers: ReadonlyArray<ServerProvider>,
+  selection: ModelSelection,
+  defaults: {
+    readonly defaultModelByProvider?: Partial<Record<ProviderDriverKind, string>>;
+    readonly defaultModel?: string;
+  } = {},
+): AppModelSelectionDispatchContext {
   const entries = deriveProviderInstanceEntries(providers);
   const selectedEntry = entries.find(
     (entry) => entry.instanceId === selection.instanceId && entry.enabled && entry.isAvailable,
@@ -294,36 +363,74 @@ export function resolveAppModelSelectionState(
     const model =
       resolveAppModelSelectionForInstance(entry.instanceId, settings, providers, selectedModel) ??
       entry.models[0]?.slug ??
-      DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[entry.driverKind];
+      defaults.defaultModelByProvider?.[entry.driverKind] ??
+      defaults.defaultModel;
     if (!model) {
-      return createModelSelection(entry.instanceId, "", []);
+      return {
+        selectedProvider: entry.driverKind,
+        selectedModel: "",
+        selectedProviderModels: entry.models,
+        selectedPromptEffort: null,
+        selectedModelSelection: createModelSelection(entry.instanceId, "", []),
+      };
     }
     const provider = entry.driverKind;
-    const { modelOptionsForDispatch } = getComposerProviderState({
+    const composerProviderState = getComposerProviderState({
       provider,
       model,
       models: entry.models,
       prompt: "",
       modelOptions: selectedEntry ? selection.options : undefined,
     });
+    const selectedModelSelection = createModelSelection(
+      entry.instanceId,
+      model,
+      composerProviderState.modelOptionsForDispatch,
+    );
 
-    return createModelSelection(entry.instanceId, model, modelOptionsForDispatch);
+    return {
+      selectedProvider: provider,
+      selectedModel: model,
+      selectedProviderModels: entry.models,
+      selectedPromptEffort: composerProviderState.promptEffort,
+      selectedModelSelection,
+    };
   }
 
-  const provider = resolveSelectableProvider(providers, null);
-  const keptSelectedProvider = false;
+  const provider = resolveSelectableProvider(providers, selection.instanceId);
+  const keptSelectedProvider = providers.some(
+    (candidate) =>
+      candidate.instanceId === selection.instanceId &&
+      candidate.enabled &&
+      candidate.availability !== "unavailable",
+  );
 
   // When the provider changed due to fallback (e.g. selected provider was disabled),
   // don't carry over the old provider's model — use the fallback provider's default.
   const selectedModel = keptSelectedProvider ? selection.model : null;
-  const model = resolveAppModelSelection(provider, settings, providers, selectedModel);
-  const { modelOptionsForDispatch } = getComposerProviderState({
+  const model =
+    providers.length > 0
+      ? resolveAppModelSelection(provider, settings, providers, selectedModel)
+      : (defaults.defaultModelByProvider?.[provider] ?? defaults.defaultModel ?? "");
+  const selectedProviderModels = getProviderModels(providers, provider);
+  const composerProviderState = getComposerProviderState({
     provider,
     model,
-    models: getProviderModels(providers, provider),
+    models: selectedProviderModels,
     prompt: "",
     modelOptions: keptSelectedProvider ? selection.options : undefined,
   });
+  const selectedModelSelection = createModelSelection(
+    defaultInstanceIdForDriver(provider),
+    model,
+    composerProviderState.modelOptionsForDispatch,
+  );
 
-  return createModelSelection(defaultInstanceIdForDriver(provider), model, modelOptionsForDispatch);
+  return {
+    selectedProvider: provider,
+    selectedModel: model,
+    selectedProviderModels,
+    selectedPromptEffort: composerProviderState.promptEffort,
+    selectedModelSelection,
+  };
 }
