@@ -49,6 +49,20 @@ const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.
     ),
   );
 
+export function parseGitlinkPaths(lsFilesOutput: string): ReadonlyArray<string> {
+  return lsFilesOutput
+    .split("\0")
+    .flatMap((entry) => {
+      if (!entry.startsWith("160000 ")) {
+        return [];
+      }
+
+      const pathStart = entry.indexOf("\t");
+      return pathStart === -1 ? [] : [entry.slice(pathStart + 1)];
+    })
+    .filter((entry) => entry.length > 0);
+}
+
 function readNestedString(input: unknown, keys: ReadonlyArray<string>): string | undefined {
   let value = input;
   for (const key of keys) {
@@ -161,13 +175,17 @@ export const planReferenceRepoSync = Effect.fn("planReferenceRepoSync")(function
   } satisfies ReferenceRepoSyncPlan;
 });
 
-const runGit = Effect.fn("runGit")(function* (rootDir: string, plan: ReferenceRepoSyncPlan) {
+const runGitCommand = Effect.fn("runGitCommand")(function* (
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  description: string,
+) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const child = yield* spawner.spawn(ChildProcess.make("git", plan.args, { cwd: rootDir })).pipe(
+  const child = yield* spawner.spawn(ChildProcess.make("git", args, { cwd: rootDir })).pipe(
     Effect.mapError(
       (cause) =>
         new ReferenceRepoSyncError({
-          message: `Unable to start git subtree ${plan.action} for '${plan.repo.id}'.`,
+          message: `Unable to start ${description}.`,
           cause,
         }),
     ),
@@ -183,7 +201,7 @@ const runGit = Effect.fn("runGit")(function* (rootDir: string, plan: ReferenceRe
     Effect.mapError(
       (cause) =>
         new ReferenceRepoSyncError({
-          message: `Unable to run git subtree ${plan.action} for '${plan.repo.id}'.`,
+          message: `Unable to run ${description}.`,
           cause,
         }),
     ),
@@ -191,13 +209,48 @@ const runGit = Effect.fn("runGit")(function* (rootDir: string, plan: ReferenceRe
 
   if (exitCode !== 0) {
     return yield* new ReferenceRepoSyncError({
-      message: `git subtree ${plan.action} failed for '${plan.repo.id}' with exit code ${exitCode}.\n${stderr.trim()}`,
+      message: `${description} failed with exit code ${exitCode}.\n${stderr.trim()}`,
     });
   }
+
+  return stdout;
+});
+
+const runGit = Effect.fn("runGit")(function* (rootDir: string, plan: ReferenceRepoSyncPlan) {
+  const stdout = yield* runGitCommand(
+    rootDir,
+    plan.args,
+    `git subtree ${plan.action} for '${plan.repo.id}'`,
+  );
 
   if (stdout.trim().length > 0) {
     yield* Console.log(stdout.trim());
   }
+});
+
+const removeNestedGitlinks = Effect.fn("removeNestedGitlinks")(function* (
+  rootDir: string,
+  repo: ReferenceRepo,
+) {
+  const output = yield* runGitCommand(
+    rootDir,
+    ["ls-files", "--stage", "-z", "--", repo.prefix],
+    `gitlink scan for '${repo.id}'`,
+  );
+  const gitlinkPaths = parseGitlinkPaths(output);
+
+  if (gitlinkPaths.length === 0) {
+    return;
+  }
+
+  yield* runGitCommand(
+    rootDir,
+    ["rm", "-f", "--", ...gitlinkPaths],
+    `nested gitlink cleanup for '${repo.id}'`,
+  );
+  yield* Console.log(
+    `Removed nested gitlink${gitlinkPaths.length === 1 ? "" : "s"} from '${repo.id}': ${gitlinkPaths.join(", ")}`,
+  );
 });
 
 export const syncReferenceRepos = Effect.fn("syncReferenceRepos")(function* (
@@ -214,6 +267,7 @@ export const syncReferenceRepos = Effect.fn("syncReferenceRepos")(function* (
     yield* Console.log(`Syncing ${repo.id} from ${plan.ref} with git subtree ${plan.action}.`);
     if (!(options.dryRun ?? false)) {
       yield* runGit(rootDir, plan).pipe(Effect.scoped);
+      yield* removeNestedGitlinks(rootDir, repo).pipe(Effect.scoped);
     }
   }
 

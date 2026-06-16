@@ -10,6 +10,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { referenceRepos } from "./lib/reference-repos.ts";
 import {
+  parseGitlinkPaths,
   planReferenceRepoSync,
   resolveReferenceRepoRef,
   syncReferenceRepos,
@@ -19,7 +20,7 @@ const encoder = new TextEncoder();
 const effectSmol = referenceRepos[0]!;
 const alchemyEffect = referenceRepos[1]!;
 
-function mockHandle() {
+function mockHandle(stdout = "done\n") {
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(1),
     exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
@@ -27,7 +28,7 @@ function mockHandle() {
     kill: () => Effect.void,
     unref: Effect.succeed(Effect.void),
     stdin: Sink.drain,
-    stdout: Stream.make(encoder.encode("done\n")),
+    stdout: Stream.make(encoder.encode(stdout)),
     stderr: Stream.empty,
     all: Stream.empty,
     getInputFd: () => Sink.drain,
@@ -37,7 +38,9 @@ function mockHandle() {
 
 function mockSpawnerLayer(
   commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }>,
+  stdoutByCommand: ReadonlyArray<string> = [],
 ) {
+  let index = 0;
   return Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
     ChildProcessSpawner.make((command) => {
@@ -49,7 +52,7 @@ function mockSpawnerLayer(
         command: childProcess.command,
         args: childProcess.args,
       });
-      return Effect.succeed(mockHandle());
+      return Effect.succeed(mockHandle(stdoutByCommand[index++] ?? "done\n"));
     }),
   );
 }
@@ -130,6 +133,20 @@ it.layer(NodeServices.layer)("sync-reference-repos", (it) => {
     }),
   );
 
+  it("parses gitlink paths from git ls-files stage output", () => {
+    assert.deepStrictEqual(
+      parseGitlinkPaths(
+        [
+          "100644 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 0\t.repos/alchemy-effect/package.json",
+          "160000 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 0\t.repos/alchemy-effect/.vendor/alchemy",
+          "160000 cccccccccccccccccccccccccccccccccccccccc 0\t.repos/alchemy-effect/nested dependency",
+          "",
+        ].join("\0"),
+      ),
+      [".repos/alchemy-effect/.vendor/alchemy", ".repos/alchemy-effect/nested dependency"],
+    );
+  });
+
   it.effect("runs the planned git subtree command through the process service", () => {
     const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
 
@@ -160,7 +177,42 @@ it.layer(NodeServices.layer)("sync-reference-repos", (it) => {
             "--squash",
           ],
         },
+        {
+          command: "git",
+          args: ["ls-files", "--stage", "-z", "--", ".repos/effect-smol"],
+        },
       ]);
+    });
+  });
+
+  it.effect("removes nested gitlinks after syncing a reference repo", () => {
+    const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const rootDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "sync-reference-repos-gitlinks-",
+      });
+      yield* fs.writeFileString(
+        path.join(rootDir, "pnpm-workspace.yaml"),
+        "catalog:\n  effect: 4.0.0-beta.73\n",
+      );
+
+      yield* syncReferenceRepos({ rootDir, repoId: "effect-smol" }).pipe(
+        Effect.provide(
+          mockSpawnerLayer(commands, [
+            "done\n",
+            "160000 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 0\t.repos/effect-smol/vendor/repo\0",
+            "",
+          ]),
+        ),
+      );
+
+      assert.deepStrictEqual(commands.at(-1), {
+        command: "git",
+        args: ["rm", "-f", "--", ".repos/effect-smol/vendor/repo"],
+      });
     });
   });
 
