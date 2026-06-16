@@ -15,6 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
 
       - name: Install opencode
         run: curl -fsSL https://opencode.ai/install | bash
@@ -57,7 +58,7 @@ jobs:
       - name: Commit and open PR
         if: steps.merge.outputs.conflict == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           git commit --no-edit
           git push origin HEAD
