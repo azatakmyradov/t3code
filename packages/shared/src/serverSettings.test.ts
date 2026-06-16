@@ -161,6 +161,68 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  it("merges builder selection option-only patches by id", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      builderModelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+        { id: "reasoningEffort", value: "high" },
+        { id: "fastMode", value: true },
+      ]),
+    };
+
+    expect(
+      applyServerSettingsPatch(current, {
+        builderModelSelection: {
+          options: [{ id: "fastMode", value: false }],
+        },
+      }).builderModelSelection,
+    ).toEqual({
+      instanceId: "codex",
+      model: "gpt-5.4",
+      options: [
+        { id: "reasoningEffort", value: "high" },
+        { id: "fastMode", value: false },
+      ],
+    });
+  });
+
+  it("drops stale builder options when switching provider or model", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      builderModelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+        { id: "reasoningEffort", value: "high" },
+        { id: "fastMode", value: true },
+      ]),
+    };
+
+    expect(
+      applyServerSettingsPatch(current, {
+        builderModelSelection: {
+          instanceId: ProviderInstanceId.make("opencode"),
+          model: "openai/gpt-5",
+        },
+      }).builderModelSelection,
+    ).toEqual({
+      instanceId: "opencode",
+      model: "openai/gpt-5",
+    });
+  });
+
+  it("resets builder selection back to the default canonical shape", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      builderModelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+        { id: "reasoningEffort", value: "high" },
+      ]),
+    };
+
+    expect(
+      applyServerSettingsPatch(current, {
+        builderModelSelection: DEFAULT_SERVER_SETTINGS.builderModelSelection,
+      }).builderModelSelection,
+    ).toEqual(DEFAULT_SERVER_SETTINGS.builderModelSelection);
+  });
+
   it("replaces providerInstances maps so omitted instance fields are cleared", () => {
     const codexId = ProviderInstanceId.make("codex");
     const current = {

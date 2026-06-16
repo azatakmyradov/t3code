@@ -945,13 +945,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   }
 
   yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
-  const installCommand = yield* resolveSpawnCommand("vp", ["install", "--prod", "--no-optional"]);
+  const installCommand = yield* resolveSpawnCommand("vp", ["install", "--prod"]);
   yield* runCommand(
     ChildProcess.make(installCommand.command, installCommand.args, {
       cwd: stageAppDir,
       shell: installCommand.shell,
     }),
-    { label: "vp install --prod --no-optional", verbose: options.verbose },
+    { label: "vp install --prod", verbose: options.verbose },
   );
 
   // electron-builder treats several set-but-empty variables (e.g. CSC_LINK="")

@@ -64,6 +64,51 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   });
 });
 
+describe("ServerSettings.builderModelSelection", () => {
+  it("defaults legacy settings to the coding model", () => {
+    const decoded = decodeServerSettings({});
+
+    expect(decoded.builderModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.4",
+    });
+  });
+
+  it("trims builder selection patches", () => {
+    const patch = decodeServerSettingsPatch({
+      builderModelSelection: {
+        instanceId: "  codex  ",
+        model: "  gpt-5.4  ",
+        options: [{ id: "  reasoningEffort  ", value: "  high  " }],
+      },
+    });
+
+    expect(patch.builderModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.4",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    });
+  });
+
+  it("normalizes encoded builder strings and options", () => {
+    const defaultSettings = decodeServerSettings({});
+    const encoded = encodeServerSettings({
+      ...defaultSettings,
+      builderModelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "  gpt-5.4  ",
+        options: [{ id: "  reasoningEffort  ", value: "  high  " }],
+      },
+    });
+
+    expect(encoded.builderModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.4",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    });
+  });
+});
+
 describe("ServerSettings.snippets", () => {
   it("defaults to an empty snippet list", () => {
     expect(DEFAULT_SERVER_SETTINGS.snippets).toEqual([]);
@@ -169,6 +214,7 @@ describe("ServerSettingsPatch string normalization", () => {
     const patch = decodeServerSettingsPatch({
       addProjectBaseDirectory: "  ~/Development  ",
       textGenerationModelSelection: { model: "  gpt-5.4-mini  " },
+      builderModelSelection: { model: "  gpt-5.4  " },
       observability: {
         otlpTracesUrl: "  http://localhost:4318/v1/traces  ",
       },
@@ -189,6 +235,7 @@ describe("ServerSettingsPatch string normalization", () => {
 
     expect(patch.addProjectBaseDirectory).toBe("~/Development");
     expect(patch.textGenerationModelSelection?.model).toBe("gpt-5.4-mini");
+    expect(patch.builderModelSelection?.model).toBe("gpt-5.4");
     expect(patch.observability?.otlpTracesUrl).toBe("http://localhost:4318/v1/traces");
     expect(patch.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
     expect(patch.providers?.codex?.homePath).toBe("~/.codex");

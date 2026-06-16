@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { deriveProviderInstanceEntries } from "./providerInstances";
 import {
   getAppModelOptionsForInstance,
+  resolveAppBuilderModelSelectionState,
   resolveAppModelSelectionForInstance,
   resolveAppModelSelectionState,
 } from "./modelSelection";
@@ -267,6 +268,72 @@ describe("instance-scoped model selection", () => {
     expect(resolveAppModelSelectionState(settings, providers)).toEqual({
       instanceId: ProviderInstanceId.make("claude_openrouter"),
       model: "openai/gpt-5.5",
+    });
+  });
+
+  it("defaults builder model selection to the coding model", () => {
+    const providers = [
+      provider({
+        instanceId: "codex",
+        models: ["gpt-5.4", "gpt-5.4-mini"],
+      }),
+    ];
+
+    expect(resolveAppBuilderModelSelectionState(DEFAULT_UNIFIED_SETTINGS, providers)).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.4",
+    });
+  });
+
+  it("preserves custom provider instances in builder model selection", () => {
+    const providers = [
+      provider({
+        instanceId: "claudeAgent",
+        models: ["claude-sonnet-4-6"],
+      }),
+      provider({
+        instanceId: "claude_openrouter",
+        models: ["claude-sonnet-4-6"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      builderModelSelection: {
+        instanceId: ProviderInstanceId.make("claude_openrouter"),
+        model: "openai/gpt-5.5",
+      },
+    };
+
+    expect(resolveAppBuilderModelSelectionState(settings, providers)).toEqual({
+      instanceId: ProviderInstanceId.make("claude_openrouter"),
+      model: "openai/gpt-5.5",
+    });
+  });
+
+  it("falls back when the selected builder model is hidden", () => {
+    const providers = [
+      provider({
+        instanceId: "codex",
+        models: ["gpt-5.4", "gpt-5.3-codex"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      builderModelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5.4",
+      },
+      providerModelPreferences: {
+        [ProviderInstanceId.make("codex")]: {
+          hiddenModels: ["gpt-5.4"],
+          modelOrder: [],
+        },
+      },
+    };
+
+    expect(resolveAppBuilderModelSelectionState(settings, providers)).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.3-codex",
     });
   });
 });

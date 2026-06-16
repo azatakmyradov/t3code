@@ -2,8 +2,8 @@ name: Sync upstream (Kimi conflict resolve)
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # daily at 06:00 UTC
-  workflow_dispatch:        # allow manual runs
+    - cron: "0 6 * * *" # daily at 06:00 UTC
+  workflow_dispatch: # allow manual runs
 
 jobs:
   sync:

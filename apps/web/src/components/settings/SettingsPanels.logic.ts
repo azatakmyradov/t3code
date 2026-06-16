@@ -64,6 +64,7 @@ export function buildProviderInstanceUpdatePatch(input: {
   readonly textGenerationModelSelection?:
     | ServerSettings["textGenerationModelSelection"]
     | undefined;
+  readonly builderModelSelection?: ServerSettings["builderModelSelection"] | undefined;
 }): Partial<UnifiedSettings> {
   type LegacyProviderSettings = ServerSettings["providers"][keyof ServerSettings["providers"]];
   const legacyProviderDefaults = DEFAULT_UNIFIED_SETTINGS.providers as Record<
@@ -86,6 +87,9 @@ export function buildProviderInstanceUpdatePatch(input: {
     },
     ...(input.textGenerationModelSelection !== undefined
       ? { textGenerationModelSelection: input.textGenerationModelSelection }
+      : {}),
+    ...(input.builderModelSelection !== undefined
+      ? { builderModelSelection: input.builderModelSelection }
       : {}),
   };
 }

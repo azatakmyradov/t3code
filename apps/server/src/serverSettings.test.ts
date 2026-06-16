@@ -265,6 +265,69 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  it.effect("falls back builder selections from disabled provider instances", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+
+      const next = yield* serverSettings.updateSettings({
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: false,
+            config: {},
+          },
+          [ProviderInstanceId.make("claudeAgent")]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            enabled: true,
+            config: {},
+          },
+        },
+        textGenerationModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4-mini",
+        },
+        builderModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+        },
+      });
+
+      assert.deepEqual(next.textGenerationModelSelection, {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "claude-haiku-4-5",
+      });
+      assert.deepEqual(next.builderModelSelection, {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "claude-sonnet-4-6",
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("does not fall back to a legacy provider with a disabled default instance", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+
+      const next = yield* serverSettings.updateSettings({
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: false,
+            config: {},
+          },
+        },
+        builderModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+        },
+      });
+
+      assert.deepEqual(next.builderModelSelection, {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "claude-sonnet-4-6",
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("drops stale text generation options when resetting model selection", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsService;
@@ -464,6 +527,38 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
         automaticGitFetchInterval: 10_000,
       });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("writes non-default builder settings atomically and strips default reset", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+
+      yield* serverSettings.updateSettings({
+        builderModelSelection: {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          model: "claude-sonnet-4-6",
+          options: [{ id: "effort", value: "high" }],
+        },
+      });
+
+      const rawWithBuilder = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      assert.deepEqual(JSON.parse(rawWithBuilder).builderModelSelection, {
+        instanceId: "claudeAgent",
+        model: "claude-sonnet-4-6",
+        options: [{ id: "effort", value: "high" }],
+      });
+
+      yield* serverSettings.updateSettings({
+        builderModelSelection: DEFAULT_SERVER_SETTINGS.builderModelSelection,
+      });
+
+      const rawAfterReset = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      assert.isUndefined(JSON.parse(rawAfterReset).builderModelSelection);
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
