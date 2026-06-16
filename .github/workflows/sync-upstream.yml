@@ -1,0 +1,73 @@
+name: Sync upstream (Kimi conflict resolve)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # daily at 06:00 UTC
+  workflow_dispatch:        # allow manual runs
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install opencode
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Attempt merge
+        id: merge
+        run: |
+          git config user.name "fork-sync-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch upstream
+          git checkout -b "sync/upstream-$(date +%Y%m%d-%H%M)"
+          if git merge upstream/main --no-edit; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflict=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve conflicts with Kimi
+        if: steps.merge.outputs.conflict == 'true'
+        env:
+          OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+        run: |
+          opencode run \
+            --model opencode-go/kimi-k2.7-code \
+            "We are mid git-merge. The files from \`git diff --name-only --diff-filter=U\`
+             contain conflict markers. Resolve EVERY conflict so the project builds and
+             our fork's intentional changes are preserved; take upstream for unrelated
+             changes. Only edit conflicted files, then \`git add\` them.
+             Do NOT commit, push, refactor, or touch unrelated files."
+
+      - name: Verify no conflict markers remain
+        if: steps.merge.outputs.conflict == 'true'
+        run: |
+          if git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ; then
+            echo "::error::Conflict markers still present after AI resolution"
+            exit 1
+          fi
+
+      - name: Commit and open PR
+        if: steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git commit --no-edit
+          git push origin HEAD
+          gh pr create --fill --base main \
+            --title "Sync upstream (Kimi-resolved conflicts)" \
+            --body "Conflicts auto-resolved by opencode + kimi-k2.7-code. Review before merge."
+
+      - name: Push clean sync
+        if: steps.merge.outputs.conflict == 'false'
+        run: |
+          git checkout main
+          git merge --ff-only "@{-1}"
+          git push origin main
