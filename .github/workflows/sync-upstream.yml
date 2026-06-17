@@ -40,7 +40,7 @@ jobs:
           OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
         run: |
           opencode run \
-            --model opencode-go/kimi-k2.7-code \
+            --model kimi-k2.7-code \
             "We are mid git-merge. The files from \`git diff --name-only --diff-filter=U\`
              contain conflict markers. Resolve EVERY conflict so the project builds and
              our fork's intentional changes are preserved; take upstream for unrelated
