@@ -25,6 +25,7 @@ import * as ElectronShell from "./electron/ElectronShell.ts";
 import * as ElectronTheme from "./electron/ElectronTheme.ts";
 import * as ElectronUpdater from "./electron/ElectronUpdater.ts";
 import * as ElectronWindow from "./electron/ElectronWindow.ts";
+import * as ElectronNotification from "./electron/ElectronNotification.ts";
 import * as DesktopApp from "./app/DesktopApp.ts";
 import * as DesktopAppIdentity from "./app/DesktopAppIdentity.ts";
 import * as DesktopCloudAuth from "./app/DesktopCloudAuth.ts";
@@ -99,6 +100,10 @@ const desktopSshEnvironmentLayer = Layer.unwrap(
   }),
 );
 
+const electronWindowLayer = ElectronNotification.layer.pipe(
+  Layer.provideMerge(ElectronWindow.layer),
+);
+
 const electronLayer = Layer.mergeAll(
   ElectronApp.layer,
   ElectronDialog.layer,
@@ -108,7 +113,7 @@ const electronLayer = Layer.mergeAll(
   ElectronShell.layer,
   ElectronTheme.layer,
   ElectronUpdater.layer,
-  ElectronWindow.layer,
+  electronWindowLayer,
   Layer.succeed(DesktopIpc.DesktopIpc, DesktopIpc.make(Electron.ipcMain)),
 );
 

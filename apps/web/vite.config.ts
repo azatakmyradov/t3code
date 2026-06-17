@@ -67,7 +67,7 @@ const browserTestProject = {
   },
   test: {
     name: "browser",
-    include: ["src/components/**/*.browser.tsx"],
+    include: ["src/components/**/*.browser.tsx", "src/desktop/**/*.browser.tsx"],
     hookTimeout: 30_000,
     testTimeout: 30_000,
     browser: {

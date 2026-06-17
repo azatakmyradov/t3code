@@ -2,11 +2,34 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import { ProviderInstanceId } from "./providerInstance.ts";
-import { DEFAULT_SERVER_SETTINGS, ServerSettings, ServerSettingsPatch } from "./settings.ts";
+import {
+  ClientSettingsPatch,
+  ClientSettingsSchema,
+  DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_SERVER_SETTINGS,
+  ServerSettings,
+  ServerSettingsPatch,
+} from "./settings.ts";
 
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
+const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
+
+describe("ClientSettings.desktopAgentTerminalNotificationsEnabled", () => {
+  it("defaults legacy client settings to enabled", () => {
+    expect(DEFAULT_CLIENT_SETTINGS.desktopAgentTerminalNotificationsEnabled).toBe(true);
+    expect(decodeClientSettings({}).desktopAgentTerminalNotificationsEnabled).toBe(true);
+  });
+
+  it("decodes notification preference patches", () => {
+    expect(
+      decodeClientSettingsPatch({ desktopAgentTerminalNotificationsEnabled: false })
+        .desktopAgentTerminalNotificationsEnabled,
+    ).toBe(false);
+  });
+});
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults to an empty record so legacy configs without the key still decode", () => {

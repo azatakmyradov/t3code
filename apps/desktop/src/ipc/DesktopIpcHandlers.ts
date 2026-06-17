@@ -16,6 +16,7 @@ import {
   setSavedEnvironmentRegistry,
   setSavedEnvironmentSecret,
 } from "./methods/savedEnvironments.ts";
+import { showAgentNotification } from "./methods/notifications.ts";
 import {
   getAdvertisedEndpoints,
   getServerExposureState,
@@ -59,6 +60,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
 
   yield* ipc.handle(getClientSettings);
   yield* ipc.handle(setClientSettings);
+  yield* ipc.handle(showAgentNotification);
   yield* ipc.handle(getSavedEnvironmentRegistry);
   yield* ipc.handle(setSavedEnvironmentRegistry);
   yield* ipc.handle(getSavedEnvironmentSecret);

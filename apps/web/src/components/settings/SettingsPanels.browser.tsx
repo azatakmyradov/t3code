@@ -383,6 +383,8 @@ const createDesktopBridgeStub = (overrides?: {
     }),
     getClientSettings: vi.fn().mockResolvedValue(null),
     setClientSettings: vi.fn().mockResolvedValue(undefined),
+    showAgentNotification: vi.fn().mockResolvedValue(false),
+    onAgentNotificationActivated: vi.fn(() => () => {}),
     getSavedEnvironmentRegistry: vi.fn().mockResolvedValue([]),
     setSavedEnvironmentRegistry: vi.fn().mockResolvedValue(undefined),
     getSavedEnvironmentSecret: vi.fn().mockResolvedValue(null),

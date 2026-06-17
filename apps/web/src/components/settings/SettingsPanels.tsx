@@ -407,6 +407,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
         ? ["Auto-open task panel"]
         : []),
+      ...(settings.desktopAgentTerminalNotificationsEnabled !==
+      DEFAULT_UNIFIED_SETTINGS.desktopAgentTerminalNotificationsEnabled
+        ? ["Agent completion notifications"]
+        : []),
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -433,6 +437,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
+      settings.desktopAgentTerminalNotificationsEnabled,
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
       settings.diffIgnoreWhitespace,
@@ -462,6 +467,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
+      desktopAgentTerminalNotificationsEnabled:
+        DEFAULT_UNIFIED_SETTINGS.desktopAgentTerminalNotificationsEnabled,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
@@ -485,6 +492,7 @@ export function GeneralSettingsPanel() {
   const { updateSettings } = useUpdateSettings();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
+  const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
   const diagnosticsDescription = formatDiagnosticsDescription({
     localTracingEnabled: observability?.localTracingEnabled ?? false,
     otlpTracesEnabled: observability?.otlpTracesEnabled ?? false,
@@ -696,6 +704,38 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        {hasDesktopBridge ? (
+          <SettingsRow
+            title="Agent completion notifications"
+            description="Show desktop notifications when an agent finishes or fails outside the focused thread."
+            resetAction={
+              settings.desktopAgentTerminalNotificationsEnabled !==
+              DEFAULT_UNIFIED_SETTINGS.desktopAgentTerminalNotificationsEnabled ? (
+                <SettingResetButton
+                  label="agent completion notifications"
+                  onClick={() =>
+                    updateSettings({
+                      desktopAgentTerminalNotificationsEnabled:
+                        DEFAULT_UNIFIED_SETTINGS.desktopAgentTerminalNotificationsEnabled,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.desktopAgentTerminalNotificationsEnabled}
+                onCheckedChange={(checked) =>
+                  updateSettings({
+                    desktopAgentTerminalNotificationsEnabled: Boolean(checked),
+                  })
+                }
+                aria-label="Show agent completion desktop notifications"
+              />
+            }
+          />
+        ) : null}
 
         <SettingsRow
           title="New threads"
