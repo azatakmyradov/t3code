@@ -37,7 +37,7 @@ jobs:
       - name: Resolve conflicts with Kimi
         if: steps.merge.outputs.conflict == 'true'
         env:
-          OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
         run: |
           opencode run \
             --model opencode-go/kimi-k2.7-code \
