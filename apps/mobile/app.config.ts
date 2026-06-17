@@ -54,6 +54,7 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
+const iosBundleIdentifier = process.env.T3CODE_IOS_BUNDLE_IDENTIFIER ?? variant.iosBundleIdentifier;
 
 const config: ExpoConfig = {
   name: variant.appName,
@@ -76,7 +77,7 @@ const config: ExpoConfig = {
   ios: {
     icon: variant.iosIcon,
     supportsTablet: true,
-    bundleIdentifier: variant.iosBundleIdentifier,
+    bundleIdentifier: iosBundleIdentifier,
     infoPlist: {
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
@@ -142,8 +143,8 @@ const config: ExpoConfig = {
     [
       "expo-widgets",
       {
-        bundleIdentifier: `${variant.iosBundleIdentifier}.widgets`,
-        groupIdentifier: `group.${variant.iosBundleIdentifier}`,
+        bundleIdentifier: `${iosBundleIdentifier}.widgets`,
+        groupIdentifier: `group.${iosBundleIdentifier}`,
         enablePushNotifications: true,
         widgets: [
           {
