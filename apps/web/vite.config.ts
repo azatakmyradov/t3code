@@ -126,6 +126,13 @@ export default defineConfig(() => {
     },
     resolve: {
       tsconfigPaths: true,
+      // The repo hoists react@19.2.3 to the root (React Native in apps/mobile
+      // pins it), while apps/web uses react@19.2.6. That version split makes
+      // pnpm hand some deps (e.g. @tanstack/react-query) their own physically
+      // distinct React copy, so Vite would otherwise bundle two React
+      // instances and hooks blow up with a null dispatcher. Force a single
+      // copy.
+      dedupe: ["react", "react-dom"],
     },
     server: {
       host,

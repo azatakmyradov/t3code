@@ -64,6 +64,85 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   });
 });
 
+describe("ServerSettings.fork.snippets", () => {
+  it("defaults to an empty snippet list", () => {
+    expect(DEFAULT_SERVER_SETTINGS.fork.snippets).toEqual([]);
+  });
+
+  it("decodes legacy settings without fork settings", () => {
+    const decoded = decodeServerSettings({});
+    expect(decoded.fork.snippets).toEqual([]);
+  });
+
+  it("decodes legacy fork settings without snippets", () => {
+    const decoded = decodeServerSettings({ fork: {} });
+    expect(decoded.fork.snippets).toEqual([]);
+  });
+
+  it("decodes valid snippets and normalizes keywords", () => {
+    const decoded = decodeServerSettings({
+      fork: {
+        snippets: [
+          { keyword: "  :Bug_Fix  ", value: "  Please fix this bug.  " },
+          { keyword: "review-notes", value: "Review the diff." },
+        ],
+      },
+    });
+
+    expect(decoded.fork.snippets).toEqual([
+      { keyword: "bug_fix", value: "Please fix this bug." },
+      { keyword: "review-notes", value: "Review the diff." },
+    ]);
+  });
+
+  it("rejects invalid snippet keywords", () => {
+    expect(() =>
+      decodeServerSettings({
+        fork: { snippets: [{ keyword: "bad keyword", value: "valid value" }] },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects empty snippet values", () => {
+    expect(() =>
+      decodeServerSettings({
+        fork: { snippets: [{ keyword: "bug", value: "   " }] },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects duplicate snippet keywords after normalization", () => {
+    expect(() =>
+      decodeServerSettings({
+        fork: {
+          snippets: [
+            { keyword: ":Bug", value: "First" },
+            { keyword: "bug", value: "Second" },
+          ],
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("decodes snippet whole-array replacement patches", () => {
+    const patch = decodeServerSettingsPatch({
+      fork: { snippets: [{ keyword: ":Bug", value: " Fix it " }] },
+    });
+
+    expect(patch.fork?.snippets).toEqual([{ keyword: "bug", value: "Fix it" }]);
+  });
+
+  it("trims and normalizes encoded snippet settings", () => {
+    const defaultSettings = decodeServerSettings({});
+    const encoded = encodeServerSettings({
+      ...defaultSettings,
+      fork: { snippets: [{ keyword: "  :Bug  ", value: "  Fix it exactly.  " }] },
+    });
+
+    expect(encoded.fork?.snippets).toEqual([{ keyword: "bug", value: "Fix it exactly." }]);
+  });
+});
+
 describe("ServerSettingsPatch.providerInstances", () => {
   it("treats providerInstances as an optional whole-map replacement", () => {
     const patch = decodeServerSettingsPatch({});
@@ -145,9 +224,11 @@ describe("ServerSettingsPatch string normalization", () => {
           binaryPath: "  /opt/homebrew/bin/codex  ",
         },
       },
+      fork: { snippets: [{ keyword: "  :Bug  ", value: "  Fix it  " }] },
     });
 
     expect(encoded.addProjectBaseDirectory).toBe("~/Development");
     expect(encoded.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
+    expect(encoded.fork?.snippets).toEqual([{ keyword: "bug", value: "Fix it" }]);
   });
 });

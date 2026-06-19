@@ -21,16 +21,18 @@ import {
   useSidebar,
 } from "../ui/sidebar";
 import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3ConnectSidebarSignIn";
+import { FORK_SETTINGS_NAV_ITEMS } from "../../fork/settingsNav";
 
 export type SettingsSectionPath =
   | "/settings/general"
   | "/settings/keybindings"
   | "/settings/providers"
+  | "/settings/snippets"
   | "/settings/source-control"
   | "/settings/connections"
   | "/settings/archived";
 
-export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
+const CORE_SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
   to: SettingsSectionPath;
   icon: ComponentType<{ className?: string }>;
@@ -42,6 +44,12 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   { label: "Connections", to: "/settings/connections", icon: Link2Icon },
   { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
 ];
+
+export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
+  label: string;
+  to: SettingsSectionPath;
+  icon: ComponentType<{ className?: string }>;
+}> = [...CORE_SETTINGS_NAV_ITEMS, ...FORK_SETTINGS_NAV_ITEMS];
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const navigate = useNavigate();

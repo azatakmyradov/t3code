@@ -123,6 +123,7 @@ import { formatProviderSkillDisplayName } from "../../providerSkillPresentation"
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+import { applyForkComposerMenuItem, getForkComposerMenuItems } from "../../fork/composerExtensions";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -1002,8 +1003,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }),
       );
     }
+    if (composerTrigger.kind === "fork-snippet") {
+      return getForkComposerMenuItems({ trigger: composerTrigger, settings });
+    }
     return [];
-  }, [composerTrigger, selectedProvider, selectedProviderStatus, workspaceEntries.entries]);
+  }, [
+    composerTrigger,
+    selectedProvider,
+    selectedProviderStatus,
+    settings,
+    workspaceEntries.entries,
+  ]);
 
   const composerMenuOpen = Boolean(composerTrigger);
   const composerMenuSearchKey = composerTrigger
@@ -1072,6 +1082,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
+    }
+    if (composerTriggerKind === "fork-snippet") {
+      return "No matching snippets.";
     }
     return composerTriggerKind === "path"
       ? "No matching files or folders."
@@ -1637,6 +1650,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           replacement,
           { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
         );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "fork-snippet") {
+        const applied = applyForkComposerMenuItem({
+          item,
+          trigger,
+          applyPromptReplacement: (rangeStart, rangeEnd, replacement) =>
+            applyPromptReplacement(rangeStart, rangeEnd, replacement, {
+              expectedText: snapshot.value.slice(rangeStart, rangeEnd),
+            }),
+        });
         if (applied) {
           setComposerHighlightedItemId(null);
         }
