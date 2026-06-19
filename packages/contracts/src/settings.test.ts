@@ -148,7 +148,10 @@ describe("ServerSettings.fork.snippets", () => {
     const defaultSettings = decodeServerSettings({});
     const encoded = encodeServerSettings({
       ...defaultSettings,
-      fork: { snippets: [{ keyword: "  :Bug  ", value: "  Fix it exactly.  " }] },
+      fork: {
+        ...defaultSettings.fork,
+        snippets: [{ keyword: "  :Bug  ", value: "  Fix it exactly.  " }],
+      },
     });
 
     expect(encoded.fork?.snippets).toEqual([{ keyword: "bug", value: "Fix it exactly." }]);
@@ -236,7 +239,10 @@ describe("ServerSettingsPatch string normalization", () => {
           binaryPath: "  /opt/homebrew/bin/codex  ",
         },
       },
-      fork: { snippets: [{ keyword: "  :Bug  ", value: "  Fix it  " }] },
+      fork: {
+        ...defaultSettings.fork,
+        snippets: [{ keyword: "  :Bug  ", value: "  Fix it  " }],
+      },
     });
 
     expect(encoded.addProjectBaseDirectory).toBe("~/Development");

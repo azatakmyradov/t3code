@@ -124,7 +124,12 @@ import { formatProviderSkillDisplayName } from "../../providerSkillPresentation"
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
-import { applyForkComposerMenuItem, getForkComposerMenuItems } from "../../fork/composerExtensions";
+import {
+  applyForkComposerMenuItem,
+  getForkComposerEmptyState,
+  getForkComposerMenuItems,
+  isForkComposerMenuItem,
+} from "../../fork/composerExtensions";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -1087,9 +1092,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
     }
-    if (composerTriggerKind === "fork-snippet") {
-      return "No matching snippets.";
-    }
+    const forkEmptyState = getForkComposerEmptyState(composerTriggerKind);
+    if (forkEmptyState) return forkEmptyState;
     return composerTriggerKind === "path"
       ? "No matching files or folders."
       : "No matching command.";
@@ -1659,7 +1663,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
         return;
       }
-      if (item.type === "fork-snippet") {
+      if (isForkComposerMenuItem(item)) {
         const applied = applyForkComposerMenuItem({
           item,
           trigger,

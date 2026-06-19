@@ -10,5 +10,11 @@ export function applyForkSettingsPatch(
   return {
     ...merged.fork,
     ...(forkPatch.snippets !== undefined ? { snippets: forkPatch.snippets } : {}),
+    ...(forkPatch.desktopAgentTerminalNotificationsEnabled !== undefined
+      ? {
+          desktopAgentTerminalNotificationsEnabled:
+            forkPatch.desktopAgentTerminalNotificationsEnabled,
+        }
+      : {}),
   };
 }
