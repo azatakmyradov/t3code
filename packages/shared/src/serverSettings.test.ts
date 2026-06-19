@@ -194,4 +194,44 @@ describe("serverSettings helpers", () => {
       config: { homePath: "~/.codex" },
     });
   });
+
+  it("replaces snippets arrays so omitted snippets are cleared", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      fork: {
+        snippets: [
+          { keyword: "bug", value: "Fix the bug." },
+          { keyword: "review", value: "Review the diff." },
+        ],
+      },
+    };
+
+    expect(
+      applyServerSettingsPatch(current, {
+        fork: { snippets: [{ keyword: "bug", value: "Fix only this bug." }] },
+      }).fork.snippets,
+    ).toEqual([{ keyword: "bug", value: "Fix only this bug." }]);
+  });
+
+  it("preserves fork snippets when patching unrelated settings", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      fork: {
+        snippets: [{ keyword: "bug", value: "Fix the bug." }],
+      },
+    };
+
+    expect(
+      applyServerSettingsPatch(current, { addProjectBaseDirectory: "~/Development" }).fork.snippets,
+    ).toEqual([{ keyword: "bug", value: "Fix the bug." }]);
+  });
+
+  it("resets snippets to the default empty array", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      fork: { snippets: [{ keyword: "bug", value: "Fix the bug." }] },
+    };
+
+    expect(applyServerSettingsPatch(current, { fork: { snippets: [] } }).fork.snippets).toEqual([]);
+  });
 });

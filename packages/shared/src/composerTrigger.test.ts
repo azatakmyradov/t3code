@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { serializeComposerFileLink, serializeComposerMentionPath } from "./composerTrigger.ts";
+import {
+  detectComposerTrigger,
+  serializeComposerFileLink,
+  serializeComposerMentionPath,
+} from "./composerTrigger.ts";
 
 describe("serializeComposerMentionPath", () => {
   it("keeps simple mention paths unquoted", () => {
@@ -39,5 +43,22 @@ describe("serializeComposerFileLink", () => {
     expect(serializeComposerFileLink("@scope/package.json")).toBe(
       "[package.json](@scope/package.json)",
     );
+  });
+});
+
+describe("detectComposerTrigger", () => {
+  it("detects whitespace-delimited snippet tokens", () => {
+    const text = "hello :bug";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "fork-snippet",
+      query: "bug",
+      rangeStart: "hello ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("does not detect prose colons inside a token", () => {
+    expect(detectComposerTrigger("hello:bug", "hello:bug".length)).toBeNull();
   });
 });

@@ -1,7 +1,8 @@
 import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
+import { detectForkComposerTrigger, type ForkComposerTriggerKind } from "./fork/composerExtensions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
-export type ComposerTriggerKind = "path" | "slash-command" | "skill";
+export type ComposerTriggerKind = "path" | "slash-command" | "skill" | ForkComposerTriggerKind;
 export type ComposerSlashCommand = "model" | "plan" | "default";
 
 export interface ComposerTrigger {
@@ -242,6 +243,10 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
       rangeStart: tokenStart,
       rangeEnd: cursor,
     };
+  }
+  const forkTrigger = detectForkComposerTrigger({ text, cursor, token, tokenStart });
+  if (forkTrigger) {
+    return forkTrigger;
   }
   if (!token.startsWith("@")) {
     return null;
