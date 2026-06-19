@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
 import { fromLenientJson } from "./schemaJson.ts";
 import { createModelSelection } from "./model.ts";
+import { applyForkSettingsPatch } from "./forkSnippets.ts";
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
 const decodeServerSettingsJson = Schema.decodeUnknownOption(ServerSettingsJson);
@@ -76,7 +77,7 @@ export function applyServerSettingsPatch(
   patch: ServerSettingsPatch,
 ): ServerSettings {
   const selectionPatch = patch.textGenerationModelSelection;
-  const { automaticGitFetchInterval, ...patchForMerge } = patch;
+  const { automaticGitFetchInterval, fork, ...patchForMerge } = patch;
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacements = {
     ...next,
@@ -84,6 +85,7 @@ export function applyServerSettingsPatch(
       ? { providerInstances: patch.providerInstances }
       : {}),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
+    fork: applyForkSettingsPatch(next, fork),
   };
   if (!selectionPatch) {
     return nextWithReplacements;

@@ -8,6 +8,10 @@ import { BotIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
+import {
+  renderForkComposerMenuItemIcon,
+  type ForkComposerMenuItem,
+} from "../../fork/composerExtensions";
 import { formatProviderSkillInstallSource } from "~/providerSkillPresentation";
 import { cn } from "~/lib/utils";
 import {
@@ -51,7 +55,8 @@ export type ComposerCommandItem =
       skill: ServerProviderSkill;
       label: string;
       description: string;
-    };
+    }
+  | ForkComposerMenuItem;
 
 type ComposerCommandGroup = {
   id: string;
@@ -86,6 +91,9 @@ function groupCommandItems(
   if (triggerKind === "skill") {
     return items.length > 0 ? [{ id: "skills", label: "Skills", items }] : [];
   }
+  if (triggerKind === "fork-snippet") {
+    return items.length > 0 ? [{ id: "snippets", label: "Snippets", items }] : [];
+  }
   if (triggerKind !== "slash-command" || !groupSlashCommandSections) {
     return [{ id: "default", label: null, items }];
   }
@@ -101,6 +109,10 @@ function groupCommandItems(
     groups.push({ id: "provider", label: "Provider", items: providerItems });
   }
   return groups;
+}
+
+function isForkComposerMenuItem(item: ComposerCommandItem): item is ForkComposerMenuItem {
+  return item.type.startsWith("fork-");
 }
 
 export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
@@ -182,6 +194,15 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                       "No skills found. Try / to browse provider commands.")}
                 </p>
               </CommandGroup>
+            ) : props.triggerKind === "fork-snippet" ? (
+              <CommandGroup>
+                <CommandGroupLabel className="px-0 pt-0 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55">
+                  Snippets
+                </CommandGroupLabel>
+                <p className="text-muted-foreground/70 text-xs">
+                  {props.emptyStateText ?? "No matching snippets."}
+                </p>
+              </CommandGroup>
             ) : (
               <p className="text-muted-foreground/70 text-xs">
                 {props.isLoading
@@ -247,6 +268,7 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           <SkillGlyph className="size-3.5" />
         </span>
       ) : null}
+      {isForkComposerMenuItem(props.item) ? renderForkComposerMenuItemIcon(props.item) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="shrink-0">{props.item.label}</span>
         <span className="min-w-0 flex-1 truncate text-muted-foreground/70 text-xs">
