@@ -9,6 +9,9 @@ import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import {
+  getForkComposerEmptyState,
+  getForkComposerMenuGroup,
+  isForkComposerMenuItem,
   renderForkComposerMenuItemIcon,
   type ForkComposerMenuItem,
 } from "../../fork/composerExtensions";
@@ -91,8 +94,9 @@ function groupCommandItems(
   if (triggerKind === "skill") {
     return items.length > 0 ? [{ id: "skills", label: "Skills", items }] : [];
   }
-  if (triggerKind === "fork-snippet") {
-    return items.length > 0 ? [{ id: "snippets", label: "Snippets", items }] : [];
+  const forkGroup = getForkComposerMenuGroup(triggerKind);
+  if (forkGroup) {
+    return items.length > 0 ? [{ ...forkGroup, items }] : [];
   }
   if (triggerKind !== "slash-command" || !groupSlashCommandSections) {
     return [{ id: "default", label: null, items }];
@@ -109,10 +113,6 @@ function groupCommandItems(
     groups.push({ id: "provider", label: "Provider", items: providerItems });
   }
   return groups;
-}
-
-function isForkComposerMenuItem(item: ComposerCommandItem): item is ForkComposerMenuItem {
-  return item.type.startsWith("fork-");
 }
 
 export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
@@ -194,13 +194,13 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                       "No skills found. Try / to browse provider commands.")}
                 </p>
               </CommandGroup>
-            ) : props.triggerKind === "fork-snippet" ? (
+            ) : getForkComposerMenuGroup(props.triggerKind) ? (
               <CommandGroup>
                 <CommandGroupLabel className="px-0 pt-0 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/55">
-                  Snippets
+                  {getForkComposerMenuGroup(props.triggerKind)?.label}
                 </CommandGroupLabel>
                 <p className="text-muted-foreground/70 text-xs">
-                  {props.emptyStateText ?? "No matching snippets."}
+                  {props.emptyStateText ?? getForkComposerEmptyState(props.triggerKind)}
                 </p>
               </CommandGroup>
             ) : (

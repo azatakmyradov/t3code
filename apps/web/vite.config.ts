@@ -58,6 +58,30 @@ const unitTestProject = {
   },
 } satisfies TestProjectInlineConfiguration;
 
+const browserTestProject = {
+  extends: true,
+  server: {
+    // Browser tests need concurrent runs to claim the next available port.
+    strictPort: false,
+  },
+  test: {
+    name: "browser",
+    include: ["src/components/**/*.browser.tsx", "src/fork/**/*.browser.tsx"],
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
+    browser: {
+      enabled: true,
+      provider: "playwright" as never,
+      instances: [{ browser: "chromium" }],
+      headless: true,
+      api: {
+        strictPort: false,
+      },
+    },
+    fileParallelism: false,
+  },
+} satisfies TestProjectInlineConfiguration;
+
 function resolveDevProxyTarget(wsUrl: string | undefined): string | undefined {
   if (!wsUrl) {
     return undefined;
@@ -170,7 +194,7 @@ export default defineConfig(() => {
       sourcemap: buildSourcemap,
     },
     test: {
-      projects: [defineProject(unitTestProject)],
+      projects: [defineProject(unitTestProject), defineProject(browserTestProject)],
     },
   };
 });

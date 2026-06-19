@@ -61,10 +61,14 @@ export type ChatSnippets = typeof ChatSnippets.Type;
 
 export const ForkSettings = Schema.Struct({
   snippets: ChatSnippets.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  desktopAgentTerminalNotificationsEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
 });
 export type ForkSettings = typeof ForkSettings.Type;
 
 export const ForkSettingsPatch = Schema.Struct({
   snippets: Schema.optionalKey(ChatSnippets),
+  desktopAgentTerminalNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
 });
 export type ForkSettingsPatch = typeof ForkSettingsPatch.Type;

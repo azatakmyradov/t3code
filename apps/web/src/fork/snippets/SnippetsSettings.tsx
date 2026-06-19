@@ -86,7 +86,8 @@ function omitRecordKey<T>(record: Readonly<Record<string, T>>, key: string): Rec
 }
 
 export function SnippetsSettingsPanel() {
-  const snippets = useSettings((settings) => settings.fork.snippets);
+  const settings = useSettings();
+  const snippets = settings.fork.snippets;
   const updateSettings = useUpdateSettings();
   const [draftOnlyRows, setDraftOnlyRows] = useState<SnippetDraftRow[]>([]);
   const [persistedOverrides, setPersistedOverrides] = useState<
@@ -124,10 +125,13 @@ export function SnippetsSettingsPanel() {
       }
       setPersistedOverrides((overrides) => omitRecordKey(overrides, row.id));
       updateSettings({
-        fork: { snippets: snippets.filter((_, index) => index !== row.persistedIndex) },
+        fork: {
+          ...settings.fork,
+          snippets: snippets.filter((_, index) => index !== row.persistedIndex),
+        },
       });
     },
-    [snippets, updateSettings],
+    [settings.fork, snippets, updateSettings],
   );
 
   const addSnippet = useCallback(() => {
@@ -176,14 +180,14 @@ export function SnippetsSettingsPanel() {
         return;
       }
 
-      updateSettings({ fork: { snippets: nextSnippets } });
+      updateSettings({ fork: { ...settings.fork, snippets: nextSnippets } });
       if (row.persistedIndex === null) {
         setDraftOnlyRows((rows) => rows.filter((candidate) => candidate.id !== row.id));
       } else {
         setPersistedOverrides((overrides) => omitRecordKey(overrides, row.id));
       }
     },
-    [snippets, updateDraftRow, updateSettings],
+    [settings.fork, snippets, updateDraftRow, updateSettings],
   );
 
   const headerAction = (

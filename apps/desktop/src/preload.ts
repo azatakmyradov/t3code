@@ -1,11 +1,13 @@
 import type {
   DesktopBridge,
+  ForkDesktopBridge,
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingFrame,
   DesktopPreviewTabState,
 } from "@t3tools/contracts";
 import { contextBridge, ipcRenderer } from "electron";
 
+import { makeForkDesktopBridge } from "./fork/preload.ts";
 import * as IpcChannels from "./ipc/channels.ts";
 
 function unwrapEnsureSshEnvironmentResult(result: unknown) {
@@ -24,7 +26,7 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
   return result as Awaited<ReturnType<DesktopBridge["ensureSshEnvironment"]>>;
 }
 
-contextBridge.exposeInMainWorld("desktopBridge", {
+const baseDesktopBridge = {
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {
@@ -46,6 +48,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   setConnectionCatalog: (catalog) =>
     ipcRenderer.invoke(IpcChannels.SET_CONNECTION_CATALOG_CHANNEL, catalog),
   clearConnectionCatalog: () => ipcRenderer.invoke(IpcChannels.CLEAR_CONNECTION_CATALOG_CHANNEL),
+  getSavedEnvironmentRegistry: () =>
+    ipcRenderer.invoke(IpcChannels.GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL),
+  setSavedEnvironmentRegistry: (records) =>
+    ipcRenderer.invoke(IpcChannels.SET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL, records),
+  getSavedEnvironmentSecret: (environmentId) =>
+    ipcRenderer.invoke(IpcChannels.GET_SAVED_ENVIRONMENT_SECRET_CHANNEL, environmentId),
+  setSavedEnvironmentSecret: (environmentId, secret) =>
+    ipcRenderer.invoke(IpcChannels.SET_SAVED_ENVIRONMENT_SECRET_CHANNEL, { environmentId, secret }),
+  removeSavedEnvironmentSecret: (environmentId) =>
+    ipcRenderer.invoke(IpcChannels.REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL, environmentId),
   discoverSshHosts: () => ipcRenderer.invoke(IpcChannels.DISCOVER_SSH_HOSTS_CHANNEL),
   ensureSshEnvironment: async (target, options) =>
     unwrapEnsureSshEnvironmentResult(
@@ -233,4 +245,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         ipcRenderer.removeListener(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, wrappedListener);
     },
   },
+} satisfies Omit<DesktopBridge, keyof ForkDesktopBridge>;
+
+contextBridge.exposeInMainWorld("desktopBridge", {
+  ...baseDesktopBridge,
+  ...makeForkDesktopBridge(ipcRenderer),
 } satisfies DesktopBridge);

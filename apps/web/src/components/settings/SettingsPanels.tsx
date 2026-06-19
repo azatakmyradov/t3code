@@ -48,6 +48,7 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
+import { ForkGeneralSettingsRows } from "../../fork/settingsPanels";
 import {
   primaryServerObservabilityAtom,
   primaryServerProvidersAtom,
@@ -398,6 +399,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
         ? ["Auto-open task panel"]
         : []),
+      ...(settings.fork.desktopAgentTerminalNotificationsEnabled !==
+      DEFAULT_UNIFIED_SETTINGS.fork.desktopAgentTerminalNotificationsEnabled
+        ? ["Agent completion notifications"]
+        : []),
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -424,6 +429,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
+      settings.fork.desktopAgentTerminalNotificationsEnabled,
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
       settings.diffIgnoreWhitespace,
@@ -453,6 +459,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
+      fork: {
+        ...settings.fork,
+        desktopAgentTerminalNotificationsEnabled:
+          DEFAULT_UNIFIED_SETTINGS.fork.desktopAgentTerminalNotificationsEnabled,
+      },
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
@@ -687,6 +698,8 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        <ForkGeneralSettingsRows />
 
         <SettingsRow
           title="New threads"
