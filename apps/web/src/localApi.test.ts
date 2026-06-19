@@ -39,6 +39,101 @@ function testWindow(): Window & typeof globalThis {
   return globalThis.window ?? (globalThis as unknown as Window & typeof globalThis);
 }
 
+function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridge {
+  return {
+    getAppBranding: () => null,
+    getLocalEnvironmentBootstrap: () => null,
+    getClientSettings: async () => null,
+    setClientSettings: async () => undefined,
+    getConnectionCatalog: async () => null,
+    setConnectionCatalog: async () => true,
+    clearConnectionCatalog: async () => undefined,
+    showAgentNotification: async () => false,
+    onAgentNotificationActivated: () => () => undefined,
+    getSavedEnvironmentRegistry: async () => [],
+    setSavedEnvironmentRegistry: async () => undefined,
+    getSavedEnvironmentSecret: async () => null,
+    setSavedEnvironmentSecret: async () => true,
+    removeSavedEnvironmentSecret: async () => undefined,
+    discoverSshHosts: async () => [],
+    ensureSshEnvironment: async () => {
+      throw new Error("ensureSshEnvironment not implemented in test");
+    },
+    disconnectSshEnvironment: async () => undefined,
+    fetchSshEnvironmentDescriptor: async () => {
+      throw new Error("fetchSshEnvironmentDescriptor not implemented in test");
+    },
+    bootstrapSshBearerSession: async () => {
+      throw new Error("bootstrapSshBearerSession not implemented in test");
+    },
+    fetchSshSessionState: async () => {
+      throw new Error("fetchSshSessionState not implemented in test");
+    },
+    issueSshWebSocketTicket: async () => {
+      throw new Error("issueSshWebSocketTicket not implemented in test");
+    },
+    onSshPasswordPrompt: () => () => undefined,
+    resolveSshPasswordPrompt: async () => undefined,
+    getServerExposureState: async () => ({
+      mode: "local-only",
+      endpointUrl: null,
+      advertisedHost: null,
+      tailscaleServeEnabled: false,
+      tailscaleServePort: 443,
+    }),
+    setServerExposureMode: async () => ({
+      mode: "local-only",
+      endpointUrl: null,
+      advertisedHost: null,
+      tailscaleServeEnabled: false,
+      tailscaleServePort: 443,
+    }),
+    setTailscaleServeEnabled: async (input) => ({
+      mode: "local-only",
+      endpointUrl: null,
+      advertisedHost: null,
+      tailscaleServeEnabled: input.enabled,
+      tailscaleServePort: input.port ?? 443,
+    }),
+    getAdvertisedEndpoints: async () => [],
+    pickFolder: async () => null,
+    confirm: async () => true,
+    setTheme: async () => undefined,
+    showContextMenu: async () => null,
+    openExternal: async () => true,
+    createCloudAuthRequest: async () => "t3code-dev://auth/callback?t3_state=test",
+    getCloudAuthToken: async () => null,
+    setCloudAuthToken: async () => true,
+    clearCloudAuthToken: async () => undefined,
+    fetchCloudAuth: async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      body: "",
+    }),
+    onCloudAuthCallback: () => () => undefined,
+    onMenuAction: () => () => undefined,
+    getUpdateState: async () => {
+      throw new Error("getUpdateState not implemented in test");
+    },
+    setUpdateChannel: async () => {
+      throw new Error("setUpdateChannel not implemented in test");
+    },
+    checkForUpdate: async () => {
+      throw new Error("checkForUpdate not implemented in test");
+    },
+    downloadUpdate: async () => {
+      throw new Error("downloadUpdate not implemented in test");
+    },
+    installUpdate: async () => {
+      throw new Error("installUpdate not implemented in test");
+    },
+    onUpdateState: () => () => undefined,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
@@ -87,12 +182,12 @@ describe("LocalApi", () => {
     const pickFolder = vi.fn().mockResolvedValue("/tmp/project");
     const getClientSettings = vi.fn().mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
     const setClientSettings = vi.fn().mockResolvedValue(undefined);
-    testWindow().desktopBridge = {
+    testWindow().desktopBridge = makeDesktopBridge({
       showContextMenu,
       pickFolder,
       getClientSettings,
       setClientSettings,
-    } as unknown as DesktopBridge;
+    });
 
     const { createLocalApi } = await import("./localApi");
     const api = createLocalApi();

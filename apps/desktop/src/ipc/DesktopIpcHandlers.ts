@@ -7,6 +7,14 @@ import {
   getConnectionCatalog,
   setConnectionCatalog,
 } from "./methods/connectionCatalog.ts";
+import { forkIpcMethods } from "../fork/ipcMethods.ts";
+import {
+  getSavedEnvironmentRegistry,
+  getSavedEnvironmentSecret,
+  removeSavedEnvironmentSecret,
+  setSavedEnvironmentRegistry,
+  setSavedEnvironmentSecret,
+} from "./methods/savedEnvironments.ts";
 import {
   getAdvertisedEndpoints,
   getServerExposureState,
@@ -55,6 +63,14 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(getConnectionCatalog);
   yield* ipc.handle(setConnectionCatalog);
   yield* ipc.handle(clearConnectionCatalog);
+  for (const method of forkIpcMethods) {
+    yield* ipc.handle(method);
+  }
+  yield* ipc.handle(getSavedEnvironmentRegistry);
+  yield* ipc.handle(setSavedEnvironmentRegistry);
+  yield* ipc.handle(getSavedEnvironmentSecret);
+  yield* ipc.handle(setSavedEnvironmentSecret);
+  yield* ipc.handle(removeSavedEnvironmentSecret);
 
   yield* ipc.handle(discoverSshHosts);
   yield* ipc.handle(ensureSshEnvironment);

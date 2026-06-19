@@ -199,6 +199,7 @@ describe("serverSettings helpers", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,
       fork: {
+        ...DEFAULT_SERVER_SETTINGS.fork,
         snippets: [
           { keyword: "bug", value: "Fix the bug." },
           { keyword: "review", value: "Review the diff." },
@@ -217,6 +218,7 @@ describe("serverSettings helpers", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,
       fork: {
+        ...DEFAULT_SERVER_SETTINGS.fork,
         snippets: [{ keyword: "bug", value: "Fix the bug." }],
       },
     };
@@ -229,7 +231,10 @@ describe("serverSettings helpers", () => {
   it("resets snippets to the default empty array", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,
-      fork: { snippets: [{ keyword: "bug", value: "Fix the bug." }] },
+      fork: {
+        ...DEFAULT_SERVER_SETTINGS.fork,
+        snippets: [{ keyword: "bug", value: "Fix the bug." }],
+      },
     };
 
     expect(applyServerSettingsPatch(current, { fork: { snippets: [] } }).fork.snippets).toEqual([]);
