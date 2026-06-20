@@ -43,6 +43,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
   return {
     getAppBranding: () => null,
     getLocalEnvironmentBootstrap: () => null,
+    getLocalEnvironmentBearerToken: async () => "test-token",
     getClientSettings: async () => null,
     setClientSettings: async () => undefined,
     getConnectionCatalog: async () => null,
@@ -101,18 +102,6 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     setTheme: async () => undefined,
     showContextMenu: async () => null,
     openExternal: async () => true,
-    createCloudAuthRequest: async () => "t3code-dev://auth/callback?t3_state=test",
-    getCloudAuthToken: async () => null,
-    setCloudAuthToken: async () => true,
-    clearCloudAuthToken: async () => undefined,
-    fetchCloudAuth: async () => ({
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      headers: {},
-      body: "",
-    }),
-    onCloudAuthCallback: () => () => undefined,
     onMenuAction: () => () => undefined,
     getUpdateState: async () => {
       throw new Error("getUpdateState not implemented in test");

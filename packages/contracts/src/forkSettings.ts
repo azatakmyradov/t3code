@@ -5,6 +5,7 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ModelSelection } from "./orchestration.ts";
 
 const CHAT_SNIPPET_KEYWORD_PATTERN = /^[a-z0-9_-]+$/;
 
@@ -67,12 +68,28 @@ export const JiraForkSettings = Schema.Struct({
 });
 export type JiraForkSettings = typeof JiraForkSettings.Type;
 
+export const ReviewGroupsDefaultMode = Schema.Union([
+  Schema.Literal("files"),
+  Schema.Literal("groups"),
+]);
+export type ReviewGroupsDefaultMode = typeof ReviewGroupsDefaultMode.Type;
+
 export const ForkSettings = Schema.Struct({
   snippets: ChatSnippets.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   desktopAgentTerminalNotificationsEnabled: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
   jira: JiraForkSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  reviewGroupsDefaultMode: ReviewGroupsDefaultMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("groups" as const satisfies ReviewGroupsDefaultMode)),
+  ),
+  /**
+   * Optional dedicated model for the AI semantic-diff-groups review aid. `null`
+   * (the default) inherits the global `textGenerationModelSelection`.
+   */
+  reviewGroupsModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
 export type ForkSettings = typeof ForkSettings.Type;
 
@@ -88,5 +105,7 @@ export const ForkSettingsPatch = Schema.Struct({
   snippets: Schema.optionalKey(ChatSnippets),
   desktopAgentTerminalNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   jira: Schema.optionalKey(JiraForkSettingsPatch),
+  reviewGroupsDefaultMode: Schema.optionalKey(ReviewGroupsDefaultMode),
+  reviewGroupsModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
 });
 export type ForkSettingsPatch = typeof ForkSettingsPatch.Type;

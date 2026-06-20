@@ -1,10 +1,9 @@
 /**
  * Fork seam for the Jira WS RPC handlers.
  *
- * Keeps the Jira authorization-scope table and the handler implementations out
- * of upstream `ws.ts`. The upstream file spreads `FORK_JIRA_REQUIRED_SCOPE`
- * into its scope map and `makeForkJiraHandlers(jira, observeRpcEffect)` into the
- * handler object — two append points instead of ~90 inline lines.
+ * Keeps the Jira authorization-scope table and handler implementations out of
+ * upstream `ws.ts`. `fork/rpcHandlers.ts` aggregates this table and handler
+ * builder with the other fork RPCs before upstream registration.
  */
 import {
   AuthOrchestrationOperateScope,

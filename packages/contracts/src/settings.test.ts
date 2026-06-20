@@ -168,6 +168,34 @@ describe("ServerSettings.fork.snippets", () => {
   });
 });
 
+describe("ServerSettings.fork.reviewGroupsDefaultMode", () => {
+  it("defaults to groups for legacy configs", () => {
+    expect(decodeServerSettings({}).fork.reviewGroupsDefaultMode).toBe("groups");
+    expect(decodeServerSettings({ fork: {} }).fork.reviewGroupsDefaultMode).toBe("groups");
+  });
+
+  it("accepts files in fork settings patches", () => {
+    const patch = decodeServerSettingsPatch({
+      fork: { reviewGroupsDefaultMode: "files" },
+    });
+
+    expect(patch.fork?.reviewGroupsDefaultMode).toBe("files");
+  });
+
+  it("rejects invalid values", () => {
+    expect(() =>
+      decodeServerSettings({
+        fork: { reviewGroupsDefaultMode: "side-by-side" },
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeServerSettingsPatch({
+        fork: { reviewGroupsDefaultMode: "side-by-side" },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("ServerSettings.fork.jira", () => {
   it("defaults Jira settings for legacy configs", () => {
     const decoded = decodeServerSettings({});
