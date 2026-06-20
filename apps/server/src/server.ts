@@ -12,6 +12,7 @@ import {
   staticAndDevRouteLayer,
   browserApiCorsLayer,
 } from "./http.ts";
+import { jiraAttachmentRouteLayer } from "./fork/jira/attachmentRoute.ts";
 import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -353,6 +354,7 @@ export const makeRoutesLayer = Layer.mergeAll(
     ),
     otlpTracesProxyRouteLayer,
     assetRouteLayer,
+    jiraAttachmentRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),

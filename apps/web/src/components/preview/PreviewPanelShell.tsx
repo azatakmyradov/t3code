@@ -3,8 +3,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { isElectron } from "~/env";
 import { useResizableWidth } from "~/hooks/useResizableWidth";
 import { cn } from "~/lib/utils";
-
-import { RightPanelResizeHandle } from "./RightPanelResizeHandle";
+import { PanelResizeHandle } from "../ui/panel-resize-handle";
 
 export type PreviewPanelMode = "inline" | "sheet" | "sidebar" | "embedded";
 
@@ -51,7 +50,9 @@ export function PreviewPanelShell(props: {
       data-preview-panel-mode={props.mode}
       data-preview-panel-maximized={props.maximized ? "true" : "false"}
     >
-      {isInline && !props.maximized ? <RightPanelResizeHandle handlers={handlers} /> : null}
+      {isInline && !props.maximized ? (
+        <PanelResizeHandle edge="left" label="Resize preview panel" handlers={handlers} />
+      ) : null}
       {useDragRegion ? <div className="electron-drag-region h-0 w-full" aria-hidden /> : null}
       {props.children}
     </div>

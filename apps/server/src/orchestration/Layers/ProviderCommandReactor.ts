@@ -41,6 +41,7 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { makeForkJiraMessagePreprocessor } from "../../fork/jira/messagePreprocessor.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -253,6 +254,12 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
+
+  const applyForkJiraMessagePreprocessing = makeForkJiraMessagePreprocessor({
+    orchestrationEngine,
+    serverCommandId,
+    serverEventId,
+  });
 
   const formatFailureDetail = (cause: Cause.Cause<unknown>): string => {
     const failReason = cause.reasons.find(Cause.isFailReason);
@@ -837,9 +844,15 @@ const make = Effect.gen(function* () {
         ),
       );
 
-    const sendTurnRequest = yield* buildSendTurnRequestForThread({
+    const jiraContext = yield* applyForkJiraMessagePreprocessing({
       threadId: event.payload.threadId,
       messageText: message.text,
+      createdAt: event.payload.createdAt,
+    });
+
+    const sendTurnRequest = yield* buildSendTurnRequestForThread({
+      threadId: event.payload.threadId,
+      messageText: jiraContext.providerMessageText,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }

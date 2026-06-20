@@ -59,16 +59,34 @@ export const ChatSnippets = Schema.Array(ChatSnippet).check(
 );
 export type ChatSnippets = typeof ChatSnippets.Type;
 
+export const JiraForkSettings = Schema.Struct({
+  siteUrl: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  email: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  apiToken: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  apiTokenRedacted: Schema.optionalKey(Schema.Boolean),
+});
+export type JiraForkSettings = typeof JiraForkSettings.Type;
+
 export const ForkSettings = Schema.Struct({
   snippets: ChatSnippets.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   desktopAgentTerminalNotificationsEnabled: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
+  jira: JiraForkSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ForkSettings = typeof ForkSettings.Type;
+
+export const JiraForkSettingsPatch = Schema.Struct({
+  siteUrl: Schema.optionalKey(Schema.String),
+  email: Schema.optionalKey(Schema.String),
+  apiToken: Schema.optionalKey(Schema.String),
+  apiTokenRedacted: Schema.optionalKey(Schema.Boolean),
+});
+export type JiraForkSettingsPatch = typeof JiraForkSettingsPatch.Type;
 
 export const ForkSettingsPatch = Schema.Struct({
   snippets: Schema.optionalKey(ChatSnippets),
   desktopAgentTerminalNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
+  jira: Schema.optionalKey(JiraForkSettingsPatch),
 });
 export type ForkSettingsPatch = typeof ForkSettingsPatch.Type;

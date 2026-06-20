@@ -85,7 +85,7 @@ vi.mock("../../state/entities", () => ({
 
 vi.mock("../../hooks/useSettings", () => ({
   useClientSettingsHydrated: () => true,
-  useSettings: (selector?: (settings: typeof settingsStore.value) => unknown) =>
+  usePrimarySettings: (selector?: (settings: typeof settingsStore.value) => unknown) =>
     selector ? selector(settingsStore.value) : settingsStore.value,
 }));
 

@@ -10,9 +10,12 @@ import { McpSchema, McpServer, Tool } from "effect/unstable/ai";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import packageJson from "../../package.json" with { type: "json" };
+import * as Jira from "../fork/jira/index.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
+import { JiraToolkitHandlersLive } from "./toolkits/jira/handlers.ts";
+import { JiraToolkit } from "./toolkits/jira/tools.ts";
 import {
   PreviewSnapshotToolkitHandlersLive,
   PreviewStandardToolkitHandlersLive,
@@ -179,13 +182,27 @@ export const PreviewToolkitRegistrationLive = Layer.mergeAll(
   PreviewSnapshotRegistrationLive,
 );
 
+// The Jira read tools reuse the existing `JiraApi` service. Providing `Jira.layer`
+// here keeps `JiraApi` an internal dependency of the registration; its own
+// requirements (`HttpClient`, `ServerSettingsService`) bubble up to `layer` and
+// are satisfied at the server root, the same place `Jira.layer` is provided today.
+const JiraToolkitRegistrationLive = McpServer.toolkit(JiraToolkit).pipe(
+  Layer.provide(JiraToolkitHandlersLive),
+  Layer.provide(Jira.layer),
+);
+
+export const ToolkitRegistrationLive = Layer.mergeAll(
+  PreviewToolkitRegistrationLive,
+  JiraToolkitRegistrationLive,
+);
+
 const McpTransportLive = McpServer.layerHttp({
   name: "T3 Code",
   version: packageJson.version,
   path: "/mcp",
 }).pipe(Layer.provide(McpAuthMiddlewareLive));
 
-export const layer = PreviewToolkitRegistrationLive.pipe(
+export const layer = ToolkitRegistrationLive.pipe(
   Layer.provideMerge(McpTransportLive),
   Layer.provide(PreviewAutomationBroker.layer),
 );

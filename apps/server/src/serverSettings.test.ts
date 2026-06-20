@@ -532,4 +532,64 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       );
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
+
+  it.effect("persists, redacts, materializes, and clears the Jira API token", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const tokenSecretPath = `${serverConfig.secretsDir}/fork-jira-api-token.bin`;
+
+      const updated = yield* serverSettings.updateSettings({
+        fork: {
+          jira: {
+            siteUrl: "https://example.atlassian.net",
+            email: "ada@example.com",
+            apiToken: "jira-secret-token",
+          },
+        },
+      });
+
+      assert.equal(updated.fork.jira.apiToken, "jira-secret-token");
+      assert.equal(updated.fork.jira.apiTokenRedacted, true);
+      assert.equal(yield* fileSystem.readFileString(tokenSecretPath), "jira-secret-token");
+
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.notInclude(raw, "jira-secret-token");
+      assert.include(raw, '"apiTokenRedacted": true');
+
+      const clientSettings = ServerSettingsModule.redactServerSettingsForClient(updated);
+      assert.deepEqual(clientSettings.fork.jira, {
+        siteUrl: "https://example.atlassian.net",
+        email: "ada@example.com",
+        apiToken: "",
+        apiTokenRedacted: true,
+      });
+
+      const retained = yield* serverSettings.updateSettings({
+        fork: {
+          jira: {
+            siteUrl: "https://example.atlassian.net",
+            email: "ada@example.com",
+            apiToken: "",
+            apiTokenRedacted: true,
+          },
+        },
+      });
+      assert.equal(retained.fork.jira.apiToken, "jira-secret-token");
+
+      const cleared = yield* serverSettings.updateSettings({
+        fork: {
+          jira: {
+            siteUrl: "",
+            email: "",
+            apiToken: "",
+          },
+        },
+      });
+      assert.equal(cleared.fork.jira.apiToken, "");
+      assert.isUndefined(cleared.fork.jira.apiTokenRedacted);
+      assert.equal(yield* fileSystem.exists(tokenSecretPath), false);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
 });
