@@ -228,6 +228,30 @@ describe("serverSettings helpers", () => {
     ).toEqual([{ keyword: "bug", value: "Fix the bug." }]);
   });
 
+  it("updates the review groups default mode from a fork patch", () => {
+    expect(
+      applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+        fork: { reviewGroupsDefaultMode: "files" },
+      }).fork.reviewGroupsDefaultMode,
+    ).toBe("files");
+  });
+
+  it("preserves the review groups default mode when patching unrelated settings", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      fork: {
+        ...DEFAULT_SERVER_SETTINGS.fork,
+        reviewGroupsDefaultMode: "files" as const,
+      },
+    };
+
+    expect(
+      applyServerSettingsPatch(current, {
+        addProjectBaseDirectory: "~/Development",
+      }).fork.reviewGroupsDefaultMode,
+    ).toBe("files");
+  });
+
   it("resets snippets to the default empty array", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,

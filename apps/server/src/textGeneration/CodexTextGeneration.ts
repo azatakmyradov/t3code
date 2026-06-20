@@ -35,6 +35,8 @@ import {
 } from "./TextGenerationUtils.ts";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../codexModelOptions.ts";
+import { buildSemanticDiffGroupsPrompt } from "../fork/reviewGroups/prompts.ts";
+import type { SemanticDiffGroupsCapability } from "../fork/reviewGroups/textGeneration.ts";
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
@@ -101,7 +103,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "generateSemanticDiffGroups",
     value: unknown,
   ): Effect.Effect<string, TextGenerationError> =>
     encodeJsonString(value).pipe(
@@ -120,7 +123,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "generateSemanticDiffGroups",
     attachments: BranchNameGenerationInput["attachments"],
   ): Effect.fn.Return<MaterializedImageAttachments, TextGenerationError> {
     if (!attachments || attachments.length === 0) {
@@ -162,7 +166,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateSemanticDiffGroups";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -402,10 +407,30 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     } satisfies ThreadTitleGenerationResult;
   });
 
+  const generateSemanticDiffGroups: SemanticDiffGroupsCapability["generateSemanticDiffGroups"] =
+    Effect.fn("CodexTextGeneration.generateSemanticDiffGroups")(function* (input) {
+      const { prompt, outputSchema } = buildSemanticDiffGroupsPrompt({
+        kind: input.kind,
+        baseRef: input.baseRef,
+        headRef: input.headRef,
+      });
+
+      const generated = yield* runCodexJson({
+        operation: "generateSemanticDiffGroups",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return { groups: generated.groups };
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
-  } satisfies TextGenerationShape;
+    generateSemanticDiffGroups,
+  } satisfies TextGenerationShape & SemanticDiffGroupsCapability;
 });

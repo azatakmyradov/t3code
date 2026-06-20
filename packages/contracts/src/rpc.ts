@@ -13,7 +13,7 @@ import {
   FilesystemBrowseResult,
   FilesystemBrowseError,
 } from "./filesystem.ts";
-import { FORK_WS_METHODS, FORK_JIRA_RPCS } from "./forkJira.ts";
+import { FORK_RPCS, FORK_WS_METHODS } from "./forkRpc.ts";
 import { AssetAccessError, AssetCreateUrlInput, AssetCreateUrlResult } from "./assets.ts";
 import {
   GitActionProgressEvent,
@@ -752,5 +752,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetArchivedShellSnapshotRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
-  ...FORK_JIRA_RPCS,
+  ...FORK_RPCS,
 );

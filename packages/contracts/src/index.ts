@@ -15,6 +15,8 @@ export * from "./keybindings.ts";
 export * from "./server.ts";
 export * from "./forkSettings.ts";
 export * from "./forkJira.ts";
+export * from "./forkReviewGroups.ts";
+export * from "./forkRpc.ts";
 export * from "./forkIpc.ts";
 export * from "./settings.ts";
 export * from "./git.ts";

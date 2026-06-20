@@ -17,6 +17,7 @@ import ProjectScriptsControl, {
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { ForkChatHeaderActions } from "../../fork/chatHeaderActions";
 import { cn } from "~/lib/utils";
 
 interface ChatHeaderProps {
@@ -120,6 +121,9 @@ export const ChatHeader = memo(function ChatHeader({
             availableEditors={availableEditors}
             openInCwd={openInCwd}
           />
+        )}
+        {activeProjectName && (
+          <ForkChatHeaderActions environmentId={activeThreadEnvironmentId} cwd={gitCwd} />
         )}
         {activeProjectName && (
           <GitActionsControl

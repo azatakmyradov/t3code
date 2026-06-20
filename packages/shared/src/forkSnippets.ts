@@ -24,5 +24,11 @@ export function applyForkSettingsPatch(
           },
         }
       : {}),
+    ...(forkPatch.reviewGroupsDefaultMode !== undefined
+      ? { reviewGroupsDefaultMode: forkPatch.reviewGroupsDefaultMode }
+      : {}),
+    ...(forkPatch.reviewGroupsModelSelection !== undefined
+      ? { reviewGroupsModelSelection: forkPatch.reviewGroupsModelSelection }
+      : {}),
   };
 }
