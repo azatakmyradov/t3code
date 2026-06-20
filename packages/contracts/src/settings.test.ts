@@ -196,6 +196,66 @@ describe("ServerSettings.fork.reviewGroupsDefaultMode", () => {
   });
 });
 
+describe("ServerSettings.fork.builderModelSelection", () => {
+  it("defaults to null for legacy configs", () => {
+    expect(decodeServerSettings({}).fork.builderModelSelection).toBeNull();
+  });
+
+  it("defaults to null for empty fork settings", () => {
+    expect(decodeServerSettings({ fork: {} }).fork.builderModelSelection).toBeNull();
+  });
+
+  it("accepts null in fork settings patches", () => {
+    const patch = decodeServerSettingsPatch({
+      fork: { builderModelSelection: null },
+    });
+
+    expect(patch.fork?.builderModelSelection).toBeNull();
+  });
+
+  it("accepts a valid model selection in fork settings patches", () => {
+    const patch = decodeServerSettingsPatch({
+      fork: {
+        builderModelSelection: {
+          instanceId: "codex_personal",
+          model: "gpt-5.4",
+          options: [{ id: "reasoningEffort", value: "high" }],
+        },
+      },
+    });
+
+    expect(patch.fork?.builderModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("codex_personal"),
+      model: "gpt-5.4",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    });
+  });
+
+  it("rejects invalid model selections", () => {
+    expect(() =>
+      decodeServerSettingsPatch({
+        fork: {
+          builderModelSelection: {
+            instanceId: "1invalid",
+            model: "gpt-5.4",
+          },
+        },
+      }),
+    ).toThrow();
+
+    expect(() =>
+      decodeServerSettingsPatch({
+        fork: {
+          builderModelSelection: {
+            instanceId: "codex",
+            model: "   ",
+          },
+        },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("ServerSettings.fork.jira", () => {
   it("defaults Jira settings for legacy configs", () => {
     const decoded = decodeServerSettings({});

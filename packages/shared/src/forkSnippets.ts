@@ -30,5 +30,8 @@ export function applyForkSettingsPatch(
     ...(forkPatch.reviewGroupsModelSelection !== undefined
       ? { reviewGroupsModelSelection: forkPatch.reviewGroupsModelSelection }
       : {}),
+    ...(forkPatch.builderModelSelection !== undefined
+      ? { builderModelSelection: forkPatch.builderModelSelection }
+      : {}),
   };
 }

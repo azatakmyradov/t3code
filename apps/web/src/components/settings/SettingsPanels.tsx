@@ -381,6 +381,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isBuilderModelDirty = !Equal.equals(
+    settings.fork.builderModelSelection ?? null,
+    DEFAULT_UNIFIED_SETTINGS.fork.builderModelSelection ?? null,
+  );
 
   const changedSettingLabels = useMemo(
     () => [
@@ -408,6 +412,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.fork.reviewGroupsDefaultMode
         ? ["Semantic groups by default"]
         : []),
+      ...(isBuilderModelDirty ? ["Builder model"] : []),
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -434,6 +439,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
     ],
     [
+      isBuilderModelDirty,
       isGitWritingModelDirty,
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
@@ -475,6 +481,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         desktopAgentTerminalNotificationsEnabled:
           DEFAULT_UNIFIED_SETTINGS.fork.desktopAgentTerminalNotificationsEnabled,
         reviewGroupsDefaultMode: DEFAULT_UNIFIED_SETTINGS.fork.reviewGroupsDefaultMode,
+        builderModelSelection: DEFAULT_UNIFIED_SETTINGS.fork.builderModelSelection,
       },
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,

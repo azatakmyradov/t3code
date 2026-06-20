@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import * as NodeChildProcess from "node:child_process";
 
 const variantArg = process.argv[2] ?? "prod";
 const variantByAlias = {
@@ -32,7 +32,7 @@ if (process.env.IOS_BUNDLE_ID) {
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const result = NodeChildProcess.spawnSync(command, args, {
     stdio: "inherit",
     env,
     ...options,

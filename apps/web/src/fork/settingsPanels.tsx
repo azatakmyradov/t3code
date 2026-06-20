@@ -14,6 +14,7 @@ import {
   sortProviderInstanceEntries,
 } from "../providerInstances";
 import { primaryServerProvidersAtom } from "../state/server";
+import { getForkBuilderModelSelectionStatus } from "./builderImplementation";
 
 function ForkReviewGroupsDefaultModeRow() {
   const settings = usePrimarySettings();
@@ -131,6 +132,85 @@ function ForkReviewGroupsModelRow() {
   );
 }
 
+/**
+ * Dedicated model picker for the plan follow-up "Implement with builder"
+ * action. When the override is off the action is hidden; when on, the action
+ * uses this exact provider/model if it is still resolvable.
+ */
+function ForkBuilderModelRow() {
+  const settings = usePrimarySettings();
+  const updateSettings = useUpdatePrimarySettings();
+  const serverProviders = useAtomValue(primaryServerProvidersAtom);
+
+  const builderSelection = settings.fork.builderModelSelection;
+  const builderEnabled = builderSelection !== null;
+
+  const instanceEntries = sortProviderInstanceEntries(
+    applyProviderInstanceSettings(deriveProviderInstanceEntries(serverProviders), settings),
+  );
+  const effective = resolveAppModelSelectionState(
+    builderEnabled ? { ...settings, textGenerationModelSelection: builderSelection } : settings,
+    serverProviders,
+  );
+  const modelOptionsByInstance = getCustomModelOptionsByInstance(settings, serverProviders);
+  const builderStatus = getForkBuilderModelSelectionStatus(settings, serverProviders);
+
+  const setBuilderSelection = (selection: ModelSelection | null) =>
+    updateSettings({ fork: { ...settings.fork, builderModelSelection: selection } });
+
+  return (
+    <SettingsRow
+      title="Builder model"
+      description="Model used by the plan follow-up action that implements the plan in a new thread. Off hides that action."
+      status={
+        builderStatus ? (
+          <span className="text-amber-600 dark:text-amber-400">{builderStatus}</span>
+        ) : null
+      }
+      resetAction={
+        builderEnabled ? (
+          <SettingResetButton label="builder model" onClick={() => setBuilderSelection(null)} />
+        ) : null
+      }
+      control={
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <Switch
+            checked={builderEnabled}
+            onCheckedChange={(checked) =>
+              setBuilderSelection(
+                checked ? resolveAppModelSelectionState(settings, serverProviders) : null,
+              )
+            }
+            aria-label="Use a dedicated builder model for plan implementation"
+          />
+          {builderEnabled && (
+            <ProviderModelPicker
+              activeInstanceId={effective.instanceId}
+              model={effective.model}
+              lockedProvider={null}
+              instanceEntries={instanceEntries}
+              modelOptionsByInstance={modelOptionsByInstance}
+              triggerVariant="outline"
+              triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+              onInstanceModelChange={(instanceId, model) =>
+                setBuilderSelection(
+                  resolveAppModelSelectionState(
+                    {
+                      ...settings,
+                      textGenerationModelSelection: createModelSelection(instanceId, model),
+                    },
+                    serverProviders,
+                  ),
+                )
+              }
+            />
+          )}
+        </div>
+      }
+    />
+  );
+}
+
 function ForkAgentNotificationsRow() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
@@ -181,6 +261,7 @@ export function ForkGeneralSettingsRows() {
   return (
     <>
       <ForkReviewGroupsDefaultModeRow />
+      <ForkBuilderModelRow />
       <ForkReviewGroupsModelRow />
       <ForkAgentNotificationsRow />
     </>

@@ -90,6 +90,13 @@ export const ForkSettings = Schema.Struct({
   reviewGroupsModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /**
+   * Optional dedicated model for the plan follow-up "Implement with builder"
+   * action. `null` (the default) disables that secondary action.
+   */
+  builderModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
 export type ForkSettings = typeof ForkSettings.Type;
 
@@ -107,5 +114,6 @@ export const ForkSettingsPatch = Schema.Struct({
   jira: Schema.optionalKey(JiraForkSettingsPatch),
   reviewGroupsDefaultMode: Schema.optionalKey(ReviewGroupsDefaultMode),
   reviewGroupsModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  builderModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
 });
 export type ForkSettingsPatch = typeof ForkSettingsPatch.Type;

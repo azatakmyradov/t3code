@@ -228,6 +228,9 @@ import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
+import { resolveForkBuilderModelSelection } from "../fork/builderImplementation";
+import type { ComposerImplementationAction } from "./chat/ComposerPrimaryActions.logic";
+import { getComposerProviderState } from "./chat/composerProviderState";
 import { Button } from "./ui/button";
 import {
   buildVersionMismatchDismissalKey,
@@ -4236,7 +4239,9 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onImplementPlanInNewThread = useCallback(async () => {
+  async function startPlanImplementationThread(options?: {
+    modelSelectionOverride?: ModelSelection;
+  }) {
     if (
       !activeThread ||
       !activeProject ||
@@ -4262,19 +4267,53 @@ function ChatViewContent(props: ChatViewProps) {
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
 
+    const modelSelectionOverride = options?.modelSelectionOverride;
+    const overrideProviderStatus = modelSelectionOverride
+      ? providerStatuses.find((status) => status.instanceId === modelSelectionOverride.instanceId)
+      : null;
+    if (
+      modelSelectionOverride &&
+      (!overrideProviderStatus ||
+        !overrideProviderStatus.enabled ||
+        overrideProviderStatus.availability === "unavailable")
+    ) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Builder model unavailable",
+          description: "Choose an available builder model in Settings, then try again.",
+        }),
+      );
+      return;
+    }
+
     const createdAt = new Date().toISOString();
     const nextThreadId = newThreadId();
     const planMarkdown = activeProposedPlan.planMarkdown;
     const implementationPrompt = buildPlanImplementationPrompt(planMarkdown);
+    const implementationModelSelection = modelSelectionOverride ?? ctxSelectedModelSelection;
+    const implementationProvider = overrideProviderStatus?.driver ?? ctxSelectedProvider;
+    const implementationModels = overrideProviderStatus?.models ?? ctxSelectedProviderModels;
+    const overrideComposerProviderState = modelSelectionOverride
+      ? getComposerProviderState({
+          provider: implementationProvider,
+          model: implementationModelSelection.model,
+          models: implementationModels,
+          prompt: implementationPrompt,
+          modelOptions: implementationModelSelection.options,
+        })
+      : null;
     const outgoingImplementationPrompt = formatOutgoingPrompt({
-      provider: ctxSelectedProvider,
-      model: ctxSelectedModel,
-      models: ctxSelectedProviderModels,
-      effort: ctxSelectedPromptEffort,
+      provider: implementationProvider,
+      model: modelSelectionOverride ? implementationModelSelection.model : ctxSelectedModel,
+      models: implementationModels,
+      effort: modelSelectionOverride
+        ? (overrideComposerProviderState?.promptEffort ?? null)
+        : ctxSelectedPromptEffort,
       text: implementationPrompt,
     });
     const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
-    const nextThreadModelSelection: ModelSelection = ctxSelectedModelSelection;
+    const nextThreadModelSelection: ModelSelection = implementationModelSelection;
 
     sendInFlightRef.current = true;
     beginLocalDispatch({ preparingWorktree: false });
@@ -4311,7 +4350,7 @@ function ChatViewContent(props: ChatViewProps) {
             text: outgoingImplementationPrompt,
             attachments: [],
           },
-          modelSelection: ctxSelectedModelSelection,
+          modelSelection: nextThreadModelSelection,
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",
@@ -4375,26 +4414,47 @@ function ChatViewContent(props: ChatViewProps) {
       }
     }
     finish();
-  }, [
-    activeProject,
-    activeProposedPlan,
-    activeThreadBranch,
-    activeThread,
-    beginLocalDispatch,
-    activeEnvironmentUnavailable,
-    createThread,
-    deleteThread,
-    isConnecting,
-    isSendBusy,
-    isServerThread,
-    navigate,
-    resetLocalDispatch,
-    runtimeMode,
-    startThreadTurn,
-    autoOpenPlanSidebar,
-    environmentId,
-    composerRef,
-  ]);
+  }
+
+  const onImplementPlanInNewThread = () => {
+    void startPlanImplementationThread();
+  };
+
+  const builderModelSelection = resolveForkBuilderModelSelection(settings, providerStatuses);
+
+  const onImplementPlanWithBuilder = () => {
+    const currentBuilderModelSelection = resolveForkBuilderModelSelection(
+      settings,
+      providerStatuses,
+    );
+    if (!currentBuilderModelSelection) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Builder model unavailable",
+          description: "Choose an available builder model in Settings, then try again.",
+        }),
+      );
+      return;
+    }
+    void startPlanImplementationThread({ modelSelectionOverride: currentBuilderModelSelection });
+  };
+
+  const newThreadPlanImplementationAction: ComposerImplementationAction = {
+    id: "new-thread",
+    label: "Implement in a new thread",
+    onSelect: onImplementPlanInNewThread,
+  };
+  const planImplementationActions: readonly ComposerImplementationAction[] = builderModelSelection
+    ? [
+        newThreadPlanImplementationAction,
+        {
+          id: "builder",
+          label: "Implement with builder",
+          onSelect: onImplementPlanWithBuilder,
+        },
+      ]
+    : [newThreadPlanImplementationAction];
 
   const getModelDisabledReason = useCallback(
     (instanceId: ProviderInstanceId, model: string): string | null => {
@@ -4827,7 +4887,7 @@ function ChatViewContent(props: ChatViewProps) {
                     scheduleStickToBottom={scrollToEnd}
                     onSend={onSend}
                     onInterrupt={onInterrupt}
-                    onImplementPlanInNewThread={onImplementPlanInNewThread}
+                    planImplementationActions={planImplementationActions}
                     onRespondToApproval={onRespondToApproval}
                     onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
                     onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}

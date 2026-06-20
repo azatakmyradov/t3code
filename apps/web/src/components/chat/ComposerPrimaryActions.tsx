@@ -4,6 +4,10 @@ import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
+import {
+  formatPendingPrimaryActionLabel,
+  type ComposerImplementationAction,
+} from "./ComposerPrimaryActions.logic";
 
 interface PendingActionState {
   questionIndex: number;
@@ -25,32 +29,16 @@ interface ComposerPrimaryActionsProps {
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
+  planImplementationActions?: readonly ComposerImplementationAction[];
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
-  onImplementPlanInNewThread: () => void;
 }
-
-export const formatPendingPrimaryActionLabel = (input: {
-  compact: boolean;
-  isLastQuestion: boolean;
-  isResponding: boolean;
-  questionIndex: number;
-}) => {
-  if (input.isResponding) {
-    return "Submitting...";
-  }
-  if (input.compact) {
-    return input.isLastQuestion ? "Submit" : "Next";
-  }
-  if (!input.isLastQuestion) {
-    return "Next question";
-  }
-  return input.questionIndex > 0 ? "Submit answers" : "Submit answer";
-};
 
 const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
   event.preventDefault();
 };
+
+const EMPTY_IMPLEMENTATION_ACTIONS: readonly ComposerImplementationAction[] = [];
 
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compact,
@@ -64,9 +52,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isPreparingWorktree,
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
+  planImplementationActions = EMPTY_IMPLEMENTATION_ACTIONS,
   onPreviousPendingQuestion,
   onInterrupt,
-  onImplementPlanInNewThread,
 }: ComposerPrimaryActionsProps) {
   const pointerFocusProps = preserveComposerFocusOnPointerDown
     ? { onPointerDown: preventPointerFocus }
@@ -154,6 +142,20 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       );
     }
 
+    if (planImplementationActions.length === 0) {
+      return (
+        <Button
+          type="submit"
+          size="sm"
+          className={cn("rounded-full", compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8")}
+          {...pointerFocusProps}
+          disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
+        >
+          {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+        </Button>
+      );
+    }
+
     return (
       <div data-chat-composer-implement-actions="true" className="flex items-center justify-end">
         <Button
@@ -181,12 +183,17 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <ChevronDownIcon className="size-3.5" />
           </MenuTrigger>
           <MenuPopup align="end" side="top">
-            <MenuItem
-              disabled={isSendBusy || isConnecting || isEnvironmentUnavailable}
-              onClick={() => void onImplementPlanInNewThread()}
-            >
-              Implement in a new thread
-            </MenuItem>
+            {planImplementationActions.map((action) => (
+              <MenuItem
+                key={action.id}
+                disabled={
+                  isSendBusy || isConnecting || isEnvironmentUnavailable || action.disabled
+                }
+                onClick={() => void action.onSelect()}
+              >
+                {action.label}
+              </MenuItem>
+            ))}
           </MenuPopup>
         </Menu>
       </div>
