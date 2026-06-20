@@ -2,13 +2,13 @@ import type { ServerSettings } from "@t3tools/contracts/settings";
 import { TextCursorInputIcon } from "lucide-react";
 
 import type { ComposerTrigger } from "../../composer-logic";
-import type { ForkComposerMenuItem } from "../composerExtensions";
+import type { ForkComposerMenuItem, SnippetComposerMenuItem } from "../composerExtensions";
 import { formatSnippetDescriptionPreview, searchSnippetItems } from "./snippetSearch";
 
 export function getSnippetComposerMenuItems(input: {
   readonly trigger: ComposerTrigger;
   readonly settings: ServerSettings;
-}): ForkComposerMenuItem[] {
+}): SnippetComposerMenuItem[] {
   if (input.trigger.kind !== "fork-snippet") {
     return [];
   }
@@ -33,6 +33,9 @@ export function applySnippetComposerMenuItem(input: {
     options?: { readonly expectedText?: string },
   ) => boolean;
 }): boolean {
+  if (input.item.type !== "fork-snippet") {
+    return false;
+  }
   return input.applyPromptReplacement(
     input.trigger.rangeStart,
     input.trigger.rangeEnd,

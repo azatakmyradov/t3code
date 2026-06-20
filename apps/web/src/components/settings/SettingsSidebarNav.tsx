@@ -25,6 +25,7 @@ import { FORK_SETTINGS_NAV_ITEMS } from "../../fork/settingsNav";
 
 export type SettingsSectionPath =
   | "/settings/general"
+  | "/settings/jira"
   | "/settings/keybindings"
   | "/settings/providers"
   | "/settings/snippets"

@@ -24,6 +24,18 @@ describe("detectComposerTrigger", () => {
     });
   });
 
+  it("detects #jira issue trigger at cursor", () => {
+    const text = "Please check #ABC";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "jira-issue",
+      query: "ABC",
+      rangeStart: "Please check ".length,
+      rangeEnd: text.length,
+    });
+  });
+
   it("detects slash command token while typing command name", () => {
     const text = "/mo";
     const trigger = detectComposerTrigger(text, text.length);

@@ -3,7 +3,9 @@ import { PreviewAutomationUnavailableError } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
-export type McpCapability = "preview";
+import { FORK_MCP_CAPABILITIES } from "../fork/jira/mcpCapabilities.ts";
+
+export type McpCapability = "preview" | (typeof FORK_MCP_CAPABILITIES)[number];
 
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;
