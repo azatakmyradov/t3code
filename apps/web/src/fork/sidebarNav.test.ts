@@ -30,4 +30,12 @@ describe("fork sidebar navigation", () => {
   it("keeps Settings -> Jira visible for setup", () => {
     expect(SETTINGS_NAV_ITEMS.some((item) => item.to === "/settings/jira")).toBe(true);
   });
+
+  it("adds Settings -> Appearance", () => {
+    expect(
+      SETTINGS_NAV_ITEMS.some(
+        (item) => item.label === "Appearance" && item.to === "/settings/appearance",
+      ),
+    ).toBe(true);
+  });
 });
