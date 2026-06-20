@@ -2,7 +2,12 @@ import type { EnvironmentId, JiraIssueSummary, ServerSettings } from "@t3tools/c
 import { ListTodoIcon } from "lucide-react";
 
 import type { ComposerTrigger } from "../../composer-logic";
-import { useJiraMentionSearch } from "./jiraState";
+import {
+  JIRA_ISSUE_MENTION_DISPLAY_LIMIT,
+  JIRA_ISSUE_MENTION_FETCH_LIMIT,
+  rankJiraIssues,
+} from "./jiraSearch";
+import { JIRA_ALL_ISSUES_JQL, useJiraMentionSearch } from "./jiraState";
 
 export type JiraComposerMenuItem = {
   readonly id: string;
@@ -28,6 +33,29 @@ export function toJiraComposerMenuItems(
     label: issue.key,
     description: issue.summary,
   }));
+}
+
+export function toRankedJiraComposerMenuItems(
+  issues: ReadonlyArray<JiraIssueSummary>,
+  query: string,
+): JiraComposerMenuItem[] {
+  return toJiraComposerMenuItems(
+    rankJiraIssues(issues, query).slice(0, JIRA_ISSUE_MENTION_DISPLAY_LIMIT),
+  );
+}
+
+export function mergeJiraComposerIssues(
+  primary: ReadonlyArray<JiraIssueSummary>,
+  fallback: ReadonlyArray<JiraIssueSummary>,
+): JiraIssueSummary[] {
+  const issuesByKey = new Map<string, JiraIssueSummary>();
+  for (const issue of primary) {
+    issuesByKey.set(issue.key, issue);
+  }
+  for (const issue of fallback) {
+    if (!issuesByKey.has(issue.key)) issuesByKey.set(issue.key, issue);
+  }
+  return [...issuesByKey.values()];
 }
 
 export function applyJiraComposerMenuItem(input: {
@@ -58,14 +86,25 @@ export function useJiraComposerItems(input: {
   readonly items: JiraComposerMenuItem[];
   readonly isPending: boolean;
 } {
-  const query = input.trigger?.kind === "jira-issue" ? input.trigger.query : null;
-  const search = useJiraMentionSearch({
+  const triggerQuery = input.trigger?.kind === "jira-issue" ? input.trigger.query : null;
+  const broadSearch = useJiraMentionSearch({
     environmentId: input.environmentId,
     settings: input.settings,
-    query,
+    query: triggerQuery === null ? null : "",
+    jql: JIRA_ALL_ISSUES_JQL,
+    limit: JIRA_ISSUE_MENTION_FETCH_LIMIT,
   });
+  const remoteSearch = useJiraMentionSearch({
+    environmentId: input.environmentId,
+    settings: input.settings,
+    query: triggerQuery?.trim() ? triggerQuery : null,
+    jql: JIRA_ALL_ISSUES_JQL,
+    limit: JIRA_ISSUE_MENTION_DISPLAY_LIMIT,
+  });
+  const issues = mergeJiraComposerIssues(remoteSearch.issues, broadSearch.issues);
+  const items = toRankedJiraComposerMenuItems(issues, triggerQuery ?? "");
   return {
-    items: toJiraComposerMenuItems(search.issues),
-    isPending: search.isPending,
+    items,
+    isPending: broadSearch.isPending || remoteSearch.isPending,
   };
 }

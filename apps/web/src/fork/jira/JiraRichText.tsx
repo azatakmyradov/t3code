@@ -115,7 +115,11 @@ import {
   type SerializedJiraMediaNode,
   type SerializedJiraMentionNode,
 } from "./jiraAdf";
-import { rankJiraIssues } from "./jiraSearch";
+import {
+  JIRA_ISSUE_MENTION_DISPLAY_LIMIT,
+  JIRA_ISSUE_MENTION_FETCH_LIMIT,
+  rankJiraIssues,
+} from "./jiraSearch";
 import { JIRA_ALL_ISSUES_JQL, useJiraMentionSearch, useJiraUserMentionSearch } from "./jiraState";
 
 // ---------------------------------------------------------------------------
@@ -1029,16 +1033,6 @@ const TYPEAHEAD_MAX_HEIGHT = "max-h-64";
 
 /** The default typeahead punctuation set, minus "-", so issue keys stay matchable. */
 const ISSUE_TRIGGER_PUNCTUATION = PUNCTUATION.replace("\\-", "");
-
-/**
- * How many recent issues to pull for the `#` picker. Jira's issue-picker
- * endpoint is unreliable for cross-project key search, so we fetch a broad
- * recency-ordered page once and fuzzy-filter it client-side via
- * {@link rankJiraIssues}.
- */
-const JIRA_ISSUE_MENTION_FETCH_LIMIT = 50;
-/** How many ranked results to show in the `#` menu at once. */
-const JIRA_ISSUE_MENTION_DISPLAY_LIMIT = 25;
 
 /**
  * Render the floating typeahead list into the plugin's caret-anchored element.
