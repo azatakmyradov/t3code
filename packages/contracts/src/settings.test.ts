@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
+import { DEFAULT_JIRA_PAGE_FILTERS } from "./forkJira.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
-import { DEFAULT_SERVER_SETTINGS, ServerSettings, ServerSettingsPatch } from "./settings.ts";
+import {
+  ClientSettingsPatch,
+  ClientSettingsSchema,
+  DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_SERVER_SETTINGS,
+  ServerSettings,
+  ServerSettingsPatch,
+} from "./settings.ts";
 
+const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
@@ -143,6 +153,100 @@ describe("ServerSettings.fork.snippets", () => {
     });
 
     expect(encoded.fork?.snippets).toEqual([{ keyword: "bug", value: "Fix it exactly." }]);
+  });
+});
+
+describe("ServerSettings.fork.jira", () => {
+  it("defaults Jira settings for legacy configs", () => {
+    const decoded = decodeServerSettings({});
+
+    expect(DEFAULT_SERVER_SETTINGS.fork.jira).toEqual({
+      siteUrl: "",
+      email: "",
+      apiToken: "",
+    });
+    expect(decoded.fork.jira).toEqual(DEFAULT_SERVER_SETTINGS.fork.jira);
+  });
+
+  it("decodes Jira settings patches without retaining legacy default JQL", () => {
+    const patch = decodeServerSettingsPatch({
+      fork: {
+        jira: {
+          siteUrl: " https://example.atlassian.net ",
+          email: " ada@example.com ",
+          apiToken: " token ",
+          apiTokenRedacted: true,
+          defaultJql: " project = ABC ",
+        },
+      },
+    });
+
+    expect(patch.fork?.jira).toEqual({
+      siteUrl: " https://example.atlassian.net ",
+      email: " ada@example.com ",
+      apiToken: " token ",
+      apiTokenRedacted: true,
+    });
+  });
+
+  it("encodes the Jira token redaction shape", () => {
+    const defaultSettings = decodeServerSettings({});
+    const encoded = encodeServerSettings({
+      ...defaultSettings,
+      fork: {
+        ...defaultSettings.fork,
+        jira: {
+          siteUrl: "https://example.atlassian.net",
+          email: "ada@example.com",
+          apiToken: "",
+          apiTokenRedacted: true,
+        },
+      },
+    });
+
+    expect(encoded.fork?.jira).toEqual({
+      siteUrl: "https://example.atlassian.net",
+      email: "ada@example.com",
+      apiToken: "",
+      apiTokenRedacted: true,
+    });
+  });
+});
+
+describe("ClientSettings.jiraPageFilters", () => {
+  it("defaults Jira page filters to the legacy assigned unresolved issue scope", () => {
+    const decoded = decodeClientSettings({});
+
+    expect(DEFAULT_CLIENT_SETTINGS.jiraPageFilters).toEqual(DEFAULT_JIRA_PAGE_FILTERS);
+    expect(decoded.jiraPageFilters).toEqual({
+      space: "",
+      status: "unresolved",
+      assignee: "currentUser",
+      updated: "any",
+      sort: "updatedDesc",
+    });
+  });
+
+  it("decodes Jira page filter patches", () => {
+    const patch = decodeClientSettingsPatch({
+      jiraPageFilters: {
+        search: " deploy ",
+        requestType: "bug",
+        space: " REBELSCAN ",
+        status: "inProgress",
+        assignee: "unassigned",
+        updated: "7d",
+        sort: "createdDesc",
+      },
+    });
+
+    expect(patch.jiraPageFilters).toEqual({
+      space: "REBELSCAN",
+      status: "inProgress",
+      assignee: "unassigned",
+      updated: "7d",
+      sort: "createdDesc",
+    });
   });
 });
 

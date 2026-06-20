@@ -68,7 +68,8 @@ import {
 } from "../composerFooterLayout";
 import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
 import { ProviderModelPicker } from "./ProviderModelPicker";
-import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
+import { ComposerCommandMenu } from "./ComposerCommandMenu";
+import type { ComposerCommandItem } from "./composerCommandMenuGrouping";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
@@ -126,8 +127,8 @@ import type { ReviewCommentContext } from "../../reviewCommentContext";
 import {
   applyForkComposerMenuItem,
   getForkComposerEmptyState,
-  getForkComposerMenuItems,
   isForkComposerMenuItem,
+  useForkComposerMenuItems,
 } from "../../fork/composerExtensions";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
@@ -939,13 +940,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     cwd: isPathTrigger ? gitCwd : null,
     query: isPathTrigger ? pathTriggerQuery : null,
   });
+  const forkComposerMenu = useForkComposerMenuItems({
+    environmentId,
+    trigger: composerTrigger,
+    settings,
+  });
 
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
       return workspaceEntries.entries.map((entry) => ({
         id: `path:${entry.kind}:${entry.path}`,
-        type: "path",
+        type: "path" as const,
         path: entry.path,
         pathKind: entry.kind,
         label: basenameOfPath(entry.path),
@@ -1008,15 +1014,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }),
       );
     }
-    if (composerTrigger.kind === "fork-snippet") {
-      return getForkComposerMenuItems({ trigger: composerTrigger, settings });
+    if (composerTrigger.kind === "fork-snippet" || composerTrigger.kind === "jira-issue") {
+      return forkComposerMenu.items;
     }
     return [];
   }, [
     composerTrigger,
+    forkComposerMenu.items,
     selectedProvider,
     selectedProviderStatus,
-    settings,
     workspaceEntries.entries,
   ]);
 
@@ -1083,7 +1089,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const isComposerMenuLoading =
-    composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending;
+    (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
+    (composerTriggerKind === "jira-issue" && forkComposerMenu.isPending);
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
@@ -2459,7 +2466,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             )}`
                           : phase === "disconnected"
                             ? "Ask for follow-up changes or attach images"
-                            : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                            : "Ask anything, @tag files/folders, #tag Jira tickets, $use skills, or / for commands"
                 }
                 disabled={
                   isConnecting ||

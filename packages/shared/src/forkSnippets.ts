@@ -16,5 +16,13 @@ export function applyForkSettingsPatch(
             forkPatch.desktopAgentTerminalNotificationsEnabled,
         }
       : {}),
+    ...(forkPatch.jira !== undefined
+      ? {
+          jira: {
+            ...merged.fork.jira,
+            ...forkPatch.jira,
+          },
+        }
+      : {}),
   };
 }

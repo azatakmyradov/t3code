@@ -49,6 +49,12 @@ import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import {
+  forkClearJiraRedactionWhenRequested,
+  forkMaterializeJiraSecret,
+  forkPersistJiraSecret,
+  forkRedactJiraSettingsForClient,
+} from "./fork/jira/serverSettings.ts";
 
 const encodeServerSettings = Schema.encodeEffect(ServerSettings);
 const encodeServerSettingsJson = Schema.encodeUnknownEffect(fromJsonStringPretty(ServerSettings));
@@ -105,7 +111,10 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
         : instance,
     ]),
   );
-  return { ...settings, providerInstances };
+  return forkRedactJiraSettingsForClient({
+    ...settings,
+    providerInstances,
+  });
 }
 
 export interface ServerSettingsShape {
@@ -364,6 +373,9 @@ const makeServerSettings = Effect.gen(function* () {
       };
     });
 
+  const materializeJiraApiTokenSecret = forkMaterializeJiraSecret(secretStore, toSettingsError);
+  const persistJiraApiTokenSecret = forkPersistJiraSecret(secretStore, toSettingsError);
+
   const persistProviderEnvironmentSecrets = (
     current: ServerSettings,
     next: ServerSettings,
@@ -545,21 +557,27 @@ const makeServerSettings = Effect.gen(function* () {
     ready: Deferred.await(startedDeferred),
     getSettings: getSettingsFromCache.pipe(
       Effect.flatMap(materializeProviderEnvironmentSecrets),
+      Effect.flatMap(materializeJiraApiTokenSecret),
       Effect.map(resolveTextGenerationProvider),
     ),
     updateSettings: (patch) =>
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
-          const nextPersisted = yield* persistProviderEnvironmentSecrets(
-            current,
+          const patched = forkClearJiraRedactionWhenRequested(
+            patch,
             applyServerSettingsPatch(current, patch),
+          );
+          const nextPersisted = yield* persistProviderEnvironmentSecrets(current, patched).pipe(
+            Effect.flatMap(persistJiraApiTokenSecret),
           );
           const next = yield* normalizeServerSettings(nextPersisted);
           yield* writeSettingsAtomically(next);
           yield* Cache.set(settingsCache, cacheKey, next);
           yield* emitChange(next);
-          const materialized = yield* materializeProviderEnvironmentSecrets(next);
+          const materialized = yield* materializeProviderEnvironmentSecrets(next).pipe(
+            Effect.flatMap(materializeJiraApiTokenSecret),
+          );
           return resolveTextGenerationProvider(materialized);
         }),
       ),
@@ -567,8 +585,9 @@ const makeServerSettings = Effect.gen(function* () {
       return Stream.fromPubSub(changesPubSub).pipe(
         Stream.mapEffect((settings) =>
           materializeProviderEnvironmentSecrets(settings).pipe(
+            Effect.flatMap(materializeJiraApiTokenSecret),
             Effect.catch((error: ServerSettingsError) =>
-              Effect.logWarning("failed to materialize provider environment secrets", {
+              Effect.logWarning("failed to materialize server settings secrets", {
                 detail: error.detail,
               }).pipe(Effect.as(settings)),
             ),

@@ -4,7 +4,7 @@ import {
   scoreQueryMatch,
 } from "@t3tools/shared/searchRanking";
 
-import type { ComposerCommandItem } from "./ComposerCommandMenu";
+import type { ComposerCommandItem } from "./composerCommandMenuGrouping";
 
 function scoreSlashCommandItem(
   item: Extract<ComposerCommandItem, { type: "slash-command" | "provider-slash-command" }>,

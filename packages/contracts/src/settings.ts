@@ -3,6 +3,7 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
+import { DEFAULT_JIRA_PAGE_FILTERS, JiraPageFilters } from "./forkJira.ts";
 import { ForkSettings, ForkSettingsPatch } from "./forkSettings.ts";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
@@ -65,6 +66,9 @@ export const ClientSettingsSchema = Schema.Struct({
       model: TrimmedNonEmptyString,
     }),
   ).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  jiraPageFilters: JiraPageFilters.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_JIRA_PAGE_FILTERS)),
+  ),
   providerModelPreferences: Schema.Record(
     ProviderInstanceId,
     Schema.Struct({
@@ -523,6 +527,7 @@ export const ClientSettingsPatch = Schema.Struct({
       }),
     ),
   ),
+  jiraPageFilters: Schema.optionalKey(JiraPageFilters),
   providerModelPreferences: Schema.optionalKey(
     Schema.Record(
       ProviderInstanceId,

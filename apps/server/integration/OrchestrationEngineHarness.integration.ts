@@ -38,6 +38,7 @@ import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapte
 import { makeProviderRegistryLayer } from "../src/provider/testUtils/providerRegistryMock.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
+import { JiraApi, type JiraApiShape } from "../src/fork/jira/JiraApi.ts";
 import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
 import { makeCodexAdapter } from "../src/provider/Layers/CodexAdapter.ts";
 import {
@@ -323,11 +324,31 @@ export const makeOrchestrationIntegrationHarness = (
       generateBranchName: () => Effect.succeed({ branch: "update" }),
       generateThreadTitle: () => Effect.succeed({ title: "New thread" }),
     } as unknown as TextGenerationShape);
+    const unexpectedJiraCall = () => Effect.die(new Error("Unexpected Jira API call")) as never;
+    const jiraLayer = Layer.succeed(JiraApi, {
+      listIssues: unexpectedJiraCall,
+      searchIssueMentions: unexpectedJiraCall,
+      searchUserMentions: unexpectedJiraCall,
+      getIssue: unexpectedJiraCall,
+      getIssueEditMetadata: unexpectedJiraCall,
+      listIssueTransitions: unexpectedJiraCall,
+      searchAssignableUsers: unexpectedJiraCall,
+      assignIssue: unexpectedJiraCall,
+      updateIssueFields: unexpectedJiraCall,
+      transitionIssue: unexpectedJiraCall,
+      validateConnection: unexpectedJiraCall,
+      listComments: unexpectedJiraCall,
+      addComment: unexpectedJiraCall,
+      updateComment: unexpectedJiraCall,
+      deleteComment: unexpectedJiraCall,
+      uploadAttachment: unexpectedJiraCall,
+    } satisfies JiraApiShape);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(gitWorkflowLayer),
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(serverSettingsLayer),
+      Layer.provideMerge(jiraLayer),
     );
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),

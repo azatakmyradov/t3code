@@ -1,6 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
+import {
+  ClientSettingsSchema,
+  DEFAULT_JIRA_PAGE_FILTERS,
+  type ClientSettings,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -19,6 +23,7 @@ const clientSettings: ClientSettings = {
   diffIgnoreWhitespace: true,
   diffWordWrap: true,
   favorites: [],
+  jiraPageFilters: DEFAULT_JIRA_PAGE_FILTERS,
   providerModelPreferences: {},
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
