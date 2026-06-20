@@ -1,19 +1,12 @@
-import {
-  type ProjectEntry,
-  type ProviderDriverKind,
-  type ServerProviderSkill,
-  type ServerProviderSlashCommand,
-} from "@t3tools/contracts";
 import { BotIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
-import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
+import type { ComposerTriggerKind } from "../../composer-logic";
 import {
   getForkComposerEmptyState,
   getForkComposerMenuGroup,
   isForkComposerMenuItem,
   renderForkComposerMenuItemIcon,
-  type ForkComposerMenuItem,
 } from "../../fork/composerExtensions";
 import { formatProviderSkillInstallSource } from "~/providerSkillPresentation";
 import { cn } from "~/lib/utils";
@@ -25,47 +18,8 @@ import {
   CommandList,
   CommandSeparator,
 } from "../ui/command";
+import { groupCommandItems, type ComposerCommandItem } from "./composerCommandMenuGrouping";
 import { PierreEntryIcon } from "./PierreEntryIcon";
-
-export type ComposerCommandItem =
-  | {
-      id: string;
-      type: "path";
-      path: string;
-      pathKind: ProjectEntry["kind"];
-      label: string;
-      description: string;
-    }
-  | {
-      id: string;
-      type: "slash-command";
-      command: ComposerSlashCommand;
-      label: string;
-      description: string;
-    }
-  | {
-      id: string;
-      type: "provider-slash-command";
-      provider: ProviderDriverKind;
-      command: ServerProviderSlashCommand;
-      label: string;
-      description: string;
-    }
-  | {
-      id: string;
-      type: "skill";
-      provider: ProviderDriverKind;
-      skill: ServerProviderSkill;
-      label: string;
-      description: string;
-    }
-  | ForkComposerMenuItem;
-
-type ComposerCommandGroup = {
-  id: string;
-  label: string | null;
-  items: ComposerCommandItem[];
-};
 
 function SkillGlyph(props: { className?: string }) {
   return (
@@ -84,35 +38,6 @@ function SkillGlyph(props: { className?: string }) {
       <path d="M12 22V12" />
     </svg>
   );
-}
-
-function groupCommandItems(
-  items: ComposerCommandItem[],
-  triggerKind: ComposerTriggerKind | null,
-  groupSlashCommandSections: boolean,
-): ComposerCommandGroup[] {
-  if (triggerKind === "skill") {
-    return items.length > 0 ? [{ id: "skills", label: "Skills", items }] : [];
-  }
-  const forkGroup = getForkComposerMenuGroup(triggerKind);
-  if (forkGroup) {
-    return items.length > 0 ? [{ ...forkGroup, items }] : [];
-  }
-  if (triggerKind !== "slash-command" || !groupSlashCommandSections) {
-    return [{ id: "default", label: null, items }];
-  }
-
-  const builtInItems = items.filter((item) => item.type === "slash-command");
-  const providerItems = items.filter((item) => item.type === "provider-slash-command");
-
-  const groups: ComposerCommandGroup[] = [];
-  if (builtInItems.length > 0) {
-    groups.push({ id: "built-in", label: "Built-in", items: builtInItems });
-  }
-  if (providerItems.length > 0) {
-    groups.push({ id: "provider", label: "Provider", items: providerItems });
-  }
-  return groups;
 }
 
 export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
@@ -200,7 +125,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                   {getForkComposerMenuGroup(props.triggerKind)?.label}
                 </CommandGroupLabel>
                 <p className="text-muted-foreground/70 text-xs">
-                  {props.emptyStateText ?? getForkComposerEmptyState(props.triggerKind)}
+                  {props.isLoading && props.triggerKind === "jira-issue"
+                    ? "Searching Jira tickets..."
+                    : (props.emptyStateText ?? getForkComposerEmptyState(props.triggerKind))}
                 </p>
               </CommandGroup>
             ) : (

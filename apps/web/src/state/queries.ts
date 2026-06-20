@@ -14,9 +14,10 @@ import type {
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { orchestrationEnvironment } from "./orchestration";
 import { projectEnvironment } from "./projects";
 import { useEnvironmentQuery } from "./query";
@@ -34,21 +35,6 @@ export interface ThreadDetailView {
   readonly error: string | null;
   readonly isPending: boolean;
   readonly isDeleted: boolean;
-}
-
-function useDebouncedValue<A>(value: A, delayMs: number): A {
-  const [debounced, setDebounced] = useState(value);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDebounced(value);
-    }, delayMs);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [delayMs, value]);
-
-  return debounced;
 }
 
 export function useThreadDetail(

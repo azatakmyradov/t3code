@@ -60,6 +60,8 @@ import * as Clock from "effect/Clock";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService, type GitWorkflowServiceShape } from "../../git/GitWorkflowService.ts";
+import { JiraApi, type JiraApiShape } from "../../fork/jira/JiraApi.ts";
+import * as JiraToolAccess from "../../mcp/JiraToolAccess.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -106,6 +108,7 @@ describe("ProviderCommandReactor", () => {
       await runtime.dispose();
     }
     runtime = null;
+    JiraToolAccess.clearAllJiraToolAccess();
     for (const stateDir of createdStateDirs) {
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
@@ -145,6 +148,12 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
+    readonly jiraSettings?: {
+      readonly siteUrl: string;
+      readonly email: string;
+      readonly apiToken: string;
+    };
+    readonly jiraApi?: Partial<JiraApiShape>;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3code-reactor-"));
@@ -293,6 +302,32 @@ describe("ProviderCommandReactor", () => {
     ];
 
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
+    const jiraGetIssue =
+      input?.jiraApi?.getIssue ??
+      vi.fn<JiraApiShape["getIssue"]>(() => Effect.die(new Error("Unexpected Jira getIssue call")));
+    const jiraListComments =
+      input?.jiraApi?.listComments ??
+      vi.fn<JiraApiShape["listComments"]>(() =>
+        Effect.die(new Error("Unexpected Jira listComments call")),
+      );
+    const jiraService: JiraApiShape = {
+      listIssues: unsupported,
+      searchIssueMentions: unsupported,
+      searchUserMentions: unsupported,
+      getIssue: jiraGetIssue,
+      getIssueEditMetadata: unsupported,
+      listIssueTransitions: unsupported,
+      searchAssignableUsers: unsupported,
+      assignIssue: unsupported,
+      updateIssueFields: unsupported,
+      transitionIssue: unsupported,
+      validateConnection: unsupported,
+      listComments: jiraListComments,
+      addComment: unsupported,
+      updateComment: unsupported,
+      deleteComment: unsupported,
+      uploadAttachment: unsupported,
+    };
     const service: ProviderServiceShape = {
       startSession: startSession as ProviderServiceShape["startSession"],
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
@@ -367,7 +402,18 @@ describe("ProviderCommandReactor", () => {
           generateThreadTitle,
         }),
       ),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(
+        ServerSettingsService.layerTest(
+          input?.jiraSettings
+            ? {
+                fork: {
+                  jira: input.jiraSettings,
+                },
+              }
+            : {},
+        ),
+      ),
+      Layer.provideMerge(Layer.succeed(JiraApi, jiraService)),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -420,11 +466,19 @@ describe("ProviderCommandReactor", () => {
       refreshStatus,
       generateBranchName,
       generateThreadTitle,
+      jiraGetIssue,
+      jiraListComments,
       runtimeSessions,
       stateDir,
       drain,
     };
   }
+
+  const jiraSettings = {
+    siteUrl: "https://example.atlassian.net",
+    email: "ada@example.com",
+    apiToken: "jira-token",
+  };
 
   it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {
     const harness = await createHarness();
@@ -463,6 +517,197 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("sends Jira tool context while keeping the stored user message unchanged", async () => {
+    const harness = await createHarness({ jiraSettings });
+    const now = "2026-01-01T00:00:00.000Z";
+    const originalText = "Please inspect ABC-123 before changing reconnect handling.";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-jira-enriched"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-jira-enriched"),
+          role: "user",
+          text: originalText,
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const sendInput = harness.sendTurn.mock.calls[0]?.[0] as { input?: string };
+    expect(sendInput.input).toContain("<jira_context>");
+    expect(sendInput.input).toContain("jira_get_issue");
+    expect(sendInput.input).toContain("jira_list_comments");
+    expect(sendInput.input).toContain("- ABC-123");
+    expect(sendInput.input).toContain(`User message:\n${originalText}`);
+    expect(harness.jiraGetIssue).not.toHaveBeenCalled();
+    expect(harness.jiraListComments).not.toHaveBeenCalled();
+    expect(JiraToolAccess.isThreadJiraReferenced(ThreadId.make("thread-1"))).toBe(true);
+
+    await waitFor(async () => {
+      const readModel = await harness.readModel();
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      return (
+        thread?.activities.some((activity) => activity.kind === "jira.context.attached") ?? false
+      );
+    });
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    const message = thread?.messages.find(
+      (entry) => entry.id === asMessageId("user-message-jira-enriched"),
+    );
+    expect(message?.text).toBe(originalText);
+    expect(
+      thread?.activities.find((activity) => activity.kind === "jira.context.attached"),
+    ).toMatchObject({
+      tone: "info",
+      summary: "Attached Jira context",
+      payload: {
+        keys: ["ABC-123"],
+        failedKeys: [],
+        omittedKeys: [],
+        fetchedAt: now,
+      },
+    });
+  });
+
+  it("uses the original user text for first-turn title and branch generation", async () => {
+    const harness = await createHarness({ jiraSettings });
+    const now = "2026-01-01T00:00:00.000Z";
+    const originalText = "Please inspect ABC-123 before changing reconnect handling.";
+    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Jira reconnect bug" }));
+    harness.generateBranchName.mockReturnValue(Effect.succeed({ branch: "fix/reconnect-jira" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-branch-jira-original"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-jira-generation-original"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-jira-generation-original"),
+          role: "user",
+          text: originalText,
+          attachments: [],
+        },
+        titleSeed: "Thread",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
+    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
+      message: originalText,
+    });
+    expect(harness.generateBranchName.mock.calls[0]?.[0]).toMatchObject({
+      message: originalText,
+    });
+    expect(JSON.stringify(harness.generateThreadTitle.mock.calls[0]?.[0] ?? {})).not.toContain(
+      "<jira_context>",
+    );
+    expect(JSON.stringify(harness.generateBranchName.mock.calls[0]?.[0] ?? {})).not.toContain(
+      "<jira_context>",
+    );
+  });
+
+  it("continues sending the provider turn when a Jira reference cannot be resolved", async () => {
+    const harness = await createHarness({ jiraSettings });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-jira-failure"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-jira-failure"),
+          role: "user",
+          text: "Please inspect https://other.atlassian.net/browse/ABC-123.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const sendInput = harness.sendTurn.mock.calls[0]?.[0] as { input?: string };
+    expect(sendInput.input).toContain("Jira lookup failed for ABC-123:");
+    expect(sendInput.input).toContain("does not match configured Jira site");
+
+    await waitFor(async () => {
+      const readModel = await harness.readModel();
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      return (
+        thread?.activities.some((activity) => activity.kind === "jira.context.lookup_failed") ??
+        false
+      );
+    });
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(
+      thread?.activities.find((activity) => activity.kind === "jira.context.lookup_failed"),
+    ).toMatchObject({
+      tone: "error",
+      summary: "Jira lookup failed",
+      payload: {
+        keys: [],
+        failedKeys: ["ABC-123"],
+        omittedKeys: [],
+        fetchedAt: now,
+      },
+    });
+  });
+
+  it("does not call Jira when the user message has no Jira references", async () => {
+    const harness = await createHarness({ jiraSettings });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-no-jira"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-no-jira"),
+          role: "user",
+          text: "No ticket reference in this turn.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.jiraGetIssue).not.toHaveBeenCalled();
+    expect(harness.jiraListComments).not.toHaveBeenCalled();
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      input: "No ticket reference in this turn.",
+    });
+    expect(JiraToolAccess.isThreadJiraReferenced(ThreadId.make("thread-1"))).toBe(false);
   });
 
   it("generates a thread title on the first turn", async () => {
@@ -1943,21 +2188,21 @@ describe("ProviderCommandReactor", () => {
     expect(resolvedActivity).toBeUndefined();
   });
 
-  it("surfaces non-resumable provider user-input callbacks as stale failures", async () => {
-    const harness = await createHarness();
-    const now = "2026-01-01T00:00:00.000Z";
-    harness.respondToUserInput.mockImplementation(() =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
-          provider: ProviderDriverKind.make("claudeAgent"),
-          method: "item/tool/respondToUserInput",
-          detail: "Unknown pending Codex user input request: user-input-request-1",
-        }),
-      ),
-    );
+  effectIt.effect("surfaces non-resumable provider user-input callbacks as stale failures", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+      harness.respondToUserInput.mockImplementation(() =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: ProviderDriverKind.make("claudeAgent"),
+            method: "item/tool/respondToUserInput",
+            detail: "Unknown pending Codex user input request: user-input-request-1",
+          }),
+        ),
+      );
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-for-user-input-error"),
         threadId: ThreadId.make("thread-1"),
@@ -1971,11 +2216,9 @@ describe("ProviderCommandReactor", () => {
           updatedAt: now,
         },
         createdAt: now,
-      }),
-    );
+      });
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.activity.append",
         commandId: CommandId.make("cmd-user-input-requested"),
         threadId: ThreadId.make("thread-1"),
@@ -2004,11 +2247,9 @@ describe("ProviderCommandReactor", () => {
           createdAt: now,
         },
         createdAt: now,
-      }),
-    );
+      });
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.user-input.respond",
         commandId: CommandId.make("cmd-user-input-respond-stale"),
         threadId: ThreadId.make("thread-1"),
@@ -2017,80 +2258,82 @@ describe("ProviderCommandReactor", () => {
           sandbox_mode: "workspace-write",
         },
         createdAt: now,
-      }),
-    );
+      });
 
-    await waitFor(async () => {
-      const readModel = await harness.readModel();
+      yield* Effect.promise(() =>
+        waitFor(async () => {
+          const readModel = await harness.readModel();
+          const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+          if (!thread) return false;
+          return thread.activities.some(
+            (activity) => activity.kind === "provider.user-input.respond.failed",
+          );
+        }),
+      );
+
+      const readModel = yield* Effect.promise(() => harness.readModel());
       const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-      if (!thread) return false;
-      return thread.activities.some(
+      expect(thread).toBeDefined();
+
+      const failureActivity = thread?.activities.find(
         (activity) => activity.kind === "provider.user-input.respond.failed",
       );
-    });
+      expect(failureActivity).toBeDefined();
+      expect(failureActivity?.payload).toMatchObject({
+        requestId: "user-input-request-1",
+        detail: expect.stringContaining("Stale pending user-input request: user-input-request-1"),
+      });
 
-    const readModel = await harness.readModel();
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread).toBeDefined();
+      const resolvedActivity = thread?.activities.find(
+        (activity) =>
+          activity.kind === "user-input.resolved" &&
+          typeof activity.payload === "object" &&
+          activity.payload !== null &&
+          (activity.payload as Record<string, unknown>).requestId === "user-input-request-1",
+      );
+      expect(resolvedActivity).toBeUndefined();
+    }),
+  );
 
-    const failureActivity = thread?.activities.find(
-      (activity) => activity.kind === "provider.user-input.respond.failed",
-    );
-    expect(failureActivity).toBeDefined();
-    expect(failureActivity?.payload).toMatchObject({
-      requestId: "user-input-request-1",
-      detail: expect.stringContaining("Stale pending user-input request: user-input-request-1"),
-    });
+  effectIt.effect(
+    "reacts to thread.session.stop by stopping provider session and clearing thread session state",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
 
-    const resolvedActivity = thread?.activities.find(
-      (activity) =>
-        activity.kind === "user-input.resolved" &&
-        typeof activity.payload === "object" &&
-        activity.payload !== null &&
-        (activity.payload as Record<string, unknown>).requestId === "user-input-request-1",
-    );
-    expect(resolvedActivity).toBeUndefined();
-  });
-
-  it("reacts to thread.session.stop by stopping provider session and clearing thread session state", async () => {
-    const harness = await createHarness();
-    const now = "2026-01-01T00:00:00.000Z";
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-session-set-for-stop"),
-        threadId: ThreadId.make("thread-1"),
-        session: {
+        yield* harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-session-set-for-stop"),
           threadId: ThreadId.make("thread-1"),
-          status: "ready",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex_work"),
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
+          session: {
+            threadId: ThreadId.make("thread-1"),
+            status: "ready",
+            providerName: "codex",
+            providerInstanceId: ProviderInstanceId.make("codex_work"),
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        });
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.stop",
-        commandId: CommandId.make("cmd-session-stop"),
-        threadId: ThreadId.make("thread-1"),
-        createdAt: now,
-      }),
-    );
+        yield* harness.engine.dispatch({
+          type: "thread.session.stop",
+          commandId: CommandId.make("cmd-session-stop"),
+          threadId: ThreadId.make("thread-1"),
+          createdAt: now,
+        });
 
-    await waitFor(() => harness.stopSession.mock.calls.length === 1);
-    const readModel = await harness.readModel();
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread?.session).not.toBeNull();
-    expect(thread?.session?.status).toBe("stopped");
-    expect(thread?.session?.threadId).toBe("thread-1");
-    expect(thread?.session?.providerInstanceId).toBe(ProviderInstanceId.make("codex_work"));
-    expect(thread?.session?.activeTurnId).toBeNull();
-  });
+        yield* Effect.promise(() => waitFor(() => harness.stopSession.mock.calls.length === 1));
+        const readModel = yield* Effect.promise(() => harness.readModel());
+        const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+        expect(thread?.session).not.toBeNull();
+        expect(thread?.session?.status).toBe("stopped");
+        expect(thread?.session?.threadId).toBe("thread-1");
+        expect(thread?.session?.providerInstanceId).toBe(ProviderInstanceId.make("codex_work"));
+        expect(thread?.session?.activeTurnId).toBeNull();
+      }),
+  );
 });
