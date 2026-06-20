@@ -5,6 +5,16 @@ import {
 } from "@t3tools/shared/searchRanking";
 import type { JiraIssueSummary } from "@t3tools/contracts";
 
+/**
+ * How many recent issues to pull for `#` pickers. Jira's issue-picker endpoint
+ * is unreliable for cross-project key search, so mention surfaces fetch a broad
+ * recency-ordered page once and fuzzy-filter it client-side via
+ * {@link rankJiraIssues}.
+ */
+export const JIRA_ISSUE_MENTION_FETCH_LIMIT = 50;
+/** How many ranked issue results to show in mention menus at once. */
+export const JIRA_ISSUE_MENTION_DISPLAY_LIMIT = 25;
+
 function scoreJiraIssue(issue: JiraIssueSummary, query: string): number | null {
   const key = issue.key.toLowerCase();
   const summary = issue.summary.toLowerCase();
