@@ -24,6 +24,7 @@ import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3Conne
 import { FORK_SETTINGS_NAV_ITEMS } from "../../fork/settingsNav";
 
 export type SettingsSectionPath =
+  | "/settings/appearance"
   | "/settings/general"
   | "/settings/jira"
   | "/settings/keybindings"

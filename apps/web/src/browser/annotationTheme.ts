@@ -8,12 +8,12 @@ export function readPreviewAnnotationTheme(): DesktopPreviewAnnotationTheme {
   const styles = getComputedStyle(root);
   return {
     colorScheme: root.classList.contains("dark") ? "dark" : "light",
-    radius: readVariable(styles, "--radius", "0.625rem"),
+    radius: readVariable(styles, "--radius", "0.75rem"),
     background: readVariable(styles, "--background", "white"),
     foreground: readVariable(styles, "--foreground", "oklch(0.269 0 0)"),
     popover: readVariable(styles, "--popover", "white"),
     popoverForeground: readVariable(styles, "--popover-foreground", "oklch(0.269 0 0)"),
-    primary: readVariable(styles, "--primary", "oklch(0.488 0.217 264)"),
+    primary: readVariable(styles, "--primary", "oklch(0.205 0 0)"),
     primaryForeground: readVariable(styles, "--primary-foreground", "white"),
     muted: readVariable(styles, "--muted", "rgb(0 0 0 / 4%)"),
     mutedForeground: readVariable(styles, "--muted-foreground", "oklch(0.556 0 0)"),
@@ -21,7 +21,7 @@ export function readPreviewAnnotationTheme(): DesktopPreviewAnnotationTheme {
     accentForeground: readVariable(styles, "--accent-foreground", "oklch(0.269 0 0)"),
     border: readVariable(styles, "--border", "rgb(0 0 0 / 8%)"),
     input: readVariable(styles, "--input", "rgb(0 0 0 / 10%)"),
-    ring: readVariable(styles, "--ring", "oklch(0.488 0.217 264)"),
+    ring: readVariable(styles, "--ring", "oklch(0.205 0 0)"),
     fontSans: readVariable(styles, "--font-sans", styles.fontFamily || "system-ui, sans-serif"),
     fontMono: readVariable(styles, "--font-mono", "ui-monospace, monospace"),
   };
