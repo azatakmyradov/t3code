@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-type Theme = "light" | "dark" | "system";
+type Theme = "light" | "dark" | "system" | "codex" | "codex-light";
 type ThemeSnapshot = {
   theme: Theme;
   systemDark: boolean;
@@ -39,7 +39,14 @@ function getSystemDark() {
 function getStored(): Theme {
   if (!hasThemeStorage()) return DEFAULT_THEME_SNAPSHOT.theme;
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  if (
+    raw === "light" ||
+    raw === "dark" ||
+    raw === "system" ||
+    raw === "codex" ||
+    raw === "codex-light"
+  )
+    return raw;
   return DEFAULT_THEME_SNAPSHOT.theme;
 }
 
@@ -103,8 +110,15 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const isDark = theme === "dark" || (theme === "system" && systemDark);
+  // Codex layers a `codex` class on top of the standard light/dark variant so
+  // every Tailwind `dark:` utility keeps working; the class only re-points the
+  // colour tokens (see fork/codex-theme.css). Dark codex keeps `.dark` on,
+  // light codex drops it.
+  const isCodexDark = theme === "codex";
+  const isCodexLight = theme === "codex-light";
+  const isDark = isCodexDark || theme === "dark" || (theme === "system" && systemDark);
   document.documentElement.classList.toggle("dark", isDark);
+  document.documentElement.classList.toggle("codex", isCodexDark || isCodexLight);
   lastAppliedTheme = { theme, systemDark };
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
@@ -126,7 +140,10 @@ function syncDesktopTheme(theme: Theme) {
   }
 
   lastDesktopTheme = theme;
-  void bridge.setTheme(theme).catch(() => {
+  // The desktop bridge only knows the upstream DesktopTheme union; the codex
+  // variants map to their underlying dark/light for the native chrome.
+  const desktopTheme = theme === "codex" ? "dark" : theme === "codex-light" ? "light" : theme;
+  void bridge.setTheme(desktopTheme).catch(() => {
     if (lastDesktopTheme === theme) {
       lastDesktopTheme = null;
     }
@@ -188,7 +205,13 @@ export function useTheme() {
   const theme = snapshot.theme;
 
   const resolvedTheme: "light" | "dark" =
-    theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
+    theme === "system"
+      ? snapshot.systemDark
+        ? "dark"
+        : "light"
+      : theme === "light" || theme === "codex-light"
+        ? "light"
+        : "dark";
 
   const setTheme = useCallback((next: Theme) => {
     if (!hasThemeStorage()) return;

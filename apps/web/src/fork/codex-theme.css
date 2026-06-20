@@ -1,0 +1,115 @@
+/*
+ * Codex theme (fork addition).
+ *
+ * Codex ships in two flavours, both driven by the `codex` class (see
+ * hooks/useTheme.ts):
+ *   - Dark  -> `.dark.codex`        (codex layered on top of the dark variant)
+ *   - Light -> `.codex:not(.dark)`  (codex without the dark variant)
+ * Layering codex on `.dark` keeps every Tailwind `dark:` variant working with
+ * no extra registration. Each scope below has specificity (0,3,0), which beats
+ * both the base `:root` (0,1,0) and the generated dark-variant selector
+ * (0,2,0), so the overrides win regardless of source order. Values are literal
+ * (no Tailwind `--alpha()` / theme vars) so the file stands alone and stays out
+ * of the upstream merge path.
+ */
+
+/*
+ * Codex swaps the app's geometric DM Sans for a neutral system UI font (SF Pro
+ * on macOS / Segoe UI on Windows) — what the native Codex app renders — for both
+ * light and dark. Re-pointing `--font-sans` covers `var(--font-sans)` consumers
+ * (diff panels, etc.); the body rule covers everything that inherits its font.
+ */
+:root.codex {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Segoe UI", system-ui, Roboto,
+    Helvetica, Arial, sans-serif;
+}
+
+:root.codex body {
+  font-family: var(--font-sans);
+}
+
+/* `--font-sans` lives in `@theme inline`, so the `font-sans` utility compiles to
+   a literal DM Sans value and ignores the variable override above. Re-point it
+   explicitly; this unlayered rule outranks the layered utility. */
+:root.codex .font-sans {
+  font-family: var(--font-sans);
+}
+
+:root.dark.codex {
+  color-scheme: dark;
+
+  /* Near-black, faintly warm neutral surfaces */
+  --background: oklch(0.18 0.003 70);
+  --app-chrome-background: oklch(0.15 0.003 70);
+  --foreground: oklch(0.94 0.002 80);
+
+  /* Lifted surfaces: composer, menus, cards */
+  --card: oklch(0.235 0.004 70);
+  --card-foreground: oklch(0.94 0.002 80);
+  --popover: oklch(0.235 0.004 70);
+  --popover-foreground: oklch(0.94 0.002 80);
+
+  /* Signature warm Codex accent */
+  --primary: oklch(0.69 0.14 48);
+  --primary-foreground: oklch(0.2 0.015 60);
+  --ring: oklch(0.69 0.14 48);
+
+  --secondary: rgb(255 255 255 / 0.05);
+  --secondary-foreground: oklch(0.94 0.002 80);
+  --muted: rgb(255 255 255 / 0.04);
+  --muted-foreground: oklch(0.63 0.005 75);
+  --accent: rgb(255 255 255 / 0.06);
+  --accent-foreground: oklch(0.94 0.002 80);
+
+  --border: rgb(255 255 255 / 0.07);
+  --input: rgb(255 255 255 / 0.09);
+
+  --destructive: oklch(0.637 0.208 25.3); /* red-500 */
+  --destructive-foreground: oklch(0.704 0.191 22.2); /* red-400 */
+  --info: oklch(0.707 0.165 254.6); /* blue-400 */
+  --info-foreground: oklch(0.809 0.105 251.8); /* blue-300 */
+  --success: oklch(0.696 0.17 162.5); /* emerald-500 */
+  --success-foreground: oklch(0.765 0.177 163.2); /* emerald-400 */
+  --warning: oklch(0.74 0.14 62);
+  --warning-foreground: oklch(0.81 0.12 64);
+}
+
+:root.codex:not(.dark) {
+  color-scheme: light;
+
+  /* White canvas, warm light-gray app chrome */
+  --background: oklch(1 0 0);
+  --app-chrome-background: oklch(0.965 0.004 85);
+  --foreground: oklch(0.24 0.004 70);
+
+  /* White lifted surfaces: composer, menus, cards */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.004 70);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.004 70);
+
+  /* Signature warm Codex accent (deeper so white text stays legible) */
+  --primary: oklch(0.64 0.16 47);
+  --primary-foreground: oklch(0.99 0 0);
+  --ring: oklch(0.64 0.16 47);
+
+  --secondary: rgb(0 0 0 / 0.04);
+  --secondary-foreground: oklch(0.24 0.004 70);
+  --muted: rgb(0 0 0 / 0.04);
+  --muted-foreground: oklch(0.5 0.006 70);
+  --accent: rgb(0 0 0 / 0.06);
+  --accent-foreground: oklch(0.24 0.004 70);
+
+  --border: rgb(0 0 0 / 0.09);
+  --input: rgb(0 0 0 / 0.11);
+
+  --destructive: oklch(0.637 0.208 25.3); /* red-500 */
+  --destructive-foreground: oklch(0.505 0.213 27.5); /* red-700 */
+  --info: oklch(0.623 0.214 259.8); /* blue-500 */
+  --info-foreground: oklch(0.488 0.243 264.4); /* blue-700 */
+  --success: oklch(0.696 0.17 162.5); /* emerald-500 */
+  --success-foreground: oklch(0.508 0.118 165.6); /* emerald-700 */
+  --warning: oklch(0.7 0.15 60);
+  --warning-foreground: oklch(0.52 0.13 55);
+}
