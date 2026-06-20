@@ -81,6 +81,7 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "./provider/providerMaintenance.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -103,6 +104,7 @@ import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
+import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
@@ -316,6 +318,9 @@ const buildAppUnderTest = (options?: {
   layers?: {
     keybindings?: Partial<Keybindings.Keybindings["Service"]>;
     providerRegistry?: Partial<ProviderRegistry.ProviderRegistry["Service"]>;
+    providerInstanceRegistry?: Partial<
+      ProviderInstanceRegistry.ProviderInstanceRegistry["Service"]
+    >;
     serverSettings?: Partial<ServerSettings.ServerSettingsService["Service"]>;
     externalLauncher?: Partial<ExternalLauncher.ExternalLauncher["Service"]>;
     vcsDriver?: Partial<VcsDriver.VcsDriver["Service"]>;
@@ -326,6 +331,7 @@ const buildAppUnderTest = (options?: {
       SourceControlRepositoryService.SourceControlRepositoryService["Service"]
     >;
     reviewService?: Partial<ReviewService.ReviewService["Service"]>;
+    textGeneration?: Partial<TextGeneration.TextGeneration["Service"]>;
     vcsStatusBroadcaster?: Partial<VcsStatusBroadcaster.VcsStatusBroadcaster["Service"]>;
     projectSetupScriptRunner?: Partial<
       ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]
@@ -534,28 +540,49 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(ProviderRegistry.ProviderRegistry)({
-          getProviders: Effect.succeed([]),
-          refresh: () => Effect.succeed([]),
-          refreshInstance: () => Effect.succeed([]),
-          getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
-            Effect.succeed(
-              makeManualOnlyProviderMaintenanceCapabilities({ provider, packageName: null }),
+        Layer.merge(
+          Layer.mock(ProviderRegistry.ProviderRegistry)({
+            getProviders: Effect.succeed([]),
+            refresh: () => Effect.succeed([]),
+            refreshInstance: () => Effect.succeed([]),
+            getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
+              Effect.succeed(
+                makeManualOnlyProviderMaintenanceCapabilities({ provider, packageName: null }),
+              ),
+            setProviderMaintenanceActionState: () => Effect.succeed([]),
+            streamChanges: Stream.empty,
+            ...options?.layers?.providerRegistry,
+          }),
+          Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+            getInstance: () => Effect.succeed(undefined),
+            listInstances: Effect.succeed([]),
+            listUnavailable: Effect.succeed([]),
+            streamChanges: Stream.empty,
+            subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
+              PubSub.subscribe(pubsub),
             ),
-          setProviderMaintenanceActionState: () => Effect.succeed([]),
-          streamChanges: Stream.empty,
-          ...options?.layers?.providerRegistry,
-        }),
+            ...options?.layers?.providerInstanceRegistry,
+          }),
+        ),
       ),
       Layer.provide(
-        Layer.mock(ServerSettings.ServerSettingsService)({
-          start: Effect.void,
-          ready: Effect.void,
-          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          streamChanges: Stream.empty,
-          ...options?.layers?.serverSettings,
-        }),
+        Layer.merge(
+          Layer.mock(ServerSettings.ServerSettingsService)({
+            start: Effect.void,
+            ready: Effect.void,
+            getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+            updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+            streamChanges: Stream.empty,
+            ...options?.layers?.serverSettings,
+          }),
+          Layer.mock(TextGeneration.TextGeneration)({
+            generateCommitMessage: () => Effect.succeed({ subject: "", body: "" }),
+            generatePrContent: () => Effect.succeed({ title: "", body: "" }),
+            generateBranchName: () => Effect.succeed({ branch: "" }),
+            generateThreadTitle: () => Effect.succeed({ title: "" }),
+            ...options?.layers?.textGeneration,
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ExternalLauncher.ExternalLauncher)({

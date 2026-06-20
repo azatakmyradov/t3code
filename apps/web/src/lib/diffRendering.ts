@@ -124,12 +124,16 @@ export function getRenderablePatch(
   }
 }
 
-export function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
-  const raw = fileDiff.name ?? fileDiff.prevName ?? "";
-  if (raw.startsWith("a/") || raw.startsWith("b/")) {
-    return raw.slice(2);
+/** Strip a leading `a/` or `b/` diff prefix from a patch path. */
+export function stripDiffPathPrefix(value: string): string {
+  if (value.startsWith("a/") || value.startsWith("b/")) {
+    return value.slice(2);
   }
-  return raw;
+  return value;
+}
+
+export function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
+  return stripDiffPathPrefix(fileDiff.name ?? fileDiff.prevName ?? "");
 }
 
 export function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {

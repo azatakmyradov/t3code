@@ -404,6 +404,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.fork.desktopAgentTerminalNotificationsEnabled
         ? ["Agent completion notifications"]
         : []),
+      ...(settings.fork.reviewGroupsDefaultMode !==
+      DEFAULT_UNIFIED_SETTINGS.fork.reviewGroupsDefaultMode
+        ? ["Semantic groups by default"]
+        : []),
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -435,6 +439,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.fork.desktopAgentTerminalNotificationsEnabled,
+      settings.fork.reviewGroupsDefaultMode,
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
@@ -469,6 +474,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ...settings.fork,
         desktopAgentTerminalNotificationsEnabled:
           DEFAULT_UNIFIED_SETTINGS.fork.desktopAgentTerminalNotificationsEnabled,
+        reviewGroupsDefaultMode: DEFAULT_UNIFIED_SETTINGS.fork.reviewGroupsDefaultMode,
       },
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -480,7 +486,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
     });
     onRestored?.();
-  }, [changedSettingLabels, onRestored, setTheme, updateSettings]);
+  }, [changedSettingLabels, onRestored, setTheme, settings.fork, updateSettings]);
 
   return {
     changedSettingLabels,

@@ -48,6 +48,7 @@ const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
 const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
+const REVIEW_DIFF_LARGE_MAX_OUTPUT_BYTES = 5_000_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
 
@@ -105,6 +106,30 @@ interface ExecuteGitOptions {
   maxOutputBytes?: number | undefined;
   appendTruncationMarker?: boolean | undefined;
   progress?: GitVcsDriver.ExecuteGitProgress | undefined;
+}
+
+export interface ReviewDiffPreviewCaps {
+  readonly patchMaxOutputBytes: number;
+  readonly untrackedPatchMaxOutputBytes: number;
+  readonly workspaceFilesMaxOutputBytes: number;
+}
+
+const REVIEW_DIFF_STANDARD_CAPS: ReviewDiffPreviewCaps = {
+  patchMaxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
+  untrackedPatchMaxOutputBytes: REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES,
+  workspaceFilesMaxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+};
+
+const REVIEW_DIFF_LARGE_CAPS: ReviewDiffPreviewCaps = {
+  patchMaxOutputBytes: REVIEW_DIFF_LARGE_MAX_OUTPUT_BYTES,
+  untrackedPatchMaxOutputBytes: REVIEW_DIFF_LARGE_MAX_OUTPUT_BYTES,
+  workspaceFilesMaxOutputBytes: REVIEW_DIFF_LARGE_MAX_OUTPUT_BYTES,
+};
+
+export function getReviewDiffPreviewCaps(
+  sizeProfile: ReviewDiffPreviewInput["sizeProfile"],
+): ReviewDiffPreviewCaps {
+  return sizeProfile === "large" ? REVIEW_DIFF_LARGE_CAPS : REVIEW_DIFF_STANDARD_CAPS;
 }
 
 function parseBranchAb(value: string): { ahead: number; behind: number } {
@@ -1752,13 +1777,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     };
   });
 
-  const readUntrackedReviewDiffs = Effect.fn("readUntrackedReviewDiffs")(function* (cwd: string) {
+  const readUntrackedReviewDiffs = Effect.fn("readUntrackedReviewDiffs")(function* (
+    cwd: string,
+    caps: ReviewDiffPreviewCaps,
+  ) {
     const untrackedResult = yield* executeGit(
       "GitVcsDriver.readUntrackedReviewDiffs.list",
       cwd,
       ["ls-files", "--others", "--exclude-standard", "-z"],
       {
-        maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+        maxOutputBytes: caps.workspaceFilesMaxOutputBytes,
         appendTruncationMarker: true,
       },
     );
@@ -1776,7 +1804,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ["diff", "--no-index", "--patch", "--minimal", "--", "/dev/null", relativePath],
           {
             allowNonZeroExit: true,
-            maxOutputBytes: REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES,
+            maxOutputBytes: caps.untrackedPatchMaxOutputBytes,
             appendTruncationMarker: true,
           },
         ),
@@ -1794,6 +1822,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const getReviewDiffPreview = Effect.fn("getReviewDiffPreview")(function* (
     input: ReviewDiffPreviewInput,
   ) {
+    const caps = getReviewDiffPreviewCaps(input.sizeProfile);
     const details = yield* statusDetailsLocal(input.cwd);
     if (!details.isRepo) {
       return {
@@ -1824,7 +1853,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         "--",
       ],
       {
-        maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
+        maxOutputBytes: caps.patchMaxOutputBytes,
         appendTruncationMarker: true,
       },
     ).pipe(
@@ -1836,7 +1865,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         stderrTruncated: false,
       })),
     );
-    const dirtyUntracked = yield* readUntrackedReviewDiffs(input.cwd).pipe(
+    const dirtyUntracked = yield* readUntrackedReviewDiffs(input.cwd, caps).pipe(
       Effect.orElseSucceed(() => ({ diff: "", truncated: false })),
     );
     const dirtyDiff = [dirtyTrackedResult.stdout.trimEnd(), dirtyUntracked.diff.trimEnd()]
@@ -1856,7 +1885,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               `${baseRef}...HEAD`,
             ],
             {
-              maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
+              maxOutputBytes: caps.patchMaxOutputBytes,
               appendTruncationMarker: true,
             },
           ).pipe(

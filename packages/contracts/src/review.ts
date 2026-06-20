@@ -7,6 +7,7 @@ export const ReviewDiffPreviewInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   baseRef: Schema.optional(TrimmedNonEmptyString),
   ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
+  sizeProfile: Schema.optional(Schema.Literals(["standard", "large"])),
 });
 export type ReviewDiffPreviewInput = typeof ReviewDiffPreviewInput.Type;
 

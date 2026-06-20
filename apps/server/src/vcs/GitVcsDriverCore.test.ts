@@ -9,7 +9,7 @@ import * as Scope from "effect/Scope";
 
 import { GitCommandError } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
-import { splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
+import { getReviewDiffPreviewCaps, splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
@@ -133,6 +133,47 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           ignored.sources.find((source) => source.kind === "branch-range")?.diff,
           "",
         );
+      }),
+    );
+
+    it.effect("standard profile truncates tracked diffs while large profile allows them", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const largeBody = Array.from(
+          { length: 2_000 },
+          (_, index) => `line-${String(index).padStart(4, "0")} ${"x".repeat(80)}\n`,
+        ).join("");
+
+        yield* writeTextFile(cwd, "README.md", largeBody);
+
+        const standard = yield* driver.getReviewDiffPreview({ cwd });
+        const large = yield* driver.getReviewDiffPreview({ cwd, sizeProfile: "large" });
+        const standardSource = standard.sources.find((source) => source.id === "working-tree");
+        const largeSource = large.sources.find((source) => source.id === "working-tree");
+
+        assert.equal(standardSource?.truncated, true);
+        assert.equal(largeSource?.truncated, false);
+        assert.isAbove(
+          largeSource?.diff.length ?? 0,
+          getReviewDiffPreviewCaps("standard").patchMaxOutputBytes,
+        );
+        assert.include(largeSource?.diff ?? "", "line-1999");
+      }),
+    );
+
+    it.effect("uses the selected profile cap for untracked file listing and patches", () =>
+      Effect.sync(() => {
+        const standard = getReviewDiffPreviewCaps(undefined);
+        const explicitStandard = getReviewDiffPreviewCaps("standard");
+        const large = getReviewDiffPreviewCaps("large");
+
+        assert.equal(standard.workspaceFilesMaxOutputBytes, 120_000);
+        assert.equal(standard.untrackedPatchMaxOutputBytes, 80_000);
+        assert.deepStrictEqual(explicitStandard, standard);
+        assert.equal(large.workspaceFilesMaxOutputBytes, 5_000_000);
+        assert.equal(large.untrackedPatchMaxOutputBytes, 5_000_000);
       }),
     );
   });

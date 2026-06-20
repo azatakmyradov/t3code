@@ -108,8 +108,7 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import * as Jira from "./fork/jira/index.ts";
-import { JiraApi } from "./fork/jira/JiraApi.ts";
-import { FORK_JIRA_REQUIRED_SCOPE, makeForkJiraHandlers } from "./fork/jira/rpcHandlers.ts";
+import { FORK_RPC_REQUIRED_SCOPE, makeForkRpcHandlers } from "./fork/rpcHandlers.ts";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 const isWorkspacePathOutsideRootError = Schema.is(WorkspacePaths.WorkspacePathOutsideRootError);
 
@@ -279,7 +278,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.subscribeServerConfig, AuthOrchestrationReadScope],
   [WS_METHODS.subscribeServerLifecycle, AuthOrchestrationReadScope],
   [WS_METHODS.subscribeAuthAccess, AuthAccessReadScope],
-  ...FORK_JIRA_REQUIRED_SCOPE,
+  ...FORK_RPC_REQUIRED_SCOPE,
 ]);
 
 function toAuthAccessStreamEvent(
@@ -369,7 +368,6 @@ const makeWsRpcLayer = (currentSession: EnvironmentAuth.AuthenticatedSession) =>
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const relayClient = yield* RelayClient.RelayClient;
-      const jira = yield* JiraApi;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
         new EnvironmentAuthorizationError({
           message: `The authenticated token is missing required scope: ${requiredScope}.`,
@@ -430,6 +428,7 @@ const makeWsRpcLayer = (currentSession: EnvironmentAuth.AuthenticatedSession) =>
           authorizeEffect(requiredScopeForMethod(method), effect),
           traceAttributes,
         );
+      const forkRpcHandlers = yield* makeForkRpcHandlers(observeRpcEffect);
       const toDispatchCommandError = (cause: unknown, fallbackMessage: string) =>
         isOrchestrationDispatchCommandError(cause)
           ? cause
@@ -1258,7 +1257,7 @@ const makeWsRpcLayer = (currentSession: EnvironmentAuth.AuthenticatedSession) =>
               "rpc.aggregate": "source-control",
             },
           ),
-        ...makeForkJiraHandlers(jira, observeRpcEffect),
+        ...forkRpcHandlers,
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,

@@ -510,12 +510,10 @@ export const DEFAULT_JIRA_PAGE_FILTERS: JiraPageFilters = Schema.decodeSync(Jira
 // ── Fork RPC seam ─────────────────────────────────────────────────────────
 //
 // The Jira WS method names, RPC definitions, and their aggregate array live
-// here so the upstream `rpc.ts` touches only a single import plus two spreads
-// (`...FORK_WS_METHODS` in `WS_METHODS`, `...FORK_JIRA_RPCS` in
-// `WsRpcGroup.make`). Keeping the bodies in the fork file means an upstream
-// sync conflicts on at most those append points.
+// here. `forkRpc.ts` aggregates them with other fork RPCs so upstream `rpc.ts`
+// touches only one import and two aggregate spreads.
 
-export const FORK_WS_METHODS = {
+export const FORK_JIRA_WS_METHODS = {
   jiraListIssues: "jira.listIssues",
   jiraSearchIssueMentions: "jira.searchIssueMentions",
   jiraSearchUserMentions: "jira.searchUserMentions",
@@ -534,97 +532,106 @@ export const FORK_WS_METHODS = {
   jiraUploadAttachment: "jira.uploadAttachment",
 } as const;
 
-export const WsJiraListIssuesRpc = Rpc.make(FORK_WS_METHODS.jiraListIssues, {
+export const WsJiraListIssuesRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraListIssues, {
   payload: JiraListIssuesInput,
   success: JiraListIssuesResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraSearchIssueMentionsRpc = Rpc.make(FORK_WS_METHODS.jiraSearchIssueMentions, {
+export const WsJiraSearchIssueMentionsRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraSearchIssueMentions, {
   payload: JiraSearchIssueMentionsInput,
   success: JiraSearchIssueMentionsResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraSearchUserMentionsRpc = Rpc.make(FORK_WS_METHODS.jiraSearchUserMentions, {
+export const WsJiraSearchUserMentionsRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraSearchUserMentions, {
   payload: JiraSearchUserMentionsInput,
   success: JiraSearchUserMentionsResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraGetIssueRpc = Rpc.make(FORK_WS_METHODS.jiraGetIssue, {
+export const WsJiraGetIssueRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraGetIssue, {
   payload: JiraGetIssueInput,
   success: JiraIssueDetail,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraGetIssueEditMetadataRpc = Rpc.make(FORK_WS_METHODS.jiraGetIssueEditMetadata, {
-  payload: JiraGetIssueInput,
-  success: JiraEditableIssueFields,
-  error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
-});
+export const WsJiraGetIssueEditMetadataRpc = Rpc.make(
+  FORK_JIRA_WS_METHODS.jiraGetIssueEditMetadata,
+  {
+    payload: JiraGetIssueInput,
+    success: JiraEditableIssueFields,
+    error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
+  },
+);
 
-export const WsJiraListIssueTransitionsRpc = Rpc.make(FORK_WS_METHODS.jiraListIssueTransitions, {
-  payload: JiraListIssueTransitionsInput,
-  success: JiraListIssueTransitionsResult,
-  error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
-});
+export const WsJiraListIssueTransitionsRpc = Rpc.make(
+  FORK_JIRA_WS_METHODS.jiraListIssueTransitions,
+  {
+    payload: JiraListIssueTransitionsInput,
+    success: JiraListIssueTransitionsResult,
+    error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
+  },
+);
 
-export const WsJiraSearchAssignableUsersRpc = Rpc.make(FORK_WS_METHODS.jiraSearchAssignableUsers, {
-  payload: JiraSearchAssignableUsersInput,
-  success: JiraSearchAssignableUsersResult,
-  error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
-});
+export const WsJiraSearchAssignableUsersRpc = Rpc.make(
+  FORK_JIRA_WS_METHODS.jiraSearchAssignableUsers,
+  {
+    payload: JiraSearchAssignableUsersInput,
+    success: JiraSearchAssignableUsersResult,
+    error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
+  },
+);
 
-export const WsJiraAssignIssueRpc = Rpc.make(FORK_WS_METHODS.jiraAssignIssue, {
+export const WsJiraAssignIssueRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraAssignIssue, {
   payload: JiraAssignIssueInput,
   success: JiraIssueMutationResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraUpdateIssueFieldsRpc = Rpc.make(FORK_WS_METHODS.jiraUpdateIssueFields, {
+export const WsJiraUpdateIssueFieldsRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraUpdateIssueFields, {
   payload: JiraUpdateIssueFieldsInput,
   success: JiraIssueMutationResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraTransitionIssueRpc = Rpc.make(FORK_WS_METHODS.jiraTransitionIssue, {
+export const WsJiraTransitionIssueRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraTransitionIssue, {
   payload: JiraTransitionIssueInput,
   success: JiraIssueMutationResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraValidateConnectionRpc = Rpc.make(FORK_WS_METHODS.jiraValidateConnection, {
+export const WsJiraValidateConnectionRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraValidateConnection, {
   payload: JiraValidateConnectionInput,
   success: JiraValidateConnectionResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraListCommentsRpc = Rpc.make(FORK_WS_METHODS.jiraListComments, {
+export const WsJiraListCommentsRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraListComments, {
   payload: JiraListCommentsInput,
   success: JiraListCommentsResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraAddCommentRpc = Rpc.make(FORK_WS_METHODS.jiraAddComment, {
+export const WsJiraAddCommentRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraAddComment, {
   payload: JiraAddCommentInput,
   success: JiraComment,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraUpdateCommentRpc = Rpc.make(FORK_WS_METHODS.jiraUpdateComment, {
+export const WsJiraUpdateCommentRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraUpdateComment, {
   payload: JiraUpdateCommentInput,
   success: JiraComment,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraDeleteCommentRpc = Rpc.make(FORK_WS_METHODS.jiraDeleteComment, {
+export const WsJiraDeleteCommentRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraDeleteComment, {
   payload: JiraDeleteCommentInput,
   success: JiraDeleteCommentResult,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),
 });
 
-export const WsJiraUploadAttachmentRpc = Rpc.make(FORK_WS_METHODS.jiraUploadAttachment, {
+export const WsJiraUploadAttachmentRpc = Rpc.make(FORK_JIRA_WS_METHODS.jiraUploadAttachment, {
   payload: JiraUploadAttachmentInput,
   success: JiraAttachment,
   error: Schema.Union([JiraIntegrationError, EnvironmentAuthorizationError]),

@@ -44,6 +44,8 @@ import {
   resolveClaudeEffort,
 } from "../provider/Layers/ClaudeProvider.ts";
 import { makeClaudeEnvironment } from "../provider/Drivers/ClaudeHome.ts";
+import { buildSemanticDiffGroupsPrompt } from "../fork/reviewGroups/prompts.ts";
+import type { SemanticDiffGroupsCapability } from "../fork/reviewGroups/textGeneration.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
 
@@ -85,7 +87,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "generateSemanticDiffGroups",
     value: unknown,
     detail: string,
   ): Effect.Effect<string, TextGenerationError> =>
@@ -115,7 +118,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "generateSemanticDiffGroups";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -353,10 +357,30 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       };
     });
 
+  const generateSemanticDiffGroups: SemanticDiffGroupsCapability["generateSemanticDiffGroups"] =
+    Effect.fn("ClaudeTextGeneration.generateSemanticDiffGroups")(function* (input) {
+      const { prompt, outputSchema } = buildSemanticDiffGroupsPrompt({
+        kind: input.kind,
+        baseRef: input.baseRef,
+        headRef: input.headRef,
+      });
+
+      const generated = yield* runClaudeJson({
+        operation: "generateSemanticDiffGroups",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return { groups: generated.groups };
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
-  } satisfies TextGeneration.TextGeneration["Service"];
+    generateSemanticDiffGroups,
+  } satisfies TextGeneration.TextGeneration["Service"] & SemanticDiffGroupsCapability;
 });
