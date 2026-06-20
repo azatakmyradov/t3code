@@ -326,7 +326,11 @@ export function AppearanceSettings() {
               {THEME_MODE_OPTIONS.map((option) => {
                 const Icon = option.icon;
                 return (
-                  <Toggle key={option.value} value={option.value} className="flex-1 sm:flex-none">
+                  <Toggle
+                    key={option.value}
+                    value={option.value}
+                    className="flex-1 px-3 sm:flex-none"
+                  >
                     <Icon className="size-3.5" />
                     {option.label}
                   </Toggle>
@@ -355,7 +359,7 @@ export function AppearanceSettings() {
             {EDITABLE_THEME_OPTIONS.map((option) => {
               const Icon = option.icon;
               return (
-                <Toggle key={option.value} value={option.value}>
+                <Toggle key={option.value} value={option.value} className="px-2.5">
                   <Icon className="size-3" />
                   {option.label}
                 </Toggle>

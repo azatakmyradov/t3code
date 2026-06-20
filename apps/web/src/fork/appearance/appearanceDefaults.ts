@@ -24,14 +24,14 @@ export const DEFAULT_APPEARANCE_CODE_FONT_FAMILY =
   '"SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace';
 
 export const DEFAULT_APPEARANCE_LIGHT_COLORS = {
-  accentColor: "#0169CC",
+  accentColor: "#1A1A1A",
   backgroundColor: "#FFFFFF",
   foregroundColor: "#0D0D0D",
   contrast: 45,
 } as const satisfies AppearanceThemeColors;
 
 export const DEFAULT_APPEARANCE_DARK_COLORS = {
-  accentColor: "#0169CC",
+  accentColor: "#2E2E2E",
   backgroundColor: "#111111",
   foregroundColor: "#FCFCFC",
   contrast: 60,
