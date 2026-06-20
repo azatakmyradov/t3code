@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyJiraComposerMenuItem,
   formatJiraIssueMarkdownLink,
+  mergeJiraComposerIssues,
   toJiraComposerMenuItems,
+  toRankedJiraComposerMenuItems,
 } from "./jiraComposer";
 
 function issue(key: string, summary: string): JiraIssueSummary {
@@ -43,6 +45,34 @@ describe("jiraComposer", () => {
         label: "ABC-123",
         description: "Fix deploy",
       },
+    ]);
+  });
+
+  it("fuzzy-ranks Jira composer issues from the locally fetched list", () => {
+    const issues = [
+      issue("X3-546", "Where are we with Allied SEI?"),
+      issue("REB-4", "Implement X3 License Tool"),
+      issue("X3-571", "Lewis Bakery"),
+    ];
+
+    expect(toRankedJiraComposerMenuItems(issues, "REB").map((item) => item.label)).toEqual([
+      "REB-4",
+    ]);
+    expect(toRankedJiraComposerMenuItems(issues, "REB-4").map((item) => item.label)).toEqual([
+      "REB-4",
+    ]);
+  });
+
+  it("merges remote picker and local fuzzy results without duplicate issues", () => {
+    const reb = issue("REB-4", "Implement X3 License Tool");
+
+    expect(
+      mergeJiraComposerIssues([reb, issue("ABC-2", "Remote")], [issue("ABC-2", "Local"), reb]).map(
+        (candidate) => [candidate.key, candidate.summary],
+      ),
+    ).toEqual([
+      [JiraIssueKey.make("REB-4"), "Implement X3 License Tool"],
+      [JiraIssueKey.make("ABC-2"), "Remote"],
     ]);
   });
 

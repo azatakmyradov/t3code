@@ -48,6 +48,17 @@ describe("rankJiraIssues", () => {
     ]);
   });
 
+  it("matches full issue keys and fuzzy keys without punctuation", () => {
+    const issues = [issue("REB-4", "Implement X3 License Tool"), issue("X3-546", "Allied SEI")];
+
+    expect(rankJiraIssues(issues, "REB-4").map((candidate) => candidate.key)).toEqual([
+      JiraIssueKey.make("REB-4"),
+    ]);
+    expect(rankJiraIssues(issues, "reb4").map((candidate) => candidate.key)).toEqual([
+      JiraIssueKey.make("REB-4"),
+    ]);
+  });
+
   it("searches summaries case-insensitively", () => {
     const issues = [issue("OPS-5", "Fix Production Deployment")];
 
