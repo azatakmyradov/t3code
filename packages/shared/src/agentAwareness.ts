@@ -40,6 +40,7 @@ export interface ProjectThreadAwarenessInput {
     | "updatedAt"
     | "hasPendingApprovals"
     | "hasPendingUserInput"
+    | "subagentCounts"
   >;
 }
 
@@ -82,6 +83,9 @@ function resolveThreadAwarenessPhase(
   }
   if (thread.hasPendingUserInput) {
     return "waiting_for_input";
+  }
+  if ((thread.subagentCounts?.running ?? 0) > 0) {
+    return "running";
   }
   if (thread.session?.status === "error" || thread.latestTurn?.state === "error") {
     return "failed";
@@ -145,8 +149,16 @@ function detailForPhase(
   if (phase === "completed") {
     return "Review the completed task.";
   }
-  if (phase === "running" && thread.session?.providerName) {
+  if (
+    phase === "running" &&
+    thread.session?.providerName &&
+    (thread.session.status === "running" || thread.session.status === "starting")
+  ) {
     return `${thread.session.providerName} is active.`;
+  }
+  if (phase === "running" && (thread.subagentCounts?.running ?? 0) > 0) {
+    const count = thread.subagentCounts?.running ?? 0;
+    return `${count} subagent${count === 1 ? "" : "s"} running`;
   }
   return undefined;
 }

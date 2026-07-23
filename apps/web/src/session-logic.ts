@@ -12,6 +12,7 @@ import {
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
+import { isSubagentBookkeepingActivity } from "@t3tools/fork-subagents/activities";
 
 import type {
   ChatMessage,
@@ -630,6 +631,7 @@ export function deriveWorkLogEntries(
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
+    if (isSubagentBookkeepingActivity(activity)) continue;
     if (activity.kind === "tool.started") continue;
     if (activity.kind === "task.started") continue;
     if (activity.kind === "context-window.updated") continue;

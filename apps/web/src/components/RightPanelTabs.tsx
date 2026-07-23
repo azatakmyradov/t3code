@@ -1,6 +1,6 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import { ClipboardList, FileDiff, Files, Globe2, Plus, TerminalSquare, X } from "lucide-react";
+import { Bot, ClipboardList, FileDiff, Files, Globe2, Plus, TerminalSquare, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -44,9 +44,11 @@ interface RightPanelTabsProps {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
+  onAddAgents: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
+  agentsAvailable: boolean;
   children: ReactNode;
 }
 
@@ -91,11 +93,21 @@ function RightPanelEmptyState(props: {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
+  onAddAgents: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
+  agentsAvailable: boolean;
 }) {
   const actions = [
+    {
+      label: "Agents",
+      description: "Inspect delegated child threads.",
+      icon: Bot,
+      available: props.agentsAvailable,
+      disabledReason: "Agents appear after this thread delegates work.",
+      onClick: props.onAddAgents,
+    },
     {
       label: "Browser",
       description: "Open a local app or URL.",
@@ -205,6 +217,8 @@ function surfaceTitle(
       );
     case "plan":
       return "Plan";
+    case "agents":
+      return "Agents";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -266,6 +280,8 @@ function SurfaceIcon({
       return <TerminalSquare className="size-3.5 shrink-0" />;
     case "plan":
       return <ClipboardList className="size-3.5 shrink-0" />;
+    case "agents":
+      return <Bot className="size-3.5 shrink-0" />;
   }
 }
 
@@ -443,6 +459,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 </MenuTrigger>
                 <MenuPopup align="start" side="bottom" sideOffset={6} className="min-w-44">
                   <SurfaceMenuItem
+                    available={props.agentsAvailable}
+                    disabledReason="Agents appear after this thread delegates work."
+                    onClick={props.onAddAgents}
+                  >
+                    <Bot />
+                    Agents
+                  </SurfaceMenuItem>
+                  <SurfaceMenuItem
                     available={props.browserAvailable}
                     disabledReason={SURFACE_DISABLED_REASONS.browser}
                     onClick={props.onAddBrowser}
@@ -484,9 +508,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}
             onAddFiles={props.onAddFiles}
+            onAddAgents={props.onAddAgents}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
+            agentsAvailable={props.agentsAvailable}
           />
         ) : (
           props.children

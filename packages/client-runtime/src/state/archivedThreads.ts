@@ -1,4 +1,5 @@
 import { EnvironmentId, type OrchestrationShellSnapshot } from "@t3tools/contracts";
+import { isSubagentThreadId } from "@t3tools/fork-subagents/threads";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Option from "effect/Option";
@@ -55,7 +56,13 @@ export function createArchivedThreadSnapshotsAtomFamily<E>(options: {
 
         const snapshot = Option.getOrNull(AsyncResult.value(result));
         if (snapshot !== null) {
-          snapshots.push({ environmentId, snapshot });
+          snapshots.push({
+            environmentId,
+            snapshot: {
+              ...snapshot,
+              threads: snapshot.threads.filter((thread) => !isSubagentThreadId(thread.id)),
+            },
+          });
         }
 
         if (error === null && result._tag === "Failure") {

@@ -4,6 +4,11 @@ import {
   type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@t3tools/contracts";
+import {
+  SUBAGENT_SUMMARY_UPDATED_ACTIVITY,
+  decodeSubagentSummaryUpdatedActivity,
+  hasBlockingSubagents,
+} from "@t3tools/fork-subagents/activities";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -396,6 +401,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           new OrchestrationCommandInvariantError({
             commandType: command.type,
             detail: `thread ${command.threadId} has an active session and cannot be settled`,
+          }),
+        );
+      }
+      if (hasBlockingSubagents(thread.activities)) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} has running or attention-blocked subagents and cannot be settled`,
           }),
         );
       }
@@ -999,9 +1012,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
       // An approval or user-input request is blocked-on-you work — it must
       // never stay hidden inside a settled slim row.
+      const subagentSummary =
+        command.activity.kind === SUBAGENT_SUMMARY_UPDATED_ACTIVITY
+          ? decodeSubagentSummaryUpdatedActivity(command.activity.payload)?.summary
+          : undefined;
       const wakesSettledThread =
         command.activity.kind === "approval.requested" ||
-        command.activity.kind === "user-input.requested";
+        command.activity.kind === "user-input.requested" ||
+        (subagentSummary !== undefined &&
+          (subagentSummary.status === "running" ||
+            subagentSummary.hasPendingApproval ||
+            subagentSummary.hasPendingUserInput));
       // Real activity resets ANY override (settled wakes, active unpins).
       if (thread.settledOverride === null || !wakesSettledThread) {
         return activityAppendedEvent;

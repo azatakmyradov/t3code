@@ -367,6 +367,61 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         },
       ]);
 
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          created_at
+        )
+        VALUES
+          (
+            'activity-subagent-running',
+            'thread-1',
+            NULL,
+            'info',
+            'fork.subagent.summary.updated',
+            'Subagent running',
+            '{"summary":{"threadId":"t3-internal-subagent-one","displayId":"sa-1","title":"One","providerInstanceId":"codex","provider":"codex","model":"gpt-5","cwd":"/tmp/project-1","status":"running","outcome":null,"createdAt":"2026-02-24T00:00:00.000Z","settledAt":null,"turnCount":1,"contextUsage":null,"hasPendingApproval":false,"hasPendingUserInput":false,"error":null}}',
+            '2026-02-24T00:00:10.000Z'
+          ),
+          (
+            'activity-subagent-done',
+            'thread-1',
+            NULL,
+            'info',
+            'fork.subagent.summary.updated',
+            'Subagent done',
+            '{"summary":{"threadId":"t3-internal-subagent-one","displayId":"sa-1","title":"One","providerInstanceId":"codex","provider":"codex","model":"gpt-5","cwd":"/tmp/project-1","status":"done","outcome":"completed","createdAt":"2026-02-24T00:00:00.000Z","settledAt":"2026-02-24T00:00:11.000Z","turnCount":1,"contextUsage":null,"hasPendingApproval":false,"hasPendingUserInput":false,"error":null}}',
+            '2026-02-24T00:00:11.000Z'
+          ),
+          (
+            'activity-subagent-error',
+            'thread-1',
+            NULL,
+            'info',
+            'fork.subagent.summary.updated',
+            'Subagent failed',
+            '{"summary":{"threadId":"t3-internal-subagent-two","displayId":"sa-2","title":"Two","providerInstanceId":"codex","provider":"codex","model":"gpt-5","cwd":"/tmp/project-1","status":"error","outcome":"failed","createdAt":"2026-02-24T00:00:01.000Z","settledAt":"2026-02-24T00:00:12.000Z","turnCount":1,"contextUsage":null,"hasPendingApproval":true,"hasPendingUserInput":false,"error":"failed"}}',
+            '2026-02-24T00:00:12.000Z'
+          )
+      `;
+      const countedShellSnapshot = yield* snapshotQuery.getShellSnapshot();
+      assert.deepEqual(countedShellSnapshot.threads[0]?.subagentCounts, {
+        running: 0,
+        done: 1,
+        failed: 1,
+        needsAttention: 1,
+      });
+      yield* sql`
+        DELETE FROM projection_thread_activities
+        WHERE activity_id LIKE 'activity-subagent-%'
+      `;
+
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       assert.equal(shellSnapshot.snapshotSequence, 5);
       assert.deepEqual(shellSnapshot.projects, [

@@ -24,6 +24,7 @@ function makeShell(input: {
   readonly activityAt: string | null;
   readonly sessionStatus?: "starting" | "running";
   readonly pending?: "approval" | "user-input";
+  readonly subagentCounts?: OrchestrationThreadShell["subagentCounts"];
 }): OrchestrationThreadShell {
   const threadId = ThreadId.make("thread-1");
   return {
@@ -67,6 +68,7 @@ function makeShell(input: {
     hasPendingApprovals: input.pending === "approval",
     hasPendingUserInput: input.pending === "user-input",
     hasActionableProposedPlan: false,
+    ...(input.subagentCounts === undefined ? {} : { subagentCounts: input.subagentCounts }),
   };
 }
 
@@ -320,6 +322,23 @@ describe("canSettle", () => {
     expect(canSettle(makeShell({ activityAt: FRESH, pending: "user-input" }), { now: NOW })).toBe(
       false,
     );
+  });
+
+  it("blocks running and attention-needing children with absent counts defaulting to zero", () => {
+    expect(canSettle(makeShell({ activityAt: FRESH }), { now: NOW })).toBe(true);
+
+    for (const subagentCounts of [
+      { running: 1, done: 0, failed: 0, needsAttention: 0 },
+      { running: 0, done: 1, failed: 0, needsAttention: 1 },
+    ]) {
+      const shell = makeShell({
+        settledOverride: "settled",
+        activityAt: FRESH,
+        subagentCounts,
+      });
+      expect(canSettle(shell, { now: NOW })).toBe(false);
+      expect(effectiveSettled(shell, { now: NOW, autoSettleAfterDays: 3 })).toBe(false);
+    }
   });
 
   it("blocks settling a queued turn start, only within the grace window", () => {

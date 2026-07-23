@@ -1,6 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/unstable/http";
 
@@ -86,5 +91,38 @@ it.effect("expires credentials after inactivity", () =>
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
     timestamp += 101;
     expect(yield* registry.resolve(token)).toBeUndefined();
+  }),
+);
+
+it.effect("grants subagent tools only to root Codex or Claude sessions", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const root = yield* registry.issue({
+      threadId: ThreadId.make("root-thread"),
+      providerInstanceId: ProviderInstanceId.make("codex_personal"),
+      provider: ProviderDriverKind.make("codex"),
+      agentContext: "root",
+    });
+    const child = yield* registry.issue({
+      threadId: ThreadId.make("child-thread"),
+      providerInstanceId: ProviderInstanceId.make("codex_personal"),
+      provider: ProviderDriverKind.make("codex"),
+      agentContext: "subagent",
+    });
+    const unsupported = yield* registry.issue({
+      threadId: ThreadId.make("other-thread"),
+      providerInstanceId: ProviderInstanceId.make("opencode"),
+      provider: ProviderDriverKind.make("opencode"),
+      agentContext: "root",
+    });
+
+    expect(root.config.endpoint.endsWith("/mcp")).toBe(true);
+    expect(child.config.endpoint.endsWith("/mcp/preview")).toBe(true);
+    expect(unsupported.config.endpoint.endsWith("/mcp/preview")).toBe(true);
+
+    const rootToken = root.config.authorizationHeader.replace(/^Bearer\s+/, "");
+    const childToken = child.config.authorizationHeader.replace(/^Bearer\s+/, "");
+    expect((yield* registry.resolve(rootToken))?.capabilities.has("subagents")).toBe(true);
+    expect((yield* registry.resolve(childToken))?.capabilities.has("subagents")).toBe(false);
   }),
 );

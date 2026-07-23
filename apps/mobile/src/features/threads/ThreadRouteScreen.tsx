@@ -71,6 +71,7 @@ import {
   ThreadInspectorContentStack,
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
+import { useSubagentsInspectorIntegration } from "../subagents/useSubagentsInspectorIntegration";
 
 interface ThreadInspectorSelection {
   readonly routeThreadIdentity: string | null;
@@ -364,16 +365,23 @@ function ThreadRouteContent(
     selectedThreadCwd,
     showAuxiliaryPane,
   ]);
+  const handleOpenAgentsInspector = useCallback(() => {
+    if (selectedThread === null) return;
+    setInspectorSelection({ routeThreadIdentity, mode: "agents" });
+    showAuxiliaryPane("inspector");
+  }, [routeThreadIdentity, selectedThread, showAuxiliaryPane]);
   const inspectorToggleActionRef = useRef({
     inspectorMode,
     openFilesInspector: handleOpenFilesInspector,
     toggleAuxiliaryPane,
   });
-  inspectorToggleActionRef.current = {
-    inspectorMode,
-    openFilesInspector: handleOpenFilesInspector,
-    toggleAuxiliaryPane,
-  };
+  useEffect(() => {
+    inspectorToggleActionRef.current = {
+      inspectorMode,
+      openFilesInspector: handleOpenFilesInspector,
+      toggleAuxiliaryPane,
+    };
+  }, [handleOpenFilesInspector, inspectorMode, toggleAuxiliaryPane]);
   const handleToggleInspector = useCallback(() => {
     const action = inspectorToggleActionRef.current;
     if (action.inspectorMode === null) {
@@ -439,17 +447,32 @@ function ThreadRouteContent(
     () => props.renderInspector?.(inspectorHeaderInset),
     [inspectorHeaderInset, props.renderInspector],
   );
+  const subagentsIntegration = useSubagentsInspectorIntegration({
+    environmentId: selectedThread?.environmentId ?? null,
+    thread: selectedThreadDetail,
+    headerInset: inspectorHeaderInset,
+    onOpen: handleOpenAgentsInspector,
+  });
   const renderInspectorStack = useCallback(
     () =>
       inspectorMode === null ? null : (
         <ThreadInspectorContentStack
+          Agents={subagentsIntegration.available ? subagentsIntegration.Inspector : undefined}
           Files={FilesInspector}
           Git={GitInspector}
           mode={inspectorMode}
           Route={props.renderInspector ? RouteInspector : undefined}
         />
       ),
-    [FilesInspector, GitInspector, RouteInspector, inspectorMode, props.renderInspector],
+    [
+      FilesInspector,
+      GitInspector,
+      RouteInspector,
+      inspectorMode,
+      props.renderInspector,
+      subagentsIntegration.Inspector,
+      subagentsIntegration.available,
+    ],
   );
   const activeInspectorRenderer = inspectorMode === null ? undefined : renderInspectorStack;
   // Hand the inspector to the workspace so it renders beside the navigator,
@@ -617,8 +640,22 @@ function ThreadRouteContent(
     onPull: gitActions.onPullSelectedThreadBranch,
     onRunAction: gitActions.onRunSelectedThreadGitAction,
   };
-  const threadCenterHeaderItems = useThreadGitCenterHeaderItems(threadGitControlProps);
-  const compactRightHeaderItems = useThreadGitRightHeaderItems(threadGitControlProps);
+  const baseThreadCenterHeaderItems = useThreadGitCenterHeaderItems(threadGitControlProps);
+  const baseCompactRightHeaderItems = useThreadGitRightHeaderItems(threadGitControlProps);
+  const threadCenterHeaderItems = useMemo(
+    () =>
+      subagentsIntegration.headerItem
+        ? [subagentsIntegration.headerItem, ...baseThreadCenterHeaderItems]
+        : baseThreadCenterHeaderItems,
+    [baseThreadCenterHeaderItems, subagentsIntegration.headerItem],
+  );
+  const compactRightHeaderItems = useMemo(
+    () =>
+      subagentsIntegration.compactAction
+        ? [subagentsIntegration.compactAction, ...baseCompactRightHeaderItems]
+        : baseCompactRightHeaderItems,
+    [baseCompactRightHeaderItems, subagentsIntegration.compactAction],
+  );
   const splitLeftHeaderItems = useMemo<NativeHeaderItems>(
     () => [
       {
@@ -685,6 +722,7 @@ function ThreadRouteContent(
         onPress: () => handleOpenTerminal(null),
       });
     }
+    if (subagentsIntegration.menuAction) actions.push(subagentsIntegration.menuAction);
     actions.push({
       accessibilityLabel: "Open git controls",
       icon: "point.topleft.down.curvedto.point.bottomright.up",
@@ -707,6 +745,7 @@ function ThreadRouteContent(
     props.onReturnToThread,
     selectedThreadCwd,
     selectedThreadProject?.workspaceRoot,
+    subagentsIntegration.menuAction,
   ]);
 
   // Deep links / cold starts land with Thread as the ONLY route, where the

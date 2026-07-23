@@ -142,6 +142,21 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("keeps agents as a persistent singleton surface", () => {
+    useRightPanelStore.getState().open(refA, "agents");
+    useRightPanelStore.getState().open(refA, "preview");
+    useRightPanelStore.getState().open(refA, "agents");
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "agents",
+      surfaces: [
+        { id: "agents", kind: "agents" },
+        { id: "browser:new", kind: "preview", resourceId: null },
+      ],
+    });
+  });
+
   it("replaces the standalone explorer with peer file surfaces", () => {
     useRightPanelStore.getState().open(refA, "files");
     useRightPanelStore.getState().openFile(refA, "src/index.ts");

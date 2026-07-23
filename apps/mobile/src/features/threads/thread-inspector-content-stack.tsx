@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { View } from "react-native";
 
-export type ThreadInspectorMode = "route" | "git" | "files";
+export type ThreadInspectorMode = "route" | "git" | "files" | "agents";
 
 const INSPECTOR_PREWARM_DELAY_MS = 350;
 
@@ -35,6 +35,7 @@ function InspectorContentPane(props: {
 export function ThreadInspectorContentStack(props: {
   readonly Files: ComponentType;
   readonly Git: ComponentType;
+  readonly Agents?: ComponentType;
   readonly mode: ThreadInspectorMode;
   readonly Route?: ComponentType;
 }) {
@@ -73,6 +74,7 @@ export function ThreadInspectorContentStack(props: {
   const Files = props.Files;
   const Git = props.Git;
   const Route = props.Route;
+  const Agents = props.Agents;
 
   return (
     <View className="flex-1">
@@ -94,6 +96,14 @@ export function ThreadInspectorContentStack(props: {
           visible={props.mode === "route"}
         >
           <Route />
+        </InspectorContentPane>
+      ) : null}
+      {Agents ? (
+        <InspectorContentPane
+          mounted={mountedModes.has("agents") || props.mode === "agents"}
+          visible={props.mode === "agents"}
+        >
+          <Agents />
         </InspectorContentPane>
       ) : null}
     </View>

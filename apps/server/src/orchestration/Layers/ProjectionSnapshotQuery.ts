@@ -34,6 +34,10 @@ import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import {
+  SUBAGENT_SUMMARY_UPDATED_ACTIVITY,
+  foldSubagentCounts,
+} from "@t3tools/fork-subagents/activities";
 
 import {
   isPersistenceError,
@@ -104,6 +108,25 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   sourceProposedPlanId: Schema.NullOr(OrchestrationProposedPlanId),
 });
 const ProjectionStateDbRowSchema = ProjectionState;
+const ProjectionSubagentSummaryActivityDbRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  kind: Schema.String,
+  payload: Schema.fromJsonString(Schema.Unknown),
+});
+
+function subagentCountsByThread(
+  rows: ReadonlyArray<typeof ProjectionSubagentSummaryActivityDbRowSchema.Type>,
+) {
+  const byThread = new Map<ThreadId, Array<{ readonly kind: string; readonly payload: unknown }>>();
+  for (const row of rows) {
+    const activities = byThread.get(row.threadId) ?? [];
+    activities.push(row);
+    byThread.set(row.threadId, activities);
+  }
+  return new Map(
+    [...byThread].map(([threadId, activities]) => [threadId, foldSubagentCounts(activities)]),
+  );
+}
 const ProjectionCountsRowSchema = Schema.Struct({
   projectCount: Schema.Number,
   threadCount: Schema.Number,
@@ -470,6 +493,37 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sequence ASC,
           created_at ASC,
           activity_id ASC
+      `,
+  });
+
+  const listSubagentSummaryActivityRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionSubagentSummaryActivityDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          thread_id AS "threadId",
+          kind,
+          payload_json AS "payload"
+        FROM projection_thread_activities
+        WHERE kind = ${SUBAGENT_SUMMARY_UPDATED_ACTIVITY}
+        ORDER BY thread_id ASC, sequence ASC, created_at ASC, activity_id ASC
+      `,
+  });
+
+  const listSubagentSummaryActivityRowsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionSubagentSummaryActivityDbRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          thread_id AS "threadId",
+          kind,
+          payload_json AS "payload"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+          AND kind = ${SUBAGENT_SUMMARY_UPDATED_ACTIVITY}
+        ORDER BY sequence ASC, created_at ASC, activity_id ASC
       `,
   });
 
@@ -1465,11 +1519,27 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           ),
+          listSubagentSummaryActivityRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getShellSnapshot:listSubagentSummaries:query",
+                "ProjectionSnapshotQuery.getShellSnapshot:listSubagentSummaries:decodeRows",
+              ),
+            ),
+          ),
         ]),
       )
       .pipe(
-        Effect.flatMap(([projectRows, threadRows, sessionRows, latestTurnRows, stateRows]) =>
+        Effect.flatMap((rows) =>
           Effect.gen(function* () {
+            const [
+              projectRows,
+              threadRows,
+              sessionRows,
+              latestTurnRows,
+              stateRows,
+              subagentSummaryRows,
+            ] = rows;
             let updatedAt: string | null = null;
             for (const row of projectRows) {
               updatedAt = maxIso(updatedAt, row.updatedAt);
@@ -1500,6 +1570,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             const sessionByThread = new Map(
               sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
             );
+            const countsByThread = subagentCountsByThread(subagentSummaryRows);
 
             const snapshot = {
               snapshotSequence: computeSnapshotSequence(stateRows),
@@ -1532,6 +1603,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       hasPendingApprovals: row.pendingApprovalCount > 0,
                       hasPendingUserInput: row.pendingUserInputCount > 0,
                       hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
+                      ...(countsByThread.get(row.threadId)
+                        ? { subagentCounts: countsByThread.get(row.threadId)! }
+                        : {}),
                     } satisfies OrchestrationThreadShell)
                   : Result.failVoid,
               ),
@@ -1599,11 +1673,27 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           ),
+          listSubagentSummaryActivityRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getArchivedShellSnapshot:listSubagentSummaries:query",
+                "ProjectionSnapshotQuery.getArchivedShellSnapshot:listSubagentSummaries:decodeRows",
+              ),
+            ),
+          ),
         ]),
       )
       .pipe(
-        Effect.flatMap(([projectRows, threadRows, sessionRows, latestTurnRows, stateRows]) =>
+        Effect.flatMap((rows) =>
           Effect.gen(function* () {
+            const [
+              projectRows,
+              threadRows,
+              sessionRows,
+              latestTurnRows,
+              stateRows,
+              subagentSummaryRows,
+            ] = rows;
             let updatedAt: string | null = null;
             for (const row of projectRows) {
               updatedAt = maxIso(updatedAt, row.updatedAt);
@@ -1637,6 +1727,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             const sessionByThread = new Map(
               sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
             );
+            const countsByThread = subagentCountsByThread(subagentSummaryRows);
 
             const snapshot = {
               snapshotSequence: computeSnapshotSequence(stateRows),
@@ -1668,6 +1759,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   hasPendingApprovals: row.pendingApprovalCount > 0,
                   hasPendingUserInput: row.pendingUserInputCount > 0,
                   hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
+                  ...(countsByThread.get(row.threadId)
+                    ? { subagentCounts: countsByThread.get(row.threadId)! }
+                    : {}),
                 }),
               ),
               updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
@@ -1859,7 +1953,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
     Effect.gen(function* () {
-      const [threadRow, latestTurnRow, sessionRow] = yield* Effect.all([
+      const [threadRow, latestTurnRow, sessionRow, subagentSummaryRows] = yield* Effect.all([
         getActiveThreadRowById({ threadId }).pipe(
           Effect.mapError(
             toPersistenceSqlOrDecodeError(
@@ -1881,6 +1975,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             toPersistenceSqlOrDecodeError(
               "ProjectionSnapshotQuery.getThreadShellById:getSession:query",
               "ProjectionSnapshotQuery.getThreadShellById:getSession:decodeRow",
+            ),
+          ),
+        ),
+        listSubagentSummaryActivityRowsByThread({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:listSubagentSummaries:query",
+              "ProjectionSnapshotQuery.getThreadShellById:listSubagentSummaries:decodeRows",
             ),
           ),
         ),
@@ -1910,6 +2012,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
         hasPendingUserInput: threadRow.value.pendingUserInputCount > 0,
         hasActionableProposedPlan: threadRow.value.hasActionableProposedPlan > 0,
+        ...(subagentSummaryRows.length > 0
+          ? { subagentCounts: foldSubagentCounts(subagentSummaryRows) }
+          : {}),
       } satisfies OrchestrationThreadShell);
     });
 

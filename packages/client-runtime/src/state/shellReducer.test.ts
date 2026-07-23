@@ -155,6 +155,22 @@ describe("applyShellStreamEvent", () => {
       expect(next.threads).toHaveLength(1);
       expect(next.threads[0]?.title).toBe("Updated Thread");
     });
+
+    it("hides managed children while advancing the snapshot sequence", () => {
+      const event: OrchestrationShellStreamEvent = {
+        kind: "thread-upserted",
+        sequence: 7,
+        thread: {
+          ...stubThread,
+          id: ThreadId.make("t3-internal-subagent-00000000-0000-4000-8000-000000000000"),
+        },
+      };
+
+      const next = applyShellStreamEvent(baseSnapshot, event);
+
+      expect(next.threads).toEqual([]);
+      expect(next.snapshotSequence).toBe(7);
+    });
   });
 
   describe("thread-removed", () => {

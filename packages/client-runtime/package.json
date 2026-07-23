@@ -142,6 +142,7 @@
   },
   "dependencies": {
     "@t3tools/contracts": "workspace:*",
+    "@t3tools/fork-subagents": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "effect": "catalog:"
   },

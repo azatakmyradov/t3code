@@ -1,5 +1,6 @@
 import * as Arr from "effect/Array";
 import type { OrchestrationShellSnapshot, OrchestrationShellStreamEvent } from "@t3tools/contracts";
+import { isSubagentThreadId } from "@t3tools/fork-subagents/threads";
 
 /**
  * Reduce a single shell stream event into an existing snapshot, returning a new
@@ -29,6 +30,9 @@ export function applyShellStreamEvent(
         snapshotSequence: event.sequence,
       };
     case "thread-upserted": {
+      if (isSubagentThreadId(event.thread.id)) {
+        return { ...snapshot, snapshotSequence: event.sequence };
+      }
       const threads = snapshot.threads.some((t) => t.id === event.thread.id)
         ? Arr.map(snapshot.threads, (t) => (t.id === event.thread.id ? event.thread : t))
         : Arr.append(snapshot.threads, event.thread);

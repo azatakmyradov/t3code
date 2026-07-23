@@ -1,4 +1,8 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
+import {
+  providerAgentInstructions,
+  type ProviderAgentContext,
+} from "@t3tools/fork-subagents/instructions";
 
 const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
@@ -161,12 +165,13 @@ function toSingleLine(value: string): string {
 export function buildCodexDeveloperInstructions(
   interactionMode: ProviderInteractionMode,
   runtime: CodexRuntimeInfo,
+  agentContext: ProviderAgentContext = "root",
 ): string {
   const base =
     interactionMode === "plan"
       ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
       : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
-  return `${base}
+  return `${base}${providerAgentInstructions(agentContext)}
 
 <runtime_info>In case you're asked: you are running in T3 Code through the Codex harness, as ${toSingleLine(runtime.model)} with ${toSingleLine(runtime.reasoningEffort)} reasoning effort. No need to mention this otherwise.</runtime_info>`;
 }
