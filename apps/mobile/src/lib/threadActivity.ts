@@ -7,6 +7,7 @@ import type {
   TurnId,
   UserInputQuestion,
 } from "@t3tools/contracts";
+import { isSubagentBookkeepingActivity } from "@t3tools/fork-subagents/activities";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 
 import * as Arr from "effect/Array";
@@ -241,6 +242,7 @@ function deriveWorkLogEntries(
   const ordered = Arr.sort(activities, activityOrder);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
+    if (isSubagentBookkeepingActivity(activity)) continue;
     if (activity.kind === "tool.started") continue;
     if (activity.kind === "task.started") continue;
     if (activity.kind === "context-window.updated") continue;
@@ -1346,7 +1348,7 @@ export function buildPendingUserInputAnswers(
 }
 
 export function buildThreadFeed(
-  thread: OrchestrationThread,
+  thread: Pick<OrchestrationThread, "messages" | "activities">,
   options?: {
     readonly loadedMessages?: ReadonlyArray<OrchestrationThread["messages"][number]>;
   },

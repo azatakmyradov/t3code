@@ -14,7 +14,7 @@
 - `vp run typecheck` — Strict TypeScript checks for all packages.
 - `vp run test` — Runs workspace tests.
 - `node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path> ...` — Inspects or seeds an isolated T3 SQLite database; writes create a private backup first.
-- `vp run dist:desktop:artifact -- --platform <mac|linux|win> --target <target> --arch <arch>` — Builds a desktop artifact for a specific platform/target/arch.
+- `vp run dist:desktop:artifact --platform <mac|linux|win> --target <target> --arch <arch>` — Builds a desktop artifact for a specific platform/target/arch.
 - `vp run dist:desktop:dmg` — Builds a shareable macOS `.dmg` into `./release`.
 - `vp run dist:desktop:dmg:x64` — Builds an Intel macOS `.dmg`.
 - `vp run dist:desktop:linux` — Builds a Linux AppImage into `./release`.

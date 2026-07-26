@@ -23,13 +23,24 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import type { OpencodeClient, Part, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2";
+import type {
+  Message,
+  OpencodeClient,
+  Part,
+  PermissionRequest,
+  QuestionRequest,
+  Session,
+} from "@opencode-ai/sdk/v2";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import {
+  makeOpenCodeNativeSummary,
+  normalizeOpenCodeNativeDetail,
+} from "./OpenCodeNativeSubagents.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -935,6 +946,28 @@ export function makeOpenCodeAdapter(
             appendTurnItem(context, turnId, part);
             yield* emit(runtimeEvent);
           }
+          if (part.type === "subtask") {
+            appendTurnItem(context, turnId, part);
+            yield* emit({
+              ...(yield* buildEventBase({
+                threadId: context.session.threadId,
+                turnId,
+                itemId: part.id,
+                raw: event,
+              })),
+              type: "item.completed",
+              payload: {
+                itemType: "collab_agent_tool_call",
+                status: "completed",
+                title: part.description || part.agent,
+                data: {
+                  tool: "spawnAgent",
+                  prompt: part.prompt,
+                  agent: part.agent,
+                },
+              },
+            });
+          }
           break;
         }
 
@@ -1657,6 +1690,83 @@ export function makeOpenCodeAdapter(
       },
     );
 
+    const discoverNativeSubagents = Effect.fn("discoverNativeSubagents")(function* (
+      context: OpenCodeSessionContext,
+    ) {
+      const statusResponse = yield* runOpenCodeSdk("session.status", () =>
+        context.client.session.status({ directory: context.directory }),
+      ).pipe(Effect.mapError(toRequestError));
+      const statuses = statusResponse.data ?? {};
+      const queue = [context.openCodeSessionId];
+      const seen = new Set<string>(queue);
+      const discovered: Array<{
+        readonly session: Session;
+        readonly entries: ReadonlyArray<{
+          readonly info: Message;
+          readonly parts: ReadonlyArray<Part>;
+        }>;
+        readonly summary: ReturnType<typeof makeOpenCodeNativeSummary>;
+      }> = [];
+
+      while (queue.length > 0) {
+        const parentId = queue.shift();
+        if (!parentId) continue;
+        const response = yield* runOpenCodeSdk("session.children", () =>
+          context.client.session.children({
+            sessionID: parentId,
+            directory: context.directory,
+          }),
+        ).pipe(Effect.mapError(toRequestError));
+        for (const child of response.data ?? []) {
+          if (seen.has(child.id)) continue;
+          seen.add(child.id);
+          queue.push(child.id);
+          const messageResponse = yield* runOpenCodeSdk("session.messages", () =>
+            context.client.session.messages({
+              sessionID: child.id,
+              directory: child.directory,
+            }),
+          ).pipe(Effect.mapError(toRequestError));
+          const entries = messageResponse.data ?? [];
+          discovered.push({
+            session: child,
+            entries,
+            summary: makeOpenCodeNativeSummary({
+              provider: PROVIDER,
+              session: child,
+              ...(statuses[child.id] ? { status: statuses[child.id] } : {}),
+              messages: entries,
+            }),
+          });
+        }
+      }
+      return discovered;
+    });
+
+    const nativeSubagents: NonNullable<OpenCodeAdapterShape["nativeSubagents"]> = {
+      listNativeSubagents: Effect.fn("listNativeSubagents")(function* (threadId) {
+        const context = yield* ensureSessionContext(sessions, threadId);
+        const discovered = yield* discoverNativeSubagents(context);
+        return discovered.map(({ summary }) => summary);
+      }),
+      readNativeSubagent: Effect.fn("readNativeSubagent")(function* (threadId, nativeSubagentId) {
+        const context = yield* ensureSessionContext(sessions, threadId);
+        const discovered = yield* discoverNativeSubagents(context);
+        const child = discovered.find(({ session }) => session.id === nativeSubagentId);
+        if (!child) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "session.children",
+            detail: `Unknown native subagent: ${nativeSubagentId}`,
+          });
+        }
+        return normalizeOpenCodeNativeDetail({
+          summary: child.summary,
+          entries: child.entries,
+        });
+      }),
+    };
+
     const rollbackThread: OpenCodeAdapterShape["rollbackThread"] = Effect.fn("rollbackThread")(
       function* (threadId, numTurns) {
         const context = yield* ensureSessionContext(sessions, threadId);
@@ -1710,6 +1820,7 @@ export function makeOpenCodeAdapter(
       stopSession,
       listSessions,
       hasSession,
+      nativeSubagents,
       readThread,
       rollbackThread,
       stopAll,

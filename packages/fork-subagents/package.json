@@ -1,0 +1,39 @@
+{
+  "name": "@t3tools/fork-subagents",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contracts": {
+      "types": "./src/contracts.ts",
+      "import": "./src/contracts.ts"
+    },
+    "./activities": {
+      "types": "./src/activities.ts",
+      "import": "./src/activities.ts"
+    },
+    "./threads": {
+      "types": "./src/threads.ts",
+      "import": "./src/threads.ts"
+    },
+    "./presentation": {
+      "types": "./src/presentation.ts",
+      "import": "./src/presentation.ts"
+    },
+    "./instructions": {
+      "types": "./src/instructions.ts",
+      "import": "./src/instructions.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@t3tools/contracts": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

@@ -19,6 +19,9 @@ import type {
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
+  NativeHarnessSubagentDetail,
+  NativeHarnessSubagentId,
+  NativeHarnessSubagentSummary,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
@@ -105,6 +108,20 @@ export interface ProviderAdapterShape<TError> {
    * Read a provider thread snapshot.
    */
   readonly readThread: (threadId: ThreadId) => Effect.Effect<ProviderThreadSnapshot, TError>;
+
+  /**
+   * Read-only access to provider-native descendants, when the provider exposes
+   * separately readable child transcripts.
+   */
+  readonly nativeSubagents?: {
+    readonly listNativeSubagents: (
+      parentThreadId: ThreadId,
+    ) => Effect.Effect<ReadonlyArray<NativeHarnessSubagentSummary>, TError>;
+    readonly readNativeSubagent: (
+      parentThreadId: ThreadId,
+      nativeSubagentId: NativeHarnessSubagentId,
+    ) => Effect.Effect<NativeHarnessSubagentDetail, TError>;
+  };
 
   /**
    * Roll back a provider thread by N turns.

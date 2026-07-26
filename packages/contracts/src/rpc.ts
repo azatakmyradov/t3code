@@ -58,6 +58,7 @@ import {
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
 } from "./orchestration.ts";
+import { NativeHarnessSubagentReadError } from "./nativeSubagents.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   RelayClientInstallFailedError,
@@ -631,6 +632,24 @@ export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
   },
 );
 
+export const WsOrchestrationListNativeSubagentsRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.listNativeSubagents,
+  {
+    payload: OrchestrationRpcSchemas.listNativeSubagents.input,
+    success: OrchestrationRpcSchemas.listNativeSubagents.output,
+    error: Schema.Union([NativeHarnessSubagentReadError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsOrchestrationReadNativeSubagentRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.readNativeSubagent,
+  {
+    payload: OrchestrationRpcSchemas.readNativeSubagent.input,
+    success: OrchestrationRpcSchemas.readNativeSubagent.output,
+    error: Schema.Union([NativeHarnessSubagentReadError, EnvironmentAuthorizationError]),
+  },
+);
+
 export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.replayEvents, {
   payload: OrchestrationReplayEventsInput,
   success: OrchestrationRpcSchemas.replayEvents.output,
@@ -765,6 +784,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
+  WsOrchestrationListNativeSubagentsRpc,
+  WsOrchestrationReadNativeSubagentRpc,
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,
   WsOrchestrationSubscribeShellRpc,

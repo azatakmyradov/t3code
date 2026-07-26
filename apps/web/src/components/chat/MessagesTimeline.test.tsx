@@ -1,8 +1,9 @@
-import { CheckpointRef, EnvironmentId, MessageId, TurnId } from "@t3tools/contracts";
+import { CheckpointRef, EnvironmentId, EventId, MessageId, TurnId } from "@t3tools/contracts";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef } from "@legendapp/list/react";
+import { deriveTimelineEntries, deriveWorkLogEntries } from "../../session-logic";
 
 vi.mock("@legendapp/list/react", async () => {
   const legendListTestId = "legend-list";
@@ -237,6 +238,114 @@ describe("MessagesTimeline", () => {
     expect(compactMarkup).not.toContain("chat-timeline-scroll-fade");
     expect(fadedMarkup).toContain('class="h-10 sm:h-12"');
     expect(fadedMarkup).toContain("chat-timeline-scroll-fade");
+  });
+
+  it("renders an active child timeline with interleaved main-chat message and work rows", () => {
+    const turnId = TurnId.make("turn-child-active");
+    const messages = [
+      {
+        id: MessageId.make("child-user"),
+        role: "user" as const,
+        text: "Inspect the child thread.",
+        turnId: null,
+        createdAt: "2026-03-17T19:12:01.000Z",
+        updatedAt: "2026-03-17T19:12:01.000Z",
+        streaming: false,
+      },
+      {
+        id: MessageId.make("child-commentary"),
+        role: "assistant" as const,
+        text: "Checking the timeline now.",
+        turnId,
+        createdAt: "2026-03-17T19:12:02.000Z",
+        updatedAt: "2026-03-17T19:12:02.000Z",
+        streaming: false,
+      },
+      {
+        id: MessageId.make("child-after-command"),
+        role: "assistant" as const,
+        text: "The command passed.",
+        turnId,
+        createdAt: "2026-03-17T19:12:04.000Z",
+        updatedAt: "2026-03-17T19:12:04.000Z",
+        streaming: true,
+      },
+    ];
+    const workEntries = deriveWorkLogEntries([
+      {
+        id: EventId.make("child-command"),
+        kind: "tool.completed",
+        tone: "tool",
+        summary: "Run child test",
+        createdAt: "2026-03-17T19:12:03.000Z",
+        turnId,
+        payload: {
+          itemType: "command_execution",
+          title: "Run child test",
+          detail: "/bin/zsh -lc 'vp test run child.timeline.test.ts'",
+        },
+      },
+      {
+        id: EventId.make("child-tool-start"),
+        kind: "tool.started",
+        tone: "tool",
+        summary: "Read file started",
+        createdAt: "2026-03-17T19:12:04.500Z",
+        turnId,
+        payload: { itemType: "mcp_tool_call", title: "Read file" },
+      },
+      {
+        id: EventId.make("child-context"),
+        kind: "context-window.updated",
+        tone: "info",
+        summary: "Context window updated",
+        createdAt: "2026-03-17T19:12:04.750Z",
+        turnId,
+        payload: {},
+      },
+      {
+        id: EventId.make("child-tool"),
+        kind: "tool.completed",
+        tone: "tool",
+        summary: "Read file",
+        createdAt: "2026-03-17T19:12:05.000Z",
+        turnId,
+        payload: {
+          itemType: "mcp_tool_call",
+          title: "Read file",
+          detail: "AgentsPanel.tsx",
+        },
+      },
+    ]);
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:01.500Z"
+        latestTurn={{
+          turnId,
+          state: "running",
+          startedAt: "2026-03-17T19:12:01.500Z",
+          completedAt: null,
+        }}
+        runningTurnId={turnId}
+        timelineEntries={deriveTimelineEntries(messages, [], workEntries)}
+      />,
+    );
+
+    const commentaryIndex = markup.indexOf("Checking the timeline now.");
+    const commandIndex = markup.indexOf("vp test run child.timeline.test.ts");
+    const afterCommandIndex = markup.indexOf("The command passed.");
+    expect(commentaryIndex).toBeGreaterThan(-1);
+    expect(commandIndex).toBeGreaterThan(commentaryIndex);
+    expect(afterCommandIndex).toBeGreaterThan(commandIndex);
+    expect(markup).toContain('data-timeline-row-id="child-tool"');
+    expect(markup).toContain('data-timeline-row-kind="work"');
+    expect(markup).toContain('data-message-role="user"');
+    expect(markup).toContain('data-message-role="assistant"');
+    expect(markup).not.toContain("Read file started");
+    expect(markup).not.toContain("Context window updated");
   });
 
   it("keeps assistant changed-files headers sticky below the thread header", () => {

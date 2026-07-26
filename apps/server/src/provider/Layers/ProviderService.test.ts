@@ -13,6 +13,7 @@ import type {
 import {
   ApprovalRequestId,
   EventId,
+  NativeHarnessSubagentId,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionStartInput,
@@ -84,7 +85,10 @@ type LegacyProviderRuntimeEvent = {
   readonly [key: string]: unknown;
 };
 
-function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
+function makeFakeCodexAdapter(
+  provider: ProviderDriverKind = CODEX_DRIVER,
+  supportsNativeSubagents = false,
+) {
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
 
@@ -198,6 +202,25 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
         sessions.clear();
       }),
   );
+  const nativeSummary = {
+    id: NativeHarnessSubagentId.make("native-child-1"),
+    provider,
+    title: "Native child",
+    status: "done" as const,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z",
+    readOnly: true as const,
+  };
+  const listNativeSubagents = vi.fn(() => Effect.succeed([nativeSummary]));
+  const readNativeSubagent = vi.fn(() =>
+    Effect.succeed({
+      summary: nativeSummary,
+      messages: [],
+      activities: [],
+      proposedPlans: [],
+      latestTurn: null,
+    }),
+  );
 
   const adapter: ProviderAdapterShape<ProviderAdapterError> = {
     provider,
@@ -215,6 +238,14 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     readThread,
     rollbackThread,
     stopAll,
+    ...(supportsNativeSubagents
+      ? {
+          nativeSubagents: {
+            listNativeSubagents,
+            readNativeSubagent,
+          },
+        }
+      : {}),
     get streamEvents() {
       return Stream.fromPubSub(runtimeEventPubSub);
     },
@@ -250,6 +281,8 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     readThread,
     rollbackThread,
     stopAll,
+    listNativeSubagents,
+    readNativeSubagent,
   };
 }
 
@@ -268,8 +301,8 @@ const hasMetricSnapshot = (
   );
 
 function makeProviderServiceLayer() {
-  const codex = makeFakeCodexAdapter();
-  const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
+  const codex = makeFakeCodexAdapter(CODEX_DRIVER, true);
+  const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER, true);
   const cursor = makeFakeCodexAdapter(CURSOR_DRIVER);
   const registry = makeAdapterRegistryMock({
     [ProviderDriverKind.make("codex")]: codex.adapter,
@@ -841,6 +874,74 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect("recovers a reaped parent before listing native subagents", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-native-recover"), {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-native-recover"),
+        cwd: "/tmp/native-recover",
+        runtimeMode: "full-access",
+      });
+      yield* routing.codex.stopSession(session.threadId);
+      routing.codex.startSession.mockClear();
+
+      const result = yield* provider.listNativeSubagents(session.threadId);
+
+      assert.equal(result.subagents.length, 1);
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      assert.equal(routing.codex.listNativeSubagents.mock.calls.length > 0, true);
+      yield* routing.codex.stopSession(session.threadId);
+    }),
+  );
+
+  it.effect("returns empty native lists for unsupported providers and rejects reads", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-native-unsupported"), {
+        provider: CURSOR_DRIVER,
+        providerInstanceId: ProviderInstanceId.make("cursor"),
+        threadId: asThreadId("thread-native-unsupported"),
+        cwd: "/tmp/native-unsupported",
+        runtimeMode: "full-access",
+      });
+
+      const list = yield* provider.listNativeSubagents(session.threadId);
+      assert.deepEqual(list.subagents, []);
+      const error = yield* provider
+        .readNativeSubagent(session.threadId, NativeHarnessSubagentId.make("child"))
+        .pipe(Effect.flip);
+      assert.equal(error.reason, "provider_unsupported");
+      yield* routing.cursor.stopSession(session.threadId);
+    }),
+  );
+
+  it.effect("rejects native IDs outside the authoritative descendant list", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-native-authority"), {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-native-authority"),
+        cwd: "/tmp/native-authority",
+        runtimeMode: "full-access",
+      });
+      routing.codex.readNativeSubagent.mockClear();
+
+      const error = yield* provider
+        .readNativeSubagent(
+          session.threadId,
+          NativeHarnessSubagentId.make("not-an-authorized-child"),
+        )
+        .pipe(Effect.flip);
+
+      assert.equal(error.reason, "subagent_not_found");
+      assert.equal(routing.codex.readNativeSubagent.mock.calls.length, 0);
+      yield* routing.codex.stopSession(session.threadId);
+    }),
+  );
+
   it.effect("routes provider operations and rollback conversation", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

@@ -22,6 +22,8 @@ import {
   PreviewSnapshotToolkit,
   PreviewStandardToolkit,
 } from "./toolkits/preview/tools.ts";
+import { SubagentToolkitHandlersLive } from "../features/subagents/mcp/handlers.ts";
+import { SubagentToolkit } from "../features/subagents/mcp/tools.ts";
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
   {
@@ -216,10 +218,29 @@ export const PreviewToolkitRegistrationLive = Layer.mergeAll(
   PreviewSnapshotRegistrationLive,
 );
 
+export const SubagentToolkitRegistrationLive = McpServer.toolkit(SubagentToolkit).pipe(
+  Layer.provide(SubagentToolkitHandlersLive),
+);
+
 const McpTransportLive = McpServer.layerHttp({
   name: "T3 Code",
   version: packageJson.version,
   path: "/mcp",
 }).pipe(Layer.provide(McpAuthMiddlewareLive));
 
-export const layer = PreviewToolkitRegistrationLive.pipe(Layer.provideMerge(McpTransportLive));
+const McpPreviewTransportLive = McpServer.layerHttp({
+  name: "T3 Code Preview",
+  version: packageJson.version,
+  path: "/mcp/preview",
+}).pipe(Layer.provide(McpAuthMiddlewareLive));
+
+const RootMcpLive = Layer.mergeAll(
+  PreviewToolkitRegistrationLive,
+  SubagentToolkitRegistrationLive,
+).pipe(Layer.provideMerge(McpTransportLive));
+
+const PreviewOnlyMcpLive = PreviewToolkitRegistrationLive.pipe(
+  Layer.provideMerge(McpPreviewTransportLive),
+);
+
+export const layer = Layer.mergeAll(RootMcpLive, PreviewOnlyMcpLive);

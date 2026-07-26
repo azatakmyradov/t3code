@@ -23,6 +23,10 @@ import type {
   ProviderStopSessionInput,
   ThreadId,
   ProviderTurnStartResult,
+  NativeHarnessSubagentDetail,
+  NativeHarnessSubagentId,
+  NativeHarnessSubagentListResult,
+  NativeHarnessSubagentReadError,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -85,6 +89,15 @@ export interface ProviderServiceShape {
    * Aggregates runtime session lists from all registered adapters.
    */
   readonly listSessions: () => Effect.Effect<ReadonlyArray<ProviderSession>>;
+
+  readonly listNativeSubagents: (
+    parentThreadId: ThreadId,
+  ) => Effect.Effect<NativeHarnessSubagentListResult, NativeHarnessSubagentReadError>;
+
+  readonly readNativeSubagent: (
+    parentThreadId: ThreadId,
+    nativeSubagentId: NativeHarnessSubagentId,
+  ) => Effect.Effect<NativeHarnessSubagentDetail, NativeHarnessSubagentReadError>;
 
   /**
    * Read capabilities for the adapter bound to a configured provider instance.

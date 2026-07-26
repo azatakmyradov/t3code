@@ -20,12 +20,14 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas.ts";
-import { ProviderInstanceId } from "./providerInstance.ts";
+import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
+  listNativeSubagents: "orchestration.listNativeSubagents",
+  readNativeSubagent: "orchestration.readNativeSubagent",
   replayEvents: "orchestration.replayEvents",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   subscribeShell: "orchestration.subscribeShell",
@@ -342,6 +344,76 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+export const NativeHarnessSubagentId = TrimmedNonEmptyString.pipe(
+  Schema.brand("NativeHarnessSubagentId"),
+);
+export type NativeHarnessSubagentId = typeof NativeHarnessSubagentId.Type;
+
+export const NativeHarnessSubagentStatus = Schema.Literals([
+  "running",
+  "done",
+  "interrupted",
+  "error",
+  "unknown",
+]);
+export type NativeHarnessSubagentStatus = typeof NativeHarnessSubagentStatus.Type;
+
+export const NativeHarnessSubagentSummary = Schema.Struct({
+  id: NativeHarnessSubagentId,
+  provider: ProviderDriverKind,
+  title: TrimmedNonEmptyString,
+  status: NativeHarnessSubagentStatus,
+  statusDetail: Schema.optionalKey(TrimmedNonEmptyString),
+  model: Schema.optionalKey(TrimmedNonEmptyString),
+  role: Schema.optionalKey(TrimmedNonEmptyString),
+  cwd: Schema.optionalKey(TrimmedNonEmptyString),
+  createdAt: Schema.NullOr(IsoDateTime),
+  updatedAt: Schema.NullOr(IsoDateTime),
+  readOnly: Schema.Literal(true),
+});
+export type NativeHarnessSubagentSummary = typeof NativeHarnessSubagentSummary.Type;
+
+export const NativeHarnessSubagentDetail = Schema.Struct({
+  summary: NativeHarnessSubagentSummary,
+  messages: Schema.Array(OrchestrationMessage),
+  activities: Schema.Array(OrchestrationThreadActivity),
+  proposedPlans: Schema.Array(OrchestrationProposedPlan),
+  latestTurn: Schema.NullOr(OrchestrationLatestTurn),
+});
+export type NativeHarnessSubagentDetail = typeof NativeHarnessSubagentDetail.Type;
+
+export const NativeHarnessSubagentListInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type NativeHarnessSubagentListInput = typeof NativeHarnessSubagentListInput.Type;
+
+export const NativeHarnessSubagentListResult = Schema.Struct({
+  subagents: Schema.Array(NativeHarnessSubagentSummary),
+});
+export type NativeHarnessSubagentListResult = typeof NativeHarnessSubagentListResult.Type;
+
+export const NativeHarnessSubagentReadInput = Schema.Struct({
+  threadId: ThreadId,
+  nativeSubagentId: NativeHarnessSubagentId,
+});
+export type NativeHarnessSubagentReadInput = typeof NativeHarnessSubagentReadInput.Type;
+
+export const NativeHarnessSubagentReadErrorReason = Schema.Literals([
+  "parent_not_found",
+  "subagent_not_found",
+  "provider_unsupported",
+  "provider_unavailable",
+]);
+export type NativeHarnessSubagentReadErrorReason = typeof NativeHarnessSubagentReadErrorReason.Type;
+
+export class NativeHarnessSubagentReadError extends Schema.TaggedErrorClass<NativeHarnessSubagentReadError>()(
+  "NativeHarnessSubagentReadError",
+  {
+    reason: NativeHarnessSubagentReadErrorReason,
+    message: TrimmedNonEmptyString,
+  },
+) {}
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -424,6 +496,14 @@ export const OrchestrationThreadShell = Schema.Struct({
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
   hasActionableProposedPlan: Schema.Boolean,
+  subagentCounts: Schema.optional(
+    Schema.Struct({
+      running: NonNegativeInt,
+      done: NonNegativeInt,
+      failed: NonNegativeInt,
+      needsAttention: NonNegativeInt,
+    }),
+  ),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
@@ -1383,6 +1463,14 @@ export const OrchestrationRpcSchemas = {
   getFullThreadDiff: {
     input: OrchestrationGetFullThreadDiffInput,
     output: OrchestrationGetFullThreadDiffResult,
+  },
+  listNativeSubagents: {
+    input: NativeHarnessSubagentListInput,
+    output: NativeHarnessSubagentListResult,
+  },
+  readNativeSubagent: {
+    input: NativeHarnessSubagentReadInput,
+    output: NativeHarnessSubagentDetail,
   },
   replayEvents: {
     input: OrchestrationReplayEventsInput,

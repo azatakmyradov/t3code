@@ -5,6 +5,8 @@ import type {
   OrchestrationThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
+import { SUBAGENT_SUMMARY_UPDATED_ACTIVITY } from "@t3tools/fork-subagents/activities";
+import { isSubagentThreadId } from "@t3tools/fork-subagents/threads";
 import {
   RelayApi,
   type RelayAgentActivityPublishProofPayload,
@@ -65,6 +67,8 @@ export function eventThreadId(event: OrchestrationEvent): ThreadId | null {
 }
 
 export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boolean {
+  const threadId = eventThreadId(event);
+  if (threadId && isSubagentThreadId(threadId)) return false;
   switch (event.type) {
     case "thread.message-sent":
     case "thread.turn-start-requested":
@@ -85,6 +89,7 @@ export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boo
         event.payload.activity.kind === "provider.approval.respond.failed" ||
         event.payload.activity.kind === "user-input.requested" ||
         event.payload.activity.kind === "user-input.resolved" ||
+        event.payload.activity.kind === SUBAGENT_SUMMARY_UPDATED_ACTIVITY ||
         event.payload.activity.kind === "runtime.error"
       );
     default:
@@ -226,6 +231,8 @@ export function describeThreadShellForAwareness(
     latestTurnCompletedAt: shell.latestTurn?.completedAt ?? null,
     hasPendingApprovals: shell.hasPendingApprovals,
     hasPendingUserInput: shell.hasPendingUserInput,
+    subagentRunningCount: shell.subagentCounts?.running ?? 0,
+    subagentNeedsAttentionCount: shell.subagentCounts?.needsAttention ?? 0,
   };
 }
 
@@ -274,6 +281,9 @@ export function resolveAgentAwarenessRelayActiveThreadIds(input: {
   const projectById = new Map(input.projects.map((project) => [project.id, project]));
   return input.threads
     .filter((thread) => {
+      if (isSubagentThreadId(thread.id)) {
+        return false;
+      }
       const project = projectById.get(thread.projectId);
       if (!project) {
         return false;

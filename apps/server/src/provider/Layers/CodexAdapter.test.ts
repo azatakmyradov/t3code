@@ -43,6 +43,7 @@ import {
   type CodexSessionRuntimeOptions,
   type CodexSessionRuntimeSendTurnInput,
   type CodexSessionRuntimeShape,
+  type CodexNativeThreadSnapshot,
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
@@ -114,6 +115,7 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   );
 
   public readonly closeImpl = vi.fn(() => Promise.resolve(undefined));
+  public readonly nativeThreads = new Map<string, CodexNativeThreadSnapshot>();
 
   readonly options: CodexSessionRuntimeOptions;
 
@@ -136,6 +138,13 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   }
 
   readThread = Effect.promise(() => this.readThreadImpl());
+
+  readProviderThread(providerThreadId: string) {
+    const thread = this.nativeThreads.get(providerThreadId);
+    return thread
+      ? Effect.succeed(thread)
+      : Effect.die(new Error(`Native thread is not configured: ${providerThreadId}`));
+  }
 
   rollbackThread(numTurns: number) {
     return Effect.promise(() => this.rollbackThreadImpl(numTurns));
@@ -239,6 +248,87 @@ const validationLayer = it.layer(
 );
 
 validationLayer("CodexAdapterLive validation", (it) => {
+  it.effect("discovers direct and nested native Codex children without duplicate references", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-native-discovery");
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "full-access",
+      });
+      const runtime = validationRuntimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      const makeThread = (id: string, items: ReadonlyArray<unknown>): CodexNativeThreadSnapshot =>
+        ({
+          id,
+          name: id,
+          agentNickname: null,
+          agentRole: null,
+          cwd: "/repo",
+          createdAt: 1_767_225_600,
+          updatedAt: 1_767_225_601,
+          status: { type: "idle" },
+          turns: [
+            {
+              id: `turn-${id}`,
+              status: "completed",
+              startedAt: 1_767_225_600,
+              completedAt: 1_767_225_601,
+              items,
+            },
+          ],
+        }) as unknown as CodexNativeThreadSnapshot;
+      const spawn = (id: string, receiverThreadIds: ReadonlyArray<string>) => ({
+        id,
+        type: "collabAgentToolCall",
+        tool: "spawnAgent",
+        status: "completed",
+        receiverThreadIds,
+        prompt: id,
+        agentsStates: Object.fromEntries(
+          receiverThreadIds.map((receiverId) => [receiverId, { status: "completed" }]),
+        ),
+      });
+      runtime.nativeThreads.set(
+        "provider-thread-1",
+        makeThread("provider-thread-1", [
+          {
+            id: "activity-child",
+            type: "subAgentActivity",
+            kind: "started",
+            agentPath: "/root/researcher",
+            agentThreadId: "child",
+          },
+          { ...spawn("wait-child", ["child"]), tool: "wait" },
+        ]),
+      );
+      runtime.nativeThreads.set(
+        "child",
+        makeThread("child", [
+          {
+            id: "activity-grandchild",
+            type: "subAgentActivity",
+            kind: "started",
+            agentPath: "/root/researcher/verifier",
+            agentThreadId: "grandchild",
+          },
+        ]),
+      );
+      runtime.nativeThreads.set("grandchild", makeThread("grandchild", []));
+
+      const summaries = yield* adapter.nativeSubagents!.listNativeSubagents(threadId);
+
+      NodeAssert.deepEqual(
+        summaries.map(({ id }) => id),
+        ["child", "grandchild"],
+      );
+      yield* adapter.stopSession(threadId);
+      validationRuntimeFactory.factory.mockClear();
+    }),
+  );
+
   it.effect("returns validation error for non-codex provider on startSession", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
@@ -285,6 +375,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
         serviceTier: "priority",
         threadId: asThreadId("thread-1"),
         runtimeMode: "full-access",
+        agentContext: "root",
       });
     }),
   );

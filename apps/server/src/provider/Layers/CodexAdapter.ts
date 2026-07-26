@@ -57,9 +57,16 @@ import {
   CodexSessionRuntimeThreadIdMissingError,
   makeCodexSessionRuntime,
   type CodexSessionRuntimeError,
+  type CodexNativeThreadSnapshot,
   type CodexSessionRuntimeOptions,
   type CodexSessionRuntimeShape,
 } from "./CodexSessionRuntime.ts";
+import {
+  codexNativeChildReferences,
+  codexNativeSubagentSummary,
+  normalizeCodexNativeSubagent,
+  type CodexSpawnItem,
+} from "./CodexNativeSubagents.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
 const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
@@ -226,7 +233,7 @@ function toCanonicalItemType(raw: string | undefined | null): CanonicalItemType 
     return "file_change";
   if (type.includes("mcp")) return "mcp_tool_call";
   if (type.includes("dynamic tool")) return "dynamic_tool_call";
-  if (type.includes("collab")) return "collab_agent_tool_call";
+  if (type.includes("collab") || type.includes("sub agent")) return "collab_agent_tool_call";
   if (type.includes("web search")) return "web_search";
   if (type.includes("image")) return "image_view";
   if (type.includes("review entered")) return "review_entered";
@@ -1407,6 +1414,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? { resumeCursor: input.resumeCursor }
             : {}),
           runtimeMode: input.runtimeMode,
+          agentContext: input.agentContext ?? "root",
           ...(input.modelSelection?.instanceId === boundInstanceId
             ? { model: input.modelSelection.model }
             : {}),
@@ -1597,6 +1605,73 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       })),
     );
 
+  const discoverNativeSubagents = Effect.fn("discoverCodexNativeSubagents")(function* (
+    parentThreadId: ThreadId,
+  ) {
+    const session = yield* requireSession(parentThreadId);
+    const current = yield* session.runtime.readThread;
+    const root = yield* session.runtime.readProviderThread(current.threadId);
+    const queue = [root];
+    const seen = new Set<string>([root.id]);
+    const discovered: Array<{
+      readonly thread: CodexNativeThreadSnapshot;
+      readonly spawn?: CodexSpawnItem;
+    }> = [];
+
+    while (queue.length > 0) {
+      const owner = queue.shift()!;
+      for (const reference of codexNativeChildReferences(owner)) {
+        if (seen.has(reference.receiverThreadId)) continue;
+        seen.add(reference.receiverThreadId);
+        const child = yield* session.runtime.readProviderThread(reference.receiverThreadId);
+        discovered.push({
+          thread: child,
+          ...(reference.spawn ? { spawn: reference.spawn } : {}),
+        });
+        queue.push(child);
+      }
+    }
+    return discovered;
+  });
+
+  const listNativeSubagents: NonNullable<
+    CodexAdapterShape["nativeSubagents"]
+  >["listNativeSubagents"] = (parentThreadId) =>
+    discoverNativeSubagents(parentThreadId).pipe(
+      Effect.map((discovered) =>
+        discovered.map(({ thread, spawn }) => codexNativeSubagentSummary(thread, spawn)),
+      ),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(parentThreadId, "thread/read-native-subagents", cause),
+      ),
+    );
+
+  const readNativeSubagent: NonNullable<
+    CodexAdapterShape["nativeSubagents"]
+  >["readNativeSubagent"] = (parentThreadId, nativeSubagentId) =>
+    discoverNativeSubagents(parentThreadId).pipe(
+      Effect.flatMap((discovered) => {
+        const child = discovered.find(({ thread }) => thread.id === nativeSubagentId);
+        return child
+          ? Effect.succeed(normalizeCodexNativeSubagent(child.thread, child.spawn))
+          : Effect.fail(
+              new ProviderAdapterValidationError({
+                provider: PROVIDER,
+                operation: "readNativeSubagent",
+                issue: "Native subagent is not a descendant of this parent.",
+              }),
+            );
+      }),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError" ||
+        cause._tag === "ProviderAdapterValidationError"
+          ? cause
+          : mapCodexRuntimeError(parentThreadId, "thread/read-native-subagent", cause),
+      ),
+    );
+
   const rollbackThread: CodexAdapterShape["rollbackThread"] = (threadId, numTurns) => {
     if (!Number.isInteger(numTurns) || numTurns < 1) {
       return Effect.fail(
@@ -1708,6 +1783,10 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     sendTurn,
     interruptTurn,
     readThread,
+    nativeSubagents: {
+      listNativeSubagents,
+      readNativeSubagent,
+    },
     rollbackThread,
     respondToRequest,
     respondToUserInput,

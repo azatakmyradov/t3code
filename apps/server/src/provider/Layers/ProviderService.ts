@@ -11,6 +11,7 @@
  */
 import {
   ModelSelection,
+  NativeHarnessSubagentReadError,
   NonNegativeInt,
   ThreadId,
   ProviderInterruptTurnInput,
@@ -23,6 +24,7 @@ import {
   type ProviderDriverKind,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  type NativeHarnessSubagentId,
 } from "@t3tools/contracts";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import * as DateTime from "effect/DateTime";
@@ -54,6 +56,7 @@ import { type EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { isSubagentThreadId } from "@t3tools/fork-subagents/threads";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 const isModelSelection = Schema.is(ModelSelection);
 
@@ -214,14 +217,25 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-  const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
-    McpSessionRegistry.issueActiveMcpCredential({ threadId, providerInstanceId }).pipe(
+  const prepareMcpSession = (
+    threadId: ThreadId,
+    providerInstanceId: ProviderInstanceId,
+    provider: ProviderDriverKind,
+  ) => {
+    const agentContext = isSubagentThreadId(threadId) ? "subagent" : "root";
+    return McpSessionRegistry.issueActiveMcpCredential({
+      threadId,
+      providerInstanceId,
+      provider,
+      agentContext,
+    }).pipe(
       Effect.tap((credential) =>
         credential
           ? Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config))
           : Effect.void,
       ),
     );
+  };
   const clearMcpSession = (threadId: ThreadId) =>
     McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
       Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
@@ -397,7 +411,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
 
-      yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
+      const agentContext = isSubagentThreadId(input.binding.threadId) ? "subagent" : "root";
+      yield* prepareMcpSession(input.binding.threadId, bindingInstanceId, input.binding.provider);
       const resumed = yield* adapter
         .startSession({
           threadId: input.binding.threadId,
@@ -407,6 +422,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
           ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
           runtimeMode: input.binding.runtimeMode ?? "full-access",
+          agentContext,
         })
         .pipe(Effect.onError(() => clearMcpSession(input.binding.threadId)));
       if (resumed.provider !== adapter.provider) {
@@ -590,10 +606,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.cwd.effective": effectiveCwd ?? "",
         });
         const adapter = yield* registry.getByInstance(resolvedInstanceId);
-        yield* prepareMcpSession(threadId, resolvedInstanceId);
+        yield* prepareMcpSession(threadId, resolvedInstanceId, resolvedProvider);
+        const agentContext = isSubagentThreadId(threadId) ? "subagent" : "root";
         const session = yield* adapter
           .startSession({
             ...input,
+            agentContext,
             providerInstanceId: resolvedInstanceId,
             ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
             ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
@@ -880,6 +898,137 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const nativeSubagentError = (reason: NativeHarnessSubagentReadError["reason"], message: string) =>
+    new NativeHarnessSubagentReadError({ reason, message });
+
+  const resolveNativeSubagentAdapter = Effect.fn("resolveNativeSubagentAdapter")(function* (
+    parentThreadId: ThreadId,
+  ) {
+    const bindingOption = yield* directory
+      .getBinding(parentThreadId)
+      .pipe(
+        Effect.mapError(() =>
+          nativeSubagentError(
+            "provider_unavailable",
+            "The parent provider binding could not be loaded.",
+          ),
+        ),
+      );
+    const binding = Option.getOrUndefined(bindingOption);
+    if (!binding) {
+      return yield* nativeSubagentError("parent_not_found", "The parent thread was not found.");
+    }
+    const instanceId = yield* requireBindingInstanceId(
+      "ProviderService.nativeSubagents",
+      binding,
+    ).pipe(
+      Effect.mapError(() =>
+        nativeSubagentError("provider_unavailable", "The parent provider binding is unavailable."),
+      ),
+    );
+    const adapter = yield* registry
+      .getByInstance(instanceId)
+      .pipe(
+        Effect.mapError(() =>
+          nativeSubagentError("provider_unavailable", "The parent provider is unavailable."),
+        ),
+      );
+    return { adapter } as const;
+  });
+
+  const listNativeSubagents: ProviderServiceMethod<"listNativeSubagents"> = Effect.fn(
+    "listNativeSubagents",
+  )(function* (parentThreadId) {
+    const resolved = yield* resolveNativeSubagentAdapter(parentThreadId);
+    if (!resolved.adapter.nativeSubagents) {
+      return { subagents: [] };
+    }
+    const routed = yield* resolveRoutableSession({
+      threadId: parentThreadId,
+      operation: "ProviderService.listNativeSubagents",
+      allowRecovery: true,
+    }).pipe(
+      Effect.mapError(() =>
+        nativeSubagentError(
+          "provider_unavailable",
+          "The parent provider session could not be recovered.",
+        ),
+      ),
+    );
+    const nativeSubagents = routed.adapter.nativeSubagents;
+    if (!nativeSubagents) {
+      return { subagents: [] };
+    }
+    const subagents = yield* nativeSubagents
+      .listNativeSubagents(parentThreadId)
+      .pipe(
+        Effect.mapError(() =>
+          nativeSubagentError(
+            "provider_unavailable",
+            "Provider-native subagents could not be loaded.",
+          ),
+        ),
+      );
+    return { subagents };
+  });
+
+  const readNativeSubagent: ProviderServiceMethod<"readNativeSubagent"> = Effect.fn(
+    "readNativeSubagent",
+  )(function* (parentThreadId, nativeSubagentId: NativeHarnessSubagentId) {
+    const resolved = yield* resolveNativeSubagentAdapter(parentThreadId);
+    if (!resolved.adapter.nativeSubagents) {
+      return yield* nativeSubagentError(
+        "provider_unsupported",
+        "This provider does not expose readable native subagents.",
+      );
+    }
+    const routed = yield* resolveRoutableSession({
+      threadId: parentThreadId,
+      operation: "ProviderService.readNativeSubagent",
+      allowRecovery: true,
+    }).pipe(
+      Effect.mapError(() =>
+        nativeSubagentError(
+          "provider_unavailable",
+          "The parent provider session could not be recovered.",
+        ),
+      ),
+    );
+    const nativeSubagents = routed.adapter.nativeSubagents;
+    if (!nativeSubagents) {
+      return yield* nativeSubagentError(
+        "provider_unsupported",
+        "This provider does not expose readable native subagents.",
+      );
+    }
+    const authoritative = yield* nativeSubagents
+      .listNativeSubagents(parentThreadId)
+      .pipe(
+        Effect.mapError(() =>
+          nativeSubagentError(
+            "provider_unavailable",
+            "Provider-native subagents could not be loaded.",
+          ),
+        ),
+      );
+    if (!authoritative.some((summary) => summary.id === nativeSubagentId)) {
+      return yield* nativeSubagentError(
+        "subagent_not_found",
+        "The requested native subagent is not a descendant of this parent.",
+      );
+    }
+    return yield* nativeSubagents
+      .readNativeSubagent(parentThreadId, nativeSubagentId)
+      .pipe(
+        Effect.mapError(() =>
+          nativeSubagentError(
+            "provider_unavailable",
+            "The native subagent transcript could not be loaded.",
+          ),
+        ),
+      );
+  });
+
   const listSessions: ProviderServiceMethod<"listSessions"> = Effect.fn("listSessions")(
     function* () {
       const currentAdapters = yield* getAdapterEntries;
@@ -1081,6 +1230,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     respondToRequest,
     respondToUserInput,
     stopSession,
+    listNativeSubagents,
+    readNativeSubagent,
     listSessions,
     getCapabilities,
     getInstanceInfo,

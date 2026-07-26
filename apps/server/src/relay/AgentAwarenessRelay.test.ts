@@ -158,6 +158,18 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
         },
       } as unknown as OrchestrationEvent),
     ).toBe(false);
+
+    expect(
+      AgentAwarenessRelay.shouldPublishAgentAwarenessEvent({
+        ...base,
+        type: "thread.activity-appended",
+        aggregateId: "t3-internal-subagent-child" as ThreadId,
+        payload: {
+          threadId: "t3-internal-subagent-child" as ThreadId,
+          activity: { kind: "approval.requested" },
+        },
+      } as unknown as OrchestrationEvent),
+    ).toBe(false);
     expect(
       AgentAwarenessRelay.shouldPublishAgentAwarenessEvent({
         ...base,
@@ -292,6 +304,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
     const projectId = "project-1" as ProjectId;
     const activeThreadId = "thread-active" as ThreadId;
     const idleThreadId = "thread-idle" as ThreadId;
+    const childThreadId = "t3-internal-subagent-child" as ThreadId;
 
     const baseThread = {
       projectId,
@@ -329,6 +342,18 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
             id: activeThreadId,
             latestTurn: {
               turnId: "turn-1" as TurnId,
+              state: "running",
+              requestedAt: now,
+              startedAt: now,
+              completedAt: null,
+              assistantMessageId: null,
+            },
+          },
+          {
+            ...baseThread,
+            id: childThreadId,
+            latestTurn: {
+              turnId: "turn-child" as TurnId,
               state: "running",
               requestedAt: now,
               startedAt: now,

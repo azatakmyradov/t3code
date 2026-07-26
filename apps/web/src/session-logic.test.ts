@@ -1537,6 +1537,85 @@ describe("deriveTimelineEntries", () => {
       },
     });
   });
+
+  it("preserves interleaved child messages, commands, and tool calls", () => {
+    const turnId = TurnId.make("turn-child");
+    const messages = [
+      {
+        id: MessageId.make("message-user"),
+        role: "user" as const,
+        text: "Please investigate.",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: null,
+        updatedAt: "2026-02-23T00:00:01.000Z",
+        streaming: false,
+      },
+      {
+        id: MessageId.make("message-commentary"),
+        role: "assistant" as const,
+        text: "I’m checking the implementation.",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId,
+        updatedAt: "2026-02-23T00:00:02.000Z",
+        streaming: false,
+      },
+      {
+        id: MessageId.make("message-after-command"),
+        role: "assistant" as const,
+        text: "The command confirmed the path.",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        turnId,
+        updatedAt: "2026-02-23T00:00:04.000Z",
+        streaming: false,
+      },
+      {
+        id: MessageId.make("message-terminal"),
+        role: "assistant" as const,
+        text: "Investigation complete.",
+        createdAt: "2026-02-23T00:00:06.000Z",
+        turnId,
+        updatedAt: "2026-02-23T00:00:06.000Z",
+        streaming: false,
+      },
+    ];
+    const workEntries = deriveWorkLogEntries([
+      makeActivity({
+        id: "command",
+        turnId,
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.completed",
+        summary: "Run tests",
+        payload: {
+          itemType: "command_execution",
+          title: "Run tests",
+          detail: "/bin/zsh -lc 'vp test run child.test.ts'",
+        },
+      }),
+      makeActivity({
+        id: "tool-call",
+        turnId,
+        createdAt: "2026-02-23T00:00:05.000Z",
+        kind: "tool.completed",
+        summary: "Read file",
+        payload: {
+          itemType: "mcp_tool_call",
+          title: "Read file",
+          detail: "Loaded AgentsPanel.tsx",
+        },
+      }),
+    ]);
+
+    const entries = deriveTimelineEntries(messages, [], workEntries);
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "message-user",
+      "message-commentary",
+      "command",
+      "message-after-command",
+      "tool-call",
+      "message-terminal",
+    ]);
+  });
 });
 
 describe("deriveWorkLogEntries context window handling", () => {

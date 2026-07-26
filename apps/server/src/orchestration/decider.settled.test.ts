@@ -9,6 +9,7 @@ import {
   type OrchestrationSession,
   type OrchestrationThread,
 } from "@t3tools/contracts";
+import { SUBAGENT_SUMMARY_UPDATED_ACTIVITY } from "@t3tools/fork-subagents/activities";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -65,6 +66,40 @@ function makeSession(status: OrchestrationSession["status"]): OrchestrationSessi
     activeTurnId: null,
     lastError: null,
     updatedAt: NOW,
+  };
+}
+
+function makeSubagentSummaryActivity(input: {
+  readonly status: "running" | "done" | "error";
+  readonly needsAttention?: boolean;
+}): OrchestrationThread["activities"][number] {
+  return {
+    id: EventId.make(`activity-subagent-${input.status}`),
+    tone: "info",
+    kind: SUBAGENT_SUMMARY_UPDATED_ACTIVITY,
+    summary: "Subagent updated",
+    payload: {
+      summary: {
+        threadId: ThreadId.make("t3-internal-subagent-child"),
+        displayId: "sa-1",
+        title: "Worker",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        provider: "codex",
+        model: "gpt-5.4",
+        cwd: "/workspace",
+        status: input.status,
+        outcome: input.status === "done" ? "completed" : input.status === "error" ? "failed" : null,
+        createdAt: NOW,
+        settledAt: input.status === "running" ? null : NOW,
+        turnCount: 1,
+        contextUsage: null,
+        hasPendingApproval: input.needsAttention ?? false,
+        hasPendingUserInput: false,
+        error: input.status === "error" ? "failed" : null,
+      },
+    },
+    turnId: null,
+    createdAt: NOW,
   };
 }
 
@@ -132,6 +167,37 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       });
       const settledEvents = Array.isArray(settled) ? settled : [settled];
       expect(settledEvents[0]?.type).toBe("thread.settled");
+    }),
+  );
+
+  it.effect("blocks settling for running or attention-needing child summaries", () =>
+    Effect.gen(function* () {
+      for (const activity of [
+        makeSubagentSummaryActivity({ status: "running" }),
+        makeSubagentSummaryActivity({ status: "done", needsAttention: true }),
+      ]) {
+        const error = yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.settle",
+            commandId: CommandId.make(`cmd-settle-${activity.id}`),
+            threadId: ThreadId.make("thread-1"),
+          },
+          readModel: makeReadModel(null, null, null, [activity]),
+        }).pipe(Effect.flip);
+        expect(error._tag).toBe("OrchestrationCommandInvariantError");
+      }
+
+      const settled = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-completed-child"),
+          threadId: ThreadId.make("thread-1"),
+        },
+        readModel: makeReadModel(null, null, null, [
+          makeSubagentSummaryActivity({ status: "done" }),
+        ]),
+      });
+      expect((Array.isArray(settled) ? settled : [settled])[0]?.type).toBe("thread.settled");
     }),
   );
 
@@ -516,6 +582,31 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       });
       const routineEvents = Array.isArray(routineResult) ? routineResult : [routineResult];
       expect(routineEvents.map((event) => event.type)).toEqual(["thread.activity-appended"]);
+    }),
+  );
+
+  it.effect("wakes a settled parent when a child starts or needs attention", () =>
+    Effect.gen(function* () {
+      for (const activity of [
+        makeSubagentSummaryActivity({ status: "running" }),
+        makeSubagentSummaryActivity({ status: "done", needsAttention: true }),
+      ]) {
+        const result = yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.activity.append",
+            commandId: CommandId.make(`cmd-append-${activity.id}`),
+            threadId: ThreadId.make("thread-1"),
+            activity,
+            createdAt: NOW,
+          },
+          readModel: makeReadModel("settled"),
+        });
+        const events = Array.isArray(result) ? result : [result];
+        expect(events.map((event) => event.type)).toEqual([
+          "thread.unsettled",
+          "thread.activity-appended",
+        ]);
+      }
     }),
   );
 });

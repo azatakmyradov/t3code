@@ -37,7 +37,11 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderAdapterProcessError, ProviderAdapterValidationError } from "../Errors.ts";
 import type { ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
-import { makeClaudeAdapter, type ClaudeAdapterLiveOptions } from "./ClaudeAdapter.ts";
+import {
+  CLAUDE_ROOT_SUBAGENT_INSTRUCTIONS,
+  makeClaudeAdapter,
+  type ClaudeAdapterLiveOptions,
+} from "./ClaudeAdapter.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* ClaudeAdapter`.
@@ -393,6 +397,18 @@ describe("ClaudeAdapterLive", () => {
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
     );
+  });
+
+  it("keeps Claude-specific subagent routing with the Claude adapter", () => {
+    assert.match(CLAUDE_ROOT_SUBAGENT_INSTRUCTIONS, /Claude-native subagents/);
+    assert.match(
+      CLAUDE_ROOT_SUBAGENT_INSTRUCTIONS,
+      /Codex model, use the T3-managed subagent tools/,
+    );
+    assert.notMatch(CLAUDE_ROOT_SUBAGENT_INSTRUCTIONS, /Codex-native subagents/);
+    assert.match(CLAUDE_ROOT_SUBAGENT_INSTRUCTIONS, /`subagent_models`/);
+    assert.match(CLAUDE_ROOT_SUBAGENT_INSTRUCTIONS, /`subagent_spawn`/);
+    assert.match(CLAUDE_ROOT_SUBAGENT_INSTRUCTIONS, /`subagent_wait`/);
   });
 
   it.effect("uses bypass permissions for full-access claude sessions", () => {

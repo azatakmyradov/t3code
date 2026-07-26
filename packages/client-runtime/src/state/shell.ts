@@ -5,6 +5,7 @@ import {
   type OrchestrationShellStreamItem,
   type ServerConfig,
 } from "@t3tools/contracts";
+import { isSubagentThreadId } from "@t3tools/fork-subagents/threads";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -48,6 +49,13 @@ function shellStatusForSnapshot(
 
 const SHELL_SYNCHRONIZATION_ERROR_MESSAGE = "Could not synchronize environment data.";
 
+function withoutInternalSubagentShells(
+  snapshot: OrchestrationShellSnapshot,
+): OrchestrationShellSnapshot {
+  const threads = snapshot.threads.filter((thread) => !isSubagentThreadId(thread.id));
+  return threads.length === snapshot.threads.length ? snapshot : { ...snapshot, threads };
+}
+
 export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")(function* () {
   const supervisor = yield* EnvironmentSupervisor;
   const cache = yield* EnvironmentCacheStore;
@@ -55,6 +63,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
   const cachedSnapshot = yield* cache.loadShell(environmentId).pipe(
+    Effect.map(Option.map(withoutInternalSubagentShells)),
     Effect.catch((error) =>
       Effect.logWarning("Could not load cached environment shell.").pipe(
         Effect.annotateLogs({
@@ -148,7 +157,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     const current = yield* SubscriptionRef.get(state);
     const nextSnapshot =
       item.kind === "snapshot"
-        ? item.snapshot
+        ? withoutInternalSubagentShells(item.snapshot)
         : Option.match(current.snapshot, {
             onNone: () => null,
             onSome: (snapshot) =>

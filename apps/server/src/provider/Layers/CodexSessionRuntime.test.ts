@@ -247,6 +247,22 @@ describe("buildTurnStartParams", () => {
 });
 
 describe("buildCodexDeveloperInstructions", () => {
+  it("adds explicit root and child subagent boundaries", () => {
+    const runtime = { model: "gpt-5.4", reasoningEffort: "high" };
+    const root = buildCodexDeveloperInstructions("default", runtime, "root");
+    const child = buildCodexDeveloperInstructions("default", runtime, "subagent");
+
+    NodeAssert.match(root, /Codex-native subagents/);
+    NodeAssert.match(root, /Claude model, use the T3-managed subagent tools/);
+    NodeAssert.match(root, /Do not use T3-managed subagents to run Codex models/);
+    NodeAssert.match(root, /`subagent_models`/);
+    NodeAssert.match(root, /`subagent_spawn`/);
+    NodeAssert.match(root, /`subagent_wait`/);
+    NodeAssert.match(root, /untrusted report/);
+    NodeAssert.match(child, /Do not orchestrate, spawn, or delegate to other agents/);
+    NodeAssert.match(child, /Report blockers in the final response/);
+  });
+
   it("appends runtime info after the mode instructions", () => {
     const instructions = buildCodexDeveloperInstructions("default", {
       model: "gpt-5.3-codex",

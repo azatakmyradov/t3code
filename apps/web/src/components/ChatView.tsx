@@ -139,6 +139,8 @@ import {
   usePreviewMiniPlayerStore,
 } from "../previewMiniPlayerStore";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { AgentsPanel } from "../features/subagents/AgentsPanel";
+import { useSubagentsIntegration } from "../features/subagents/useSubagentsIntegration";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -1251,7 +1253,9 @@ function ChatViewContent(props: ChatViewProps) {
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
-  optimisticUserMessagesRef.current = optimisticUserMessages;
+  useEffect(() => {
+    optimisticUserMessagesRef.current = optimisticUserMessages;
+  }, [optimisticUserMessages]);
   const [localDraftErrorsByDraftId, setLocalDraftErrorsByDraftId] = useState<
     Record<string, LocalThreadErrorEntry>
   >({});
@@ -1470,6 +1474,11 @@ function ChatViewContent(props: ChatViewProps) {
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
   );
+  const subagentsIntegration = useSubagentsIntegration(
+    environmentId,
+    isServerThread ? serverThread : null,
+  );
+  const activeSubagents = subagentsIntegration.summaries;
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
@@ -2057,15 +2066,13 @@ function ChatViewContent(props: ChatViewProps) {
       delete attachmentPreviewPromotionInFlightByMessageIdRef.current[messageId];
       const currentPreviewUrls =
         previewUrls ?? attachmentPreviewHandoffByMessageIdRef.current[messageId] ?? [];
-      setAttachmentPreviewHandoffByMessageId((existing) => {
-        if (!(messageId in existing)) {
-          return existing;
-        }
+      const existing = attachmentPreviewHandoffByMessageIdRef.current;
+      if (messageId in existing) {
         const next = { ...existing };
         delete next[messageId];
         attachmentPreviewHandoffByMessageIdRef.current = next;
-        return next;
-      });
+        setAttachmentPreviewHandoffByMessageId(next);
+      }
       for (const previewUrl of currentPreviewUrls) {
         revokeBlobPreviewUrl(previewUrl);
       }
@@ -2100,14 +2107,12 @@ function ChatViewContent(props: ChatViewProps) {
         revokeBlobPreviewUrl(previewUrl);
       }
     }
-    setAttachmentPreviewHandoffByMessageId((existing) => {
-      const next = {
-        ...existing,
-        [messageId]: previewUrls,
-      };
-      attachmentPreviewHandoffByMessageIdRef.current = next;
-      return next;
-    });
+    const next = {
+      ...attachmentPreviewHandoffByMessageIdRef.current,
+      [messageId]: previewUrls,
+    };
+    attachmentPreviewHandoffByMessageIdRef.current = next;
+    setAttachmentPreviewHandoffByMessageId(next);
   }, []);
   const serverMessages = activeThread?.messages;
   const serverAttachmentIds = useMemo(() => {
@@ -2520,20 +2525,17 @@ function ChatViewContent(props: ChatViewProps) {
     [draftId, routeThreadKey, routeThreadRef, serverThread],
   );
 
-  const focusComposer = useCallback(() => {
+  const focusComposer = () => {
     composerRef.current?.focusAtEnd();
-  }, [composerRef]);
-  const scheduleComposerFocus = useCallback(() => {
+  };
+  const scheduleComposerFocus = () => {
     window.requestAnimationFrame(() => {
       focusComposer();
     });
-  }, [focusComposer]);
-  const addTerminalContextToDraft = useCallback(
-    (selection: TerminalContextSelection) => {
-      composerRef.current?.addTerminalContext(selection);
-    },
-    [composerRef],
-  );
+  };
+  const addTerminalContextToDraft = (selection: TerminalContextSelection) => {
+    composerRef.current?.addTerminalContext(selection);
+  };
   const setTerminalOpen = useCallback(
     (open: boolean) => {
       if (!activeThreadRef) return;
@@ -3039,6 +3041,10 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const addAgentsSurface = useCallback(() => {
+    if (!activeThreadRef || !subagentsIntegration.available) return;
+    useRightPanelStore.getState().open(activeThreadRef, "agents");
+  }, [activeThreadRef, subagentsIntegration.available]);
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
@@ -4942,72 +4948,65 @@ function ChatViewContent(props: ChatViewProps) {
     [activePendingUserInput],
   );
 
-  const onSelectActivePendingUserInputOption = useCallback(
-    (questionId: string, optionLabel: string) => {
-      if (!activePendingUserInput) {
-        return;
+  const onSelectActivePendingUserInputOption = (questionId: string, optionLabel: string) => {
+    if (!activePendingUserInput) {
+      return;
+    }
+    setPendingUserInputAnswersByRequestId((existing) => {
+      const question =
+        (activePendingProgress?.activeQuestion?.id === questionId
+          ? activePendingProgress.activeQuestion
+          : undefined) ?? activePendingUserInput.questions.find((entry) => entry.id === questionId);
+      if (!question) {
+        return existing;
       }
-      setPendingUserInputAnswersByRequestId((existing) => {
-        const question =
-          (activePendingProgress?.activeQuestion?.id === questionId
-            ? activePendingProgress.activeQuestion
-            : undefined) ??
-          activePendingUserInput.questions.find((entry) => entry.id === questionId);
-        if (!question) {
-          return existing;
-        }
 
-        return {
-          ...existing,
-          [activePendingUserInput.requestId]: {
-            ...existing[activePendingUserInput.requestId],
-            [questionId]: togglePendingUserInputOptionSelection(
-              question,
-              existing[activePendingUserInput.requestId]?.[questionId],
-              optionLabel,
-            ),
-          },
-        };
-      });
-      promptRef.current = "";
-      composerRef.current?.resetCursorState({ cursor: 0 });
-    },
-    [activePendingProgress?.activeQuestion, activePendingUserInput, composerRef],
-  );
-
-  const onChangeActivePendingUserInputCustomAnswer = useCallback(
-    (
-      questionId: string,
-      value: string,
-      nextCursor: number,
-      expandedCursor: number,
-      _cursorAdjacentToMention: boolean,
-    ) => {
-      if (!activePendingUserInput) {
-        return;
-      }
-      promptRef.current = value;
-      setPendingUserInputAnswersByRequestId((existing) => ({
+      return {
         ...existing,
         [activePendingUserInput.requestId]: {
           ...existing[activePendingUserInput.requestId],
-          [questionId]: setPendingUserInputCustomAnswer(
+          [questionId]: togglePendingUserInputOptionSelection(
+            question,
             existing[activePendingUserInput.requestId]?.[questionId],
-            value,
+            optionLabel,
           ),
         },
-      }));
-      const snapshot = composerRef.current?.readSnapshot();
-      if (
-        snapshot?.value !== value ||
-        snapshot.cursor !== nextCursor ||
-        snapshot.expandedCursor !== expandedCursor
-      ) {
-        composerRef.current?.focusAt(nextCursor);
-      }
-    },
-    [activePendingUserInput, composerRef],
-  );
+      };
+    });
+    promptRef.current = "";
+    composerRef.current?.resetCursorState({ cursor: 0 });
+  };
+
+  const onChangeActivePendingUserInputCustomAnswer = (
+    questionId: string,
+    value: string,
+    nextCursor: number,
+    expandedCursor: number,
+    _cursorAdjacentToMention: boolean,
+  ) => {
+    if (!activePendingUserInput) {
+      return;
+    }
+    promptRef.current = value;
+    setPendingUserInputAnswersByRequestId((existing) => ({
+      ...existing,
+      [activePendingUserInput.requestId]: {
+        ...existing[activePendingUserInput.requestId],
+        [questionId]: setPendingUserInputCustomAnswer(
+          existing[activePendingUserInput.requestId]?.[questionId],
+          value,
+        ),
+      },
+    }));
+    const snapshot = composerRef.current?.readSnapshot();
+    if (
+      snapshot?.value !== value ||
+      snapshot.cursor !== nextCursor ||
+      snapshot.expandedCursor !== expandedCursor
+    ) {
+      composerRef.current?.focusAt(nextCursor);
+    }
+  };
 
   const onAdvanceActivePendingUserInput = useCallback(() => {
     if (!activePendingUserInput || !activePendingProgress) {
@@ -5207,7 +5206,7 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onImplementPlanInNewThread = useCallback(async () => {
+  const onImplementPlanInNewThread = async () => {
     if (
       !activeThread ||
       !activeProject ||
@@ -5346,26 +5345,7 @@ function ChatViewContent(props: ChatViewProps) {
       }
     }
     finish();
-  }, [
-    activeProject,
-    activeProposedPlan,
-    activeThreadBranch,
-    activeThread,
-    beginLocalDispatch,
-    activeEnvironmentUnavailable,
-    createThread,
-    deleteThread,
-    isConnecting,
-    isSendBusy,
-    isServerThread,
-    navigate,
-    resetLocalDispatch,
-    runtimeMode,
-    startThreadTurn,
-    autoOpenPlanSidebar,
-    environmentId,
-    composerRef,
-  ]);
+  };
 
   const getModelDisabledReason = useCallback(
     (instanceId: ProviderInstanceId, model: string): string | null => {
@@ -5522,9 +5502,11 @@ function ChatViewContent(props: ChatViewProps) {
   // Both the Map and the revert handler are read from refs at call-time so
   // the callback reference is fully stable and never busts context identity.
   const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
-  revertTurnCountRef.current = revertTurnCountByUserMessageId;
   const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
-  onRevertToTurnCountRef.current = onRevertToTurnCount;
+  useEffect(() => {
+    revertTurnCountRef.current = revertTurnCountByUserMessageId;
+    onRevertToTurnCountRef.current = onRevertToTurnCount;
+  }, [onRevertToTurnCount, revertTurnCountByUserMessageId]);
   const onRevertUserMessage = useCallback((messageId: MessageId) => {
     const targetTurnCount = revertTurnCountRef.current.get(messageId);
     if (typeof targetTurnCount !== "number") {
@@ -5538,6 +5520,7 @@ function ChatViewContent(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
+  const subagentsSummaryInset = subagentsIntegration.available ? 32 : 0;
   const panelToggleControls = (
     <PanelLayoutControls
       terminalAvailable={activeProject !== null}
@@ -5610,6 +5593,25 @@ function ChatViewContent(props: ChatViewProps) {
         workspaceRoot={activeWorkspaceRoot}
         timestampFormat={timestampFormat}
         mode="embedded"
+      />
+    ) : activeRightPanelSurface?.kind === "agents" ? (
+      <AgentsPanel
+        environmentId={environmentId}
+        summaries={activeSubagents}
+        nativeSummaries={subagentsIntegration.nativeSummaries}
+        nativePending={subagentsIntegration.nativePending}
+        nativeError={subagentsIntegration.nativeError}
+        parentThreadId={serverThread?.id ?? null}
+        parentUpdatedAt={serverThread?.updatedAt ?? null}
+        parentSessionActive={
+          serverThread?.session?.status === "starting" ||
+          serverThread?.session?.status === "running"
+        }
+        refreshNativeList={subagentsIntegration.refreshNative}
+        maximized={rightPanelMaximized}
+        resolvedTheme={resolvedTheme}
+        timestampFormat={timestampFormat}
+        onImageExpand={onExpandTimelineImage}
       />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
@@ -5734,18 +5736,31 @@ function ChatViewContent(props: ChatViewProps) {
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 onAnchorSizeChanged={onTimelineAnchorSizeChanged}
-                contentInsetEndAdjustment={composerOverlayHeight}
+                contentInsetEndAdjustment={composerOverlayHeight + subagentsSummaryInset}
                 onIsAtEndChange={onIsAtEndChange}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                 hideEmptyPlaceholder={isDraftHeroState}
                 topFadeEnabled={!hasTimelineTopBanner}
               />
 
+              {subagentsIntegration.available ? (
+                <div
+                  className="pointer-events-none absolute inset-x-0 z-20 px-3 sm:px-5"
+                  style={{ bottom: composerOverlayHeight + 8 }}
+                >
+                  <div className="mx-auto w-full min-w-0 max-w-3xl">
+                    <div className="pointer-events-auto w-fit">
+                      {subagentsIntegration.renderChatItem(addAgentsSurface)}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
                 <div
                   className="pointer-events-none absolute left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5"
-                  style={{ bottom: composerOverlayHeight + 4 }}
+                  style={{ bottom: composerOverlayHeight + subagentsSummaryInset + 4 }}
                 >
                   <button
                     type="button"
@@ -6038,9 +6053,11 @@ function ChatViewContent(props: ChatViewProps) {
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
+          onAddAgents={addAgentsSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
+          agentsAvailable={subagentsIntegration.available}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -6065,9 +6082,11 @@ function ChatViewContent(props: ChatViewProps) {
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
+            onAddAgents={addAgentsSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
+            agentsAvailable={subagentsIntegration.available}
           >
             {rightPanelContent}
           </RightPanelTabs>
