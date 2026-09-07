@@ -760,7 +760,7 @@ function PullRequestCodeTab({
           {diffQuery.error !== null ? (
             <>
               <span>
-                {nextCursor === null
+                {revalidating || nextCursor === null
                   ? "This diff could not be refreshed."
                   : "The rest of this diff could not be loaded."}
               </span>
@@ -778,7 +778,7 @@ function PullRequestCodeTab({
           ) : null}
         </div>
       ),
-    [nextCursor, diffQuery.error, diffQuery.isPending, diffQuery.refresh],
+    [nextCursor, revalidating, diffQuery.error, diffQuery.isPending, diffQuery.refresh],
   );
 
   const renderHeaderPrefix = useCallback(

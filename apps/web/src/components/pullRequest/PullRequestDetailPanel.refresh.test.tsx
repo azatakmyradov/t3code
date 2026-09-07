@@ -136,91 +136,97 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it.effect.each(["files", "empty", "raw", "additional page", "multiple pages"] as const)(
-  "shows diff failures and supports retry for %s",
-  (kind) =>
-    Effect.gen(function* () {
-      const h = yield* makeHarness("page");
-      const initial =
-        kind === "additional page" || kind === "multiple pages"
-          ? pages[0]!
-          : {
-              ...pages[1]!,
-              patch:
-                kind === "empty"
-                  ? ""
-                  : kind === "raw"
-                    ? "Unstructured patch content"
-                    : pages[1]!.patch,
-            };
-      h.updateDiff(initial);
-      yield* Effect.promise(async () => {
-        await act(async () => {
-          renderer = create(h.panel());
-        });
-        const button = (text: string) =>
-          renderer!.root.findAllByType("button").find((node) => node.children.includes(text))!;
-        const click = {
-          nativeEvent: new Event("click"),
-          preventDefault: state.noop,
-          currentTarget: { tagName: "BUTTON" },
-        };
-        await act(async () => {
-          button("Code").props.onClick(click);
-          await import("./PullRequestCodeTab");
-        });
-        if (kind === "multiple pages") {
-          await act(async () => button("Load more files").props.onClick(click));
-        }
-        const content = () => JSON.stringify(renderer!.toJSON());
-        const retained =
-          kind === "empty"
-            ? "This pull request has no file changes."
-            : kind === "raw"
-              ? initial.patch
-              : kind === "additional page"
-                ? "first.ts"
-                : "second.ts";
-        expect(content()).toContain(retained);
-        const loadDiff = h.loadDiff.getMockImplementation()!;
-        const failure = Effect.fail(
-          new EnvironmentInternalError({
-            code: "internal_error",
-            reason: "internal_error",
-            traceId: "test-refresh-failure",
-          }),
-        );
-        h.loadDiff.mockImplementation((connection, input) =>
-          kind === "multiple pages" && input.cursor !== undefined
-            ? loadDiff(connection, input)
-            : failure,
-        );
-        h.loadDiff.mockClear();
-        await act(async () => {
-          if (kind === "additional page") button("Load more files").props.onClick(click);
-          else renderer!.update(h.panel(1));
-        });
-        const errorText =
-          kind === "additional page"
-            ? "The rest of this diff could not be loaded."
-            : "This diff could not be refreshed.";
-        expect(content()).toContain(retained);
-        expect(content()).toContain(errorText);
-        if (kind === "multiple pages") {
-          expect(h.loadDiff.mock.calls.every(([, input]) => input.cursor === undefined)).toBe(true);
-        }
-        const failedRequests = h.loadDiff.mock.calls.length;
-        h.loadDiff.mockImplementation(loadDiff);
-        if (kind === "multiple pages") h.updateSecondPage(pages[2]!);
-        else if (kind !== "additional page") h.updateDiff(pages[2]!);
-        await act(async () => button("Retry").props.onClick(click));
-        expect(h.loadDiff).toHaveBeenCalledTimes(
-          failedRequests + (kind === "multiple pages" ? 2 : 1),
-        );
-        expect(content()).not.toContain(errorText);
-        expect(content()).toContain(kind === "additional page" ? "second.ts" : "updated.ts");
+const failureKinds = [
+  "files",
+  "empty",
+  "raw",
+  "additional page",
+  "multiple pages",
+  "partial refresh",
+] as const;
+it.effect.each(failureKinds)("shows diff failures and supports retry for %s", (kind) =>
+  Effect.gen(function* () {
+    const h = yield* makeHarness("page");
+    const initial =
+      kind === "additional page" || kind === "multiple pages" || kind === "partial refresh"
+        ? pages[0]!
+        : {
+            ...pages[1]!,
+            patch:
+              kind === "empty"
+                ? ""
+                : kind === "raw"
+                  ? "Unstructured patch content"
+                  : pages[1]!.patch,
+          };
+    h.updateDiff(initial);
+    yield* Effect.promise(async () => {
+      await act(async () => {
+        renderer = create(h.panel());
       });
-    }),
+      const button = (text: string) =>
+        renderer!.root.findAllByType("button").find((node) => node.children.includes(text))!;
+      const click = {
+        nativeEvent: new Event("click"),
+        preventDefault: state.noop,
+        currentTarget: { tagName: "BUTTON" },
+      };
+      await act(async () => {
+        button("Code").props.onClick(click);
+        await import("./PullRequestCodeTab");
+      });
+      if (kind === "multiple pages") {
+        await act(async () => button("Load more files").props.onClick(click));
+      }
+      const content = () => JSON.stringify(renderer!.toJSON());
+      const retained =
+        kind === "empty"
+          ? "This pull request has no file changes."
+          : kind === "raw"
+            ? initial.patch
+            : kind === "additional page" || kind === "partial refresh"
+              ? "first.ts"
+              : "second.ts";
+      expect(content()).toContain(retained);
+      const loadDiff = h.loadDiff.getMockImplementation()!;
+      const failure = Effect.fail(
+        new EnvironmentInternalError({
+          code: "internal_error",
+          reason: "internal_error",
+          traceId: "test-refresh-failure",
+        }),
+      );
+      h.loadDiff.mockImplementation((connection, input) =>
+        kind === "multiple pages" && input.cursor !== undefined
+          ? loadDiff(connection, input)
+          : failure,
+      );
+      h.loadDiff.mockClear();
+      await act(async () => {
+        if (kind === "additional page") button("Load more files").props.onClick(click);
+        else renderer!.update(h.panel(1));
+      });
+      const errorText =
+        kind === "additional page"
+          ? "The rest of this diff could not be loaded."
+          : "This diff could not be refreshed.";
+      expect(content()).toContain(retained);
+      expect(content()).toContain(errorText);
+      if (kind === "multiple pages") {
+        expect(h.loadDiff.mock.calls.every(([, input]) => input.cursor === undefined)).toBe(true);
+      }
+      const failedRequests = h.loadDiff.mock.calls.length;
+      h.loadDiff.mockImplementation(loadDiff);
+      if (kind === "multiple pages") h.updateSecondPage(pages[2]!);
+      else if (kind !== "additional page") h.updateDiff(pages[2]!);
+      await act(async () => button("Retry").props.onClick(click));
+      expect(h.loadDiff).toHaveBeenCalledTimes(
+        failedRequests + (kind === "multiple pages" ? 2 : 1),
+      );
+      expect(content()).not.toContain(errorText);
+      expect(content()).toContain(kind === "additional page" ? "second.ts" : "updated.ts");
+    });
+  }),
 );
 
 const makeHarness = Effect.fn("PullRequestDetailPanelTest.makeHarness")(function* (
