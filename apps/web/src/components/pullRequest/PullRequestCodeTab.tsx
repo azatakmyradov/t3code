@@ -256,9 +256,9 @@ function PullRequestCodeTab({
     readonly key: string;
     readonly cursor: string | null;
     readonly slices: ReadonlyArray<DiffSlice>;
-  }>({ key: "", cursor: null, slices: NO_SLICES });
+    readonly revalidating: boolean;
+  }>({ key: "", cursor: null, slices: NO_SLICES, revalidating: false });
   const parseCache = useRef(new Map<string, RenderablePatch>());
-  const revalidatingSlices = useRef(false);
   const registry = useContext(RegistryContext);
   const [viewer, setViewer] = useState<CodeViewHandle<ReviewAnnotationGroup> | null>(null);
 
@@ -270,19 +270,19 @@ function PullRequestCodeTab({
   // The panel keeps this mounted across pull requests, so an open composer would otherwise
   // survive the switch and attach its comment to whichever one is on screen when it is sent.
   useEffect(() => {
-    revalidatingSlices.current = false;
     setDraft(null);
     setSelectedLines(null);
     setToggledFiles(new Set());
     setFoldOverride(null);
     setVisibleCommitCount(COMMIT_PAGE_SIZE);
     setOrphansOpen(false);
-    setSliceState({ key: scopeKey, cursor: null, slices: NO_SLICES });
+    setSliceState({ key: scopeKey, cursor: null, slices: NO_SLICES, revalidating: false });
     parseCache.current.clear();
   }, [scopeKey]);
 
   const loadedSlices = sliceState.key === scopeKey ? sliceState.slices : NO_SLICES;
   const cursor = sliceState.key === scopeKey ? sliceState.cursor : null;
+  const revalidating = sliceState.key === scopeKey && sliceState.revalidating;
   const diffQuery = useEnvironmentQuery(
     pullRequestEnvironment.diff({
       environmentId,
@@ -308,8 +308,7 @@ function PullRequestCodeTab({
     };
     const index = slices.findIndex((slice) => slice.cursor === cursor);
     if (index === -1) {
-      revalidatingSlices.current = false;
-      setSliceState({ key: scopeKey, cursor, slices: [...slices, next] });
+      setSliceState({ key: scopeKey, cursor, slices: [...slices, next], revalidating: false });
       return;
     }
     const existing = slices[index];
@@ -329,7 +328,7 @@ function PullRequestCodeTab({
         );
       })
     ) {
-      if (revalidatingSlices.current) {
+      if (revalidating) {
         const following = slices[index + 1];
         if (following !== undefined) {
           registry.refresh(
@@ -342,23 +341,28 @@ function PullRequestCodeTab({
               },
             }),
           );
-          setSliceState({ key: scopeKey, cursor: following.cursor, slices });
+          setSliceState({ key: scopeKey, cursor: following.cursor, slices, revalidating: true });
           return;
         }
+        setSliceState({ key: scopeKey, cursor, slices, revalidating: false });
       }
-      revalidatingSlices.current = false;
       return;
     }
     // A page that came back different means the diff moved under the review. The slices
     // after it go with the replacement: their cursors were positions in the old diff.
-    revalidatingSlices.current = false;
-    setSliceState({ key: scopeKey, cursor, slices: [...slices.slice(0, index), next] });
+    setSliceState({
+      key: scopeKey,
+      cursor,
+      slices: [...slices.slice(0, index), next],
+      revalidating: false,
+    });
   }, [
     cursor,
     diffQuery.data,
     diffQuery.isPending,
     scopeKey,
     loadedSlices,
+    revalidating,
     registry,
     environmentId,
     reference,
@@ -376,11 +380,10 @@ function PullRequestCodeTab({
   useEffect(() => {
     if (appliedRefreshToken.current === refreshToken) return;
     appliedRefreshToken.current = refreshToken;
-    revalidatingSlices.current = true;
     setSliceState((previous) =>
       previous.key === scopeKey
-        ? { ...previous, cursor: null }
-        : { key: scopeKey, cursor: null, slices: NO_SLICES },
+        ? { ...previous, cursor: null, revalidating: true }
+        : { key: scopeKey, cursor: null, slices: NO_SLICES, revalidating: true },
     );
     refreshFirstDiffPage();
   }, [refreshToken, scopeKey, refreshFirstDiffPage]);
@@ -607,14 +610,19 @@ function PullRequestCodeTab({
   // A failed slice must not be asked for again on its own. The files already loaded keep the
   // sentinel on screen, so re-arming it after a failure would request the same slice forever.
   const canLoadNextSlice =
+    !revalidating &&
     nextCursor !== null &&
     nextCursor !== cursor &&
     !diffQuery.isPending &&
     diffQuery.error === null;
   const loadNextSlice = useCallback(() => {
     if (nextCursor === null) return;
-    setSliceState((previous) => ({ ...previous, cursor: nextCursor }));
-  }, [nextCursor]);
+    setSliceState((previous) =>
+      previous.revalidating || previous.key !== scopeKey
+        ? previous
+        : { ...previous, cursor: nextCursor },
+    );
+  }, [nextCursor, scopeKey]);
 
   // The sentinel is held as state rather than a ref because the viewer mounts its own footer:
   // an effect reading a ref could run before that node exists and would never arm the observer.
