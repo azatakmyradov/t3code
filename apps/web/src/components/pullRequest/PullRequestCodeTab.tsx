@@ -297,7 +297,7 @@ function PullRequestCodeTab({
   // text would cost more with every slice, which is the wall the slicing exists to remove.
   useEffect(() => {
     const data = diffQuery.data;
-    if (data === null || diffQuery.isPending) return;
+    if (data === null || diffQuery.isPending || diffQuery.error !== null) return;
     const slices = loadedSlices;
     const next = {
       cursor,
@@ -367,6 +367,7 @@ function PullRequestCodeTab({
   }, [
     cursor,
     diffQuery.data,
+    diffQuery.error,
     diffQuery.isPending,
     scopeKey,
     loadedSlices,
@@ -750,18 +751,25 @@ function PullRequestCodeTab({
   // update), which is the jank this file is otherwise clean of.
   const renderCodeViewFooter = useCallback(
     () =>
-      // Only while something is still owed. A finished diff whose query fails on a later
-      // refresh — a reconnect re-runs every one of them — is whole on screen already, and
-      // saying otherwise sends the reader looking for files that are all there.
-      nextCursor === null ? null : (
+      // Retained pages remain readable after a failed refresh, but may now be outdated.
+      nextCursor === null && diffQuery.error === null ? null : (
         <div
           ref={setSentinel}
           className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground"
         >
           {diffQuery.error !== null ? (
             <>
-              <span>The rest of this diff could not be loaded.</span>
-              <Button size="xs" variant="outline" onClick={() => diffQuery.refresh()}>
+              <span>
+                {nextCursor === null
+                  ? "This diff could not be refreshed."
+                  : "The rest of this diff could not be loaded."}
+              </span>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={diffQuery.isPending}
+                onClick={() => diffQuery.refresh()}
+              >
                 Retry
               </Button>
             </>
@@ -1306,17 +1314,21 @@ function PullRequestCodeTab({
             <pre className="whitespace-pre-wrap break-words font-mono text-xs">{slice.text}</pre>
           </div>
         ))}
+        {renderCodeViewFooter()}
       </div>,
     );
   }
 
   if (items.length === 0 && nextCursor === null) {
     return withReviewBar(
-      <p className="px-4 py-5 text-sm text-muted-foreground">
-        {commit === null
-          ? "This pull request has no file changes."
-          : "This commit has no file changes."}
-      </p>,
+      <>
+        <p className="px-4 py-5 text-sm text-muted-foreground">
+          {commit === null
+            ? "This pull request has no file changes."
+            : "This commit has no file changes."}
+        </p>
+        {renderCodeViewFooter()}
+      </>,
     );
   }
 
