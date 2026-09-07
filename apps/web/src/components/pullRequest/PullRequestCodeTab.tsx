@@ -24,9 +24,17 @@ import {
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
-import { useAtomRefresh } from "@effect/atom-react";
+import { RegistryContext, useAtomRefresh } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
@@ -213,7 +221,7 @@ function PullRequestCodeTab({
   /** Absent where there is no active agent composer to receive a local comment. */
   onAddToAgentSelection?: (input: PullRequestAgentSelectionInput) => void;
   onRefresh: () => void;
-  /** Bumped by the panel's refresh button: drop the accumulated pages and re-read the diff. */
+  /** Revalidate loaded pages after a host revision change or an explicit refresh. */
   refreshToken?: number;
 }) {
   const { resolvedTheme } = useTheme();
@@ -250,6 +258,8 @@ function PullRequestCodeTab({
     readonly slices: ReadonlyArray<DiffSlice>;
   }>({ key: "", cursor: null, slices: NO_SLICES });
   const parseCache = useRef(new Map<string, RenderablePatch>());
+  const revalidatingSlices = useRef(false);
+  const registry = useContext(RegistryContext);
   const [viewer, setViewer] = useState<CodeViewHandle<ReviewAnnotationGroup> | null>(null);
 
   const referenceKey = pullRequestReviewKey(reference);
@@ -260,6 +270,7 @@ function PullRequestCodeTab({
   // The panel keeps this mounted across pull requests, so an open composer would otherwise
   // survive the switch and attach its comment to whichever one is on screen when it is sent.
   useEffect(() => {
+    revalidatingSlices.current = false;
     setDraft(null);
     setSelectedLines(null);
     setToggledFiles(new Set());
@@ -286,46 +297,75 @@ function PullRequestCodeTab({
   // text would cost more with every slice, which is the wall the slicing exists to remove.
   useEffect(() => {
     const data = diffQuery.data;
-    if (data === null) return;
-    setSliceState((previous) => {
-      const slices = previous.key === scopeKey ? previous.slices : NO_SLICES;
-      const next = {
-        cursor,
-        patch: data.patch,
-        truncated: data.truncated,
-        nextCursor: data.nextCursor,
-        omittedFileStats: data.omittedFileStats ?? [],
-      };
-      const index = slices.findIndex((slice) => slice.cursor === cursor);
-      if (index === -1) {
-        return { key: scopeKey, cursor, slices: [...slices, next] };
-      }
-      const existing = slices[index];
-      if (
-        existing !== undefined &&
-        existing.patch === next.patch &&
-        existing.truncated === next.truncated &&
-        existing.nextCursor === next.nextCursor &&
-        existing.omittedFileStats.length === next.omittedFileStats.length &&
-        existing.omittedFileStats.every((file, index) => {
-          const refreshed = next.omittedFileStats[index];
-          return (
-            refreshed !== undefined &&
-            refreshed.path === file.path &&
-            refreshed.additions === file.additions &&
-            refreshed.deletions === file.deletions
+    if (data === null || diffQuery.isPending) return;
+    const slices = loadedSlices;
+    const next = {
+      cursor,
+      patch: data.patch,
+      truncated: data.truncated,
+      nextCursor: data.nextCursor,
+      omittedFileStats: data.omittedFileStats ?? [],
+    };
+    const index = slices.findIndex((slice) => slice.cursor === cursor);
+    if (index === -1) {
+      revalidatingSlices.current = false;
+      setSliceState({ key: scopeKey, cursor, slices: [...slices, next] });
+      return;
+    }
+    const existing = slices[index];
+    if (
+      existing !== undefined &&
+      existing.patch === next.patch &&
+      existing.truncated === next.truncated &&
+      existing.nextCursor === next.nextCursor &&
+      existing.omittedFileStats.length === next.omittedFileStats.length &&
+      existing.omittedFileStats.every((file, index) => {
+        const refreshed = next.omittedFileStats[index];
+        return (
+          refreshed !== undefined &&
+          refreshed.path === file.path &&
+          refreshed.additions === file.additions &&
+          refreshed.deletions === file.deletions
+        );
+      })
+    ) {
+      if (revalidatingSlices.current) {
+        const following = slices[index + 1];
+        if (following !== undefined) {
+          registry.refresh(
+            pullRequestEnvironment.diff({
+              environmentId,
+              input: {
+                ...reference,
+                ...(following.cursor === null ? {} : { cursor: following.cursor }),
+                ...(commit === null ? {} : { commit }),
+              },
+            }),
           );
-        })
-      ) {
-        return previous;
+          setSliceState({ key: scopeKey, cursor: following.cursor, slices });
+          return;
+        }
       }
-      // A page that came back different means the diff moved under the review. The slices
-      // after it go with the replacement: their cursors were positions in the old diff.
-      return { key: scopeKey, cursor, slices: [...slices.slice(0, index), next] };
-    });
-  }, [cursor, diffQuery.data, scopeKey]);
-  // The refresh button rereads from the first page rather than the page the reader is on:
-  // pages are positions in one snapshot of the diff, and a fresh snapshot starts over.
+      revalidatingSlices.current = false;
+      return;
+    }
+    // A page that came back different means the diff moved under the review. The slices
+    // after it go with the replacement: their cursors were positions in the old diff.
+    revalidatingSlices.current = false;
+    setSliceState({ key: scopeKey, cursor, slices: [...slices.slice(0, index), next] });
+  }, [
+    cursor,
+    diffQuery.data,
+    diffQuery.isPending,
+    scopeKey,
+    loadedSlices,
+    registry,
+    environmentId,
+    reference,
+    commit,
+  ]);
+  // Keep loaded pages visible while checking them in order. Only a changed page drops the
+  // pages after it, since their cursors may no longer refer to the same files.
   const refreshFirstDiffPage = useAtomRefresh(
     pullRequestEnvironment.diff({
       environmentId,
@@ -336,7 +376,12 @@ function PullRequestCodeTab({
   useEffect(() => {
     if (appliedRefreshToken.current === refreshToken) return;
     appliedRefreshToken.current = refreshToken;
-    setSliceState({ key: scopeKey, cursor: null, slices: NO_SLICES });
+    revalidatingSlices.current = true;
+    setSliceState((previous) =>
+      previous.key === scopeKey
+        ? { ...previous, cursor: null }
+        : { key: scopeKey, cursor: null, slices: NO_SLICES },
+    );
     refreshFirstDiffPage();
   }, [refreshToken, scopeKey, refreshFirstDiffPage]);
   const reviewKey = referenceKey;
