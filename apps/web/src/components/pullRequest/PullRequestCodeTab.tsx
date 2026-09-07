@@ -350,6 +350,14 @@ function PullRequestCodeTab({
     }
     // A page that came back different means the diff moved under the review. The slices
     // after it go with the replacement: their cursors were positions in the old diff.
+    for (const slice of slices.slice(index)) {
+      const patchHash = fnv1a32(slice.patch);
+      for (const theme of ["light", "dark"] as const) {
+        parseCache.current.delete(
+          `pull-request:${scopeKey}:${theme}:${slice.cursor ?? "first"}:${patchHash}`,
+        );
+      }
+    }
     setSliceState({
       key: scopeKey,
       cursor,
