@@ -151,7 +151,7 @@ Find your 10-character Team ID under **Membership details** in
 [Apple Developer](https://developer.apple.com/account). Add `APPLE_TEAM_ID`
 as a repository variable under
 [Actions variables](https://github.com/azatakmyradov/t3code/settings/variables/actions).
-The workflow consumes these values directly from GitHub. Keep the files and
+An Actions secret with the same name is also accepted. The workflow consumes these values directly from GitHub. Keep the files and
 passwords outside the repository and chat.
 
 ## Keep up with upstream
