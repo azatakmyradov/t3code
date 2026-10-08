@@ -81,6 +81,7 @@ jobs:
             // Reserve the build commit before later workflow edits can move main.
             // Publishing uses this existing tag and needs no workflow-write token.
             try {
+              await github.rest.git.getRef({ ...context.repo, ref: `tags/v${version}` });
               const { data } = await github.rest.repos.getCommit({ ...context.repo, ref: `refs/tags/v${version}` });
               if (data.sha !== context.sha) throw new Error(`v${version} points to another commit. Rerun its original build or choose a new version.`);
             } catch (error) {
