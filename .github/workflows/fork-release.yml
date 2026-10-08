@@ -1,0 +1,345 @@
+name: T3 Fork release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version to publish, such as 0.0.45
+        required: true
+        default: "0.0.45"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: t3-fork-release
+  cancel-in-progress: false
+
+jobs:
+  build_bundle:
+    name: Validate and build release bundle
+    if: github.repository == 'azatakmyradov/t3code' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      clerk_publishable_key: ${{ steps.config.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ steps.config.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ steps.config.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ steps.config.outputs.relay_url }}
+    steps:
+      - name: Validate release version and Apple credentials
+        id: validate
+        uses: actions/github-script@v8
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        with:
+          script: |
+            const version = process.env.RELEASE_VERSION;
+            if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
+              throw new Error('Use a stable version such as 0.0.45.');
+            }
+            const required = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_API_KEY',
+              'APPLE_API_KEY_ID', 'APPLE_API_ISSUER', 'MACOS_PROVISIONING_PROFILE', 'APPLE_TEAM_ID'];
+            const missing = required.filter(name => !process.env[name]?.trim());
+            if (missing.length) throw new Error('Configure Apple signing credentials: ' + missing.join(', '));
+            try {
+              await github.rest.repos.getReleaseByTag({ ...context.repo, tag: `v${version}` });
+              throw new Error(`v${version} is already published. Choose a new version.`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            try {
+              const { data } = await github.rest.repos.getLatestRelease(context.repo);
+              const previous = /^v(\d+)\.(\d+)\.(\d+)$/.exec(data.tag_name);
+              if (previous) {
+                const next = version.split('.').map(Number);
+                const old = previous.slice(1).map(Number);
+                const difference = next.map((part, index) => part - old[index]).find(part => part !== 0);
+                if (!difference || difference < 0) throw new Error('Release version must increase.');
+              }
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            core.setOutput('version', version);
+
+      - name: Checkout release commit
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install bundle dependencies
+        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Load public client configuration
+        id: config
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import { parseEnv } from 'node:util';
+          import { loadRepoEnv } from './scripts/lib/public-config.ts';
+          const env = loadRepoEnv();
+          const defaults = parseEnv(fs.readFileSync('.env.example', 'utf8'));
+          for (const [output, name] of [
+            ['clerk_publishable_key', 'T3CODE_CLERK_PUBLISHABLE_KEY'],
+            ['clerk_jwt_template', 'T3CODE_CLERK_JWT_TEMPLATE'],
+            ['clerk_cli_oauth_client_id', 'T3CODE_CLERK_CLI_OAUTH_CLIENT_ID'],
+            ['relay_url', 'T3CODE_RELAY_URL'],
+          ]) {
+            const value = env[name]?.trim() || defaults[name]?.trim() || '';
+            if (/[\r\n]/.test(value)) throw new Error(`${name} must be one line.`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `${output}=${value}\n`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `${name}=${value}\n`);
+          }
+          JS
+        env:
+          T3CODE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+          T3CODE_CLERK_JWT_TEMPLATE: ${{ vars.CLERK_JWT_TEMPLATE }}
+          T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+          T3CODE_RELAY_URL: ${{ vars.RELAY_URL }}
+
+      - name: Align release package versions
+        env:
+          RELEASE_VERSION: ${{ steps.validate.outputs.version }}
+        run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION"
+
+      - name: Install native build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Check release packaging behavior
+        run: vp test run scripts/build-desktop-artifact.test.ts scripts/merge-update-manifests.test.ts packages/shared/src/cliRelease.test.ts
+
+      - name: Build desktop and server bundle
+        run: vp run build:desktop
+
+      - name: Verify preload bundle
+        run: node apps/desktop/scripts/verify-preload-bundle.mjs
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 3
+
+  desktop_mac_arm64:
+    needs: build_bundle
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: mac arm64
+      runner: macos-15
+      platform: mac
+      target: dmg
+      arch: arm64
+      rust_target: aarch64-apple-darwin
+      resource_key: darwin-arm64
+      cli_archive: true
+      version: ${{ needs.build_bundle.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ needs.build_bundle.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ needs.build_bundle.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ needs.build_bundle.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ needs.build_bundle.outputs.relay_url }}
+
+  desktop_mac_x64:
+    needs: build_bundle
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: mac x64
+      runner: macos-15-intel
+      platform: mac
+      target: dmg
+      arch: x64
+      rust_target: x86_64-apple-darwin
+      resource_key: darwin-x64
+      cli_archive: false
+      version: ${{ needs.build_bundle.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ needs.build_bundle.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ needs.build_bundle.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ needs.build_bundle.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ needs.build_bundle.outputs.relay_url }}
+
+  desktop_linux_x64:
+    needs: build_bundle
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: linux x64
+      runner: ubuntu-24.04
+      platform: linux
+      target: AppImage
+      arch: x64
+      rust_target: x86_64-unknown-linux-gnu
+      resource_key: linux-x64
+      cli_archive: true
+      version: ${{ needs.build_bundle.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ needs.build_bundle.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ needs.build_bundle.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ needs.build_bundle.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ needs.build_bundle.outputs.relay_url }}
+
+  desktop_linux_arm64:
+    needs: build_bundle
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: linux arm64
+      runner: ubuntu-24.04-arm
+      platform: linux
+      target: AppImage
+      arch: arm64
+      rust_target: aarch64-unknown-linux-gnu
+      resource_key: linux-arm64
+      cli_archive: true
+      version: ${{ needs.build_bundle.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ needs.build_bundle.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ needs.build_bundle.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ needs.build_bundle.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ needs.build_bundle.outputs.relay_url }}
+
+  desktop_win_x64:
+    needs: build_bundle
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: win x64
+      runner: windows-2025
+      platform: win
+      target: nsis
+      arch: x64
+      rust_target: x86_64-pc-windows-msvc
+      resource_key: win32-x64
+      cli_archive: true
+      version: ${{ needs.build_bundle.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ needs.build_bundle.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ needs.build_bundle.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ needs.build_bundle.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ needs.build_bundle.outputs.relay_url }}
+
+  desktop_win_arm64:
+    needs: build_bundle
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: win arm64
+      runner: windows-11-arm
+      platform: win
+      target: nsis
+      arch: arm64
+      rust_target: aarch64-pc-windows-msvc
+      resource_key: win32-arm64
+      cli_archive: true
+      version: ${{ needs.build_bundle.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ needs.build_bundle.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ needs.build_bundle.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ needs.build_bundle.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ needs.build_bundle.outputs.relay_url }}
+
+  publish:
+    name: Publish T3 Fork release
+    needs:
+      [
+        build_bundle,
+        desktop_mac_arm64,
+        desktop_mac_x64,
+        desktop_linux_x64,
+        desktop_linux_arm64,
+        desktop_win_x64,
+        desktop_win_arm64,
+      ]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          node-version-file: package.json
+          run-install: false
+      - name: Install manifest tools
+        run: vp install --filter=@t3tools/scripts...
+      - name: Download desktop assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+      - name: Download CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+      - name: Merge architecture metadata and write archive checksums
+        run: |
+          set -euo pipefail
+          node scripts/merge-update-manifests.ts --platform mac release-assets/latest-mac.yml release-assets/latest-mac-x64.yml
+          rm release-assets/latest-mac-x64.yml
+          node scripts/merge-update-manifests.ts --platform win release-assets/latest-win-x64.yml release-assets/latest-win-arm64.yml release-assets/latest.yml
+          rm release-assets/latest-win-x64.yml release-assets/latest-win-arm64.yml
+          test -s release-assets/latest-linux.yml
+          test -s release-assets/latest-linux-arm64.yml
+          cd release-assets
+          sha256sum t3-*.tar.gz t3-*.zip > SHA256SUMS
+      - name: Publish installers, update metadata, and CLI archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.build_bundle.outputs.version }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          T3 Fork desktop and server release.
+
+          Install the DMG manually the first time. Later desktop releases are offered through the app's update button. T3 Fork uses ~/.t3-fork and can run alongside T3 Code.
+
+          macOS builds are signed and notarized. Windows builds are unsigned unless Azure signing credentials are configured.
+          NOTES
+          gh release create "v$RELEASE_VERSION" release-assets/T3-Fork-* release-assets/latest*.yml release-assets/t3-*.tar.gz release-assets/t3-*.zip release-assets/SHA256SUMS --target "$RELEASE_COMMIT" --title "T3 Fork v$RELEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" --latest

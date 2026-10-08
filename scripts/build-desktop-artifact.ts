@@ -7,6 +7,7 @@ import {
   FORK_DESKTOP_SCHEME,
   FORK_DEVELOPMENT_SCHEME,
   FORK_CLI_COMMAND,
+  FORK_REPOSITORY,
 } from "@t3tools/shared/forkIdentity";
 
 import * as NodeFSP from "node:fs/promises";
@@ -2577,10 +2578,12 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   updateChannel: "latest" | "nightly",
 ) {
   const env = yield* Config.all({
-    updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
+    updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(
+      Config.withDefault(FORK_REPOSITORY),
+    ),
   });
-  const rawRepo = (Option.getOrUndefined(env.updateRepository)?.trim() || "").trim();
-  if (!rawRepo) return undefined;
+  const rawRepo = env.updateRepository.trim();
+  if (!rawRepo || rawRepo === "none") return undefined;
 
   const [owner, repo, ...rest] = rawRepo.split("/");
   if (!owner || !repo || rest.length > 0) return undefined;
@@ -2703,16 +2706,16 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
   if (!isDesktopPreviewVersion(version)) {
-    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
-    if (publishConfig) {
-      buildConfig.publish = [publishConfig];
-    } else if (mockUpdates) {
+    if (mockUpdates) {
       buildConfig.publish = [
         {
           provider: "generic",
           url: resolveMockUpdateServerUrl(mockUpdateServerPort),
         },
       ];
+    } else {
+      const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
+      if (publishConfig) buildConfig.publish = [publishConfig];
     }
   }
 

@@ -287,7 +287,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
   });
 
-  it.effect("defaults to manual updates even inside GitHub Actions", () =>
+  it.effect("uses the fork feed independently of the GitHub Actions repository", () =>
     Effect.gen(function* () {
       for (const repository of ["pingdotgg/t3code", "azatakmyradov/t3code"]) {
         const config = yield* createBuildConfig(
@@ -305,10 +305,33 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             ),
           ),
         );
-        assert.notProperty(config, "publish");
+        assert.deepEqual(config.publish, [
+          { provider: "github", owner: "azatakmyradov", repo: "t3code", releaseType: "release" },
+        ]);
         assert.equal(config.appId, "com.azatakmyradov.t3fork");
         assert.equal(config.productName, "T3 Fork");
       }
+    }),
+  );
+
+  it.effect("allows an explicit none repository to disable the update feed", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+      ).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({ env: { T3CODE_DESKTOP_UPDATE_REPOSITORY: "none" } }),
+          ),
+        ),
+      );
+      assert.notProperty(config, "publish");
     }),
   );
 

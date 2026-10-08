@@ -1,11 +1,11 @@
 # T3 Fork
 
-This is the private `azatakmyradov/t3code` fork of [T3 Code](https://github.com/pingdotgg/t3code).
+This is the `azatakmyradov/t3code` fork of [T3 Code](https://github.com/pingdotgg/t3code).
 The app is **T3 Fork**, its command is **`t3-fork`**, and its app ID is
 **`com.azatakmyradov.t3fork`**. It uses **`~/.t3-fork`** and port **4773** by default,
 with a separate desktop profile and background service so it can run alongside T3 Code.
 
-Desktop builds use manual installation. See [fork setup and upstream updates](docs/operations/fork.md)
+Desktop builds use this repository's GitHub Releases update feed. Install the first build manually. See [fork setup and upstream updates](docs/operations/fork.md)
 for build commands and the merge workflow. The installation links below are for the upstream app.
 
 ## Upstream T3 Code

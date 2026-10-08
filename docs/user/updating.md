@@ -1,6 +1,6 @@
 # Updating T3 Code
 
-> This guide describes upstream T3 Code. For this private fork, use the
+> This guide describes upstream T3 Code. For this fork, use the
 > [T3 Fork setup and update guide](../operations/fork.md).
 
 The app you use and the server running your agents can be on different machines.
