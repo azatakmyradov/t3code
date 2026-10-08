@@ -1,5 +1,4 @@
 import type { DraftId } from "~/composerDraftStore";
-import { useComposerDraftStore } from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
@@ -14,7 +13,7 @@ import { projectIconColorClassName } from "~/projectIconColors";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useScratchProject } from "~/hooks/useScratchProject";
 import { useClientSettings } from "~/hooks/useSettings";
-import { hasExplicitComposerModelSelection } from "~/lib/chatThreadActions";
+import { useSelectDraftProject } from "~/hooks/useSelectDraftProject";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
@@ -46,7 +45,6 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { InlineButton } from "../ui/button";
 import { MiddleTruncate } from "../ui/middle-truncate";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
 // Menu value for "No project"; real entries are keyed by logical project key.
 const NO_PROJECT_VALUE = "no-project";
@@ -68,12 +66,7 @@ export function DraftHeroHeadline({
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
-  const setLogicalProjectDraftThreadId = useComposerDraftStore(
-    (store) => store.setLogicalProjectDraftThreadId,
-  );
-  const getComposerDraft = useComposerDraftStore((store) => store.getComposerDraft);
-  const applyStickyState = useComposerDraftStore((store) => store.applyStickyState);
-  const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const selectDraftProject = useSelectDraftProject(draftId);
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
   const { scratchEnvironmentId, scratchWorkspaceRootFor, openScratchProject } = useScratchProject();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -195,28 +188,7 @@ export function DraftHeroHeadline({
       activeProjectKey: logicalProjectKey,
       scratchTargetEnvironmentId: project.environmentId,
     };
-    const currentDraft = getComposerDraft(draftId);
-    setLogicalProjectDraftThreadId(
-      logicalProjectKey,
-      scopeProjectRef(project.environmentId, project.id),
-      draftId,
-      exactFolder ? { environmentSelection: "manual", loadBalancedEnvironmentId: null } : undefined,
-    );
-    if (!hasExplicitComposerModelSelection(currentDraft)) {
-      applyStickyState(draftId);
-      const environmentSettings = environments.find(
-        (environment) => environment.environmentId === project.environmentId,
-      )?.serverConfig?.settings;
-      const defaultModelSelection = environmentSettings
-        ? resolveProjectSettings(environmentSettings, project.id, project).settings
-            .defaultModelSelection
-        : project.defaultModelSelection;
-      if (defaultModelSelection) {
-        setModelSelection(draftId, defaultModelSelection, {
-          replaceOptions: true,
-        });
-      }
-    }
+    selectDraftProject(project, logicalProjectKey, exactFolder);
   };
   const startScratch = async (): Promise<boolean> => {
     if (scratchTargetEnvironmentId === null || isScratchDraft) {
@@ -315,6 +287,7 @@ export function DraftHeroHeadline({
                                   scopeProjectRef(folder.environmentId, folder.id),
                                 )}
                                 closeOnClick
+                                aria-label={folder.workspaceRoot}
                                 onClick={() => selectProject(folder, group.projectKey, true)}
                               >
                                 <span className="flex min-w-0 items-center gap-2">

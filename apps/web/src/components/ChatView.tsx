@@ -11098,6 +11098,8 @@ export default function ChatView(props: ChatViewProps) {
     environmentId: activeThread.environmentId,
     threadId: activeThread.id,
     ...(draftId ? { draftId } : {}),
+    activeProjectRef,
+    folderSelectionLocked: isSendBusy,
     activeProjectName: activeProject?.title,
     activeProjectScripts: activeProject ? activeProjectScripts : undefined,
     preferredScriptId: activeProject
