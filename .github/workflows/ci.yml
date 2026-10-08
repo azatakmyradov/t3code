@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      full_suite:
+        description: Run all application and Rust tests
+        type: boolean
+        default: true
   pull_request:
   push:
     branches:
@@ -13,21 +19,63 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Fork CI keeps application coverage and the desktop release pipeline on
-# GitHub-hosted runners. Upstream publishing and contribution bots are separate.
+# Fork PRs keep client checks and the desktop build. Backend and Rust tests run
+# for relevant changes; a manual dispatch can still run every application suite.
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      server: ${{ steps.changes.outputs.server }}
+      rust: ${{ steps.changes.outputs.rust }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           sparse-checkout: |
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+      - name: Determine optional tests
+        id: changes
+        env:
+          FULL_SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.full_suite }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          server=false
+          rust=false
+          # Unknown comparisons run both suites instead of silently skipping them.
+          if [[ "$FULL_SUITE" == "true" ]]; then
+            server=true
+            rust=true
+          elif [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+            if [[ -z "$BASE_REF" || "$BASE_REF" =~ ^0+$ ]]; then
+              server=true
+              rust=true
+            else
+              comparison="$BASE_REF..$HEAD_REF"
+              if [[ "$EVENT_NAME" == "pull_request" ]]; then
+                comparison="$BASE_REF...$HEAD_REF"
+              fi
+              if paths=$(git diff --name-only --no-renames "$comparison"); then
+                if grep -Eq '^(apps/server/|packages/(contracts|shared|effect-acp|effect-codex-app-server|ssh|tailscale)/|native/|package\.json$|pnpm-(lock\.yaml|workspace\.yaml)$|vite\.config\.ts$|\.npmrc$|\.node-version$)' <<< "$paths"; then
+                  server=true
+                fi
+                if grep -Eq '^native/|(^|/)(Cargo\.(toml|lock)|rust-toolchain(\.toml)?)$' <<< "$paths"; then
+                  rust=true
+                fi
+              else
+                server=true
+                rust=true
+              fi
+            fi
+          fi
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
       - name: Reject repository-owned PR assets
         run: |
           files="$(git ls-files .github/pr-assets)"
@@ -103,7 +151,8 @@ jobs:
         run: node scripts/release-smoke.ts
 
   test:
-    name: Test
+    name: Test Other Packages
+    if: github.event_name == 'workflow_dispatch' && inputs.full_suite
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -128,10 +177,10 @@ jobs:
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
       - name: Test
-        run: vp run --parallel --concurrency-limit 2 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
+        run: vp run --parallel --concurrency-limit 2 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' --filter '!@t3tools/client-runtime' --filter '!@t3tools/shared' --filter '!@t3tools/contracts' test
 
   test_web:
-    name: Test Web
+    name: Test Web and Shared
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -149,11 +198,13 @@ jobs:
           cache: true
           run-install: true
       - name: Test
-        run: vp run --filter @t3tools/web test
+        run: vp run --parallel --concurrency-limit 2 --filter @t3tools/web --filter @t3tools/client-runtime --filter @t3tools/shared --filter @t3tools/contracts test
 
   # Two shards retain every server test and the one-file-at-a-time isolation
   # configured by apps/server, using fewer runners than upstream's six shards.
   test_server:
+    needs: lint
+    if: needs.lint.outputs.server == 'true'
     name: Test Server ${{ matrix.shard }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -181,6 +232,8 @@ jobs:
         run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
   rust:
+    needs: lint
+    if: needs.lint.outputs.rust == 'true'
     name: Rust
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -221,6 +274,17 @@ jobs:
       - name: Require every job to pass
         env:
           RESULTS: ${{ toJSON(needs) }}
+          SERVER_REQUIRED: ${{ needs.lint.outputs.server }}
+          RUST_REQUIRED: ${{ needs.lint.outputs.rust }}
+          FULL_SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.full_suite }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          echo "$RESULTS" | jq -e 'all(to_entries[]; .value.result == "success")' > /dev/null
+          echo "$RESULTS" | jq -e \
+            --arg server "$SERVER_REQUIRED" --arg rust "$RUST_REQUIRED" --arg full "$FULL_SUITE" \
+            'all(to_entries[];
+              .value.result == "success"
+              or (.value.result == "skipped" and (
+                (.key == "test_server" and $server == "false")
+                or (.key == "rust" and $rust == "false")
+                or (.key == "test" and $full == "false")
+              )))' > /dev/null
