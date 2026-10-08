@@ -28,6 +28,9 @@ jobs:
     if: github.repository == 'azatakmyradov/t3code' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: write
+      actions: read
     outputs:
       version: ${{ steps.validate.outputs.version }}
       clerk_publishable_key: ${{ steps.config.outputs.clerk_publishable_key }}
@@ -74,6 +77,15 @@ jobs:
               }
             } catch (error) {
               if (error.status !== 404) throw error;
+            }
+            // Reserve the build commit before later workflow edits can move main.
+            // Publishing uses this existing tag and needs no workflow-write token.
+            try {
+              const { data } = await github.rest.repos.getCommit({ ...context.repo, ref: `refs/tags/v${version}` });
+              if (data.sha !== context.sha) throw new Error(`v${version} points to another commit. Rerun its original build or choose a new version.`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.git.createRef({ ...context.repo, ref: `refs/tags/v${version}`, sha: context.sha });
             }
             core.setOutput('version', version);
 
@@ -356,7 +368,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.build_bundle.outputs.version }}
-          RELEASE_COMMIT: ${{ github.sha }}
           ALL_PLATFORMS: ${{ inputs.all_platforms }}
         run: |
           set -euo pipefail
@@ -371,4 +382,4 @@ jobs:
           if [[ "$ALL_PLATFORMS" == "true" ]]; then
             printf '\nWindows builds are unsigned unless Azure signing credentials are configured.\n' >> "$RUNNER_TEMP/release-notes.md"
           fi
-          gh release create "v$RELEASE_VERSION" release-assets/T3-Fork-* release-assets/latest*.yml release-assets/t3-*.tar.gz release-assets/t3-*.zip release-assets/SHA256SUMS --target "$RELEASE_COMMIT" --title "T3 Fork v$RELEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" --latest
+          gh release create "v$RELEASE_VERSION" release-assets/T3-Fork-* release-assets/latest*.yml release-assets/t3-*.tar.gz release-assets/t3-*.zip release-assets/SHA256SUMS --verify-tag --title "T3 Fork v$RELEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" --latest

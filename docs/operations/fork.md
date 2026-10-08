@@ -76,6 +76,8 @@ Choose a new, increasing stable version for each release. The workflow verifies
 signing prerequisites before building and publishes only when all selected platforms
 succeed. Windows signing is optional through the existing Azure secrets.
 Keep the same Apple signing identity across macOS updates.
+The workflow reserves the version tag before packaging. If a build fails,
+rerun failed jobs on that run to keep the same source commit and completed artifacts.
 
 ## Set up Apple signing
 
