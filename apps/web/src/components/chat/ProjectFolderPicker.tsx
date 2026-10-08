@@ -23,6 +23,7 @@ import {
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
+import { buildProjectFolderLabels } from "./ProjectFolderPicker.logic";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
@@ -63,19 +64,23 @@ export function ProjectFolderPicker({
       )?.projects ?? [],
     [members, projectRef],
   );
+  const path = draftId
+    ? (activeProject?.workspaceRoot ?? "")
+    : (workspacePath ?? activeProject?.workspaceRoot ?? "");
+  const folderLabels = useMemo(
+    () => buildProjectFolderLabels([...folders.map((folder) => folder.workspaceRoot), path]),
+    [folders, path],
+  );
   if (!activeProject || projectKey === null || members.length <= 1) return null;
 
   const canSelect = draftId !== null && !locked && folders.length > 1;
-  const path = draftId
-    ? activeProject.workspaceRoot
-    : (workspacePath ?? activeProject.workspaceRoot);
   const content = (
     <>
       <FolderIcon aria-hidden="true" className={THREAD_DETAILS_PANEL_ICON_CLASS} />
       <span className="flex min-w-0 flex-1 flex-col items-start">
         <span>Folder</span>
         <span className="flex w-full min-w-0 text-xs text-muted-foreground">
-          <MiddleTruncate value={path} showTitle={false} />
+          <MiddleTruncate value={folderLabels.get(path) ?? path} showTitle={false} />
         </span>
       </span>
     </>
@@ -127,7 +132,10 @@ export function ProjectFolderPicker({
               <span className="flex min-w-0 items-center gap-2">
                 <Tooltip>
                   <TooltipTrigger render={<span className="flex min-w-0 flex-1" />}>
-                    <MiddleTruncate value={folder.workspaceRoot} showTitle={false} />
+                    <MiddleTruncate
+                      value={folderLabels.get(folder.workspaceRoot) ?? folder.workspaceRoot}
+                      showTitle={false}
+                    />
                   </TooltipTrigger>
                   <TooltipPopup variant="code">{folder.workspaceRoot}</TooltipPopup>
                 </Tooltip>
