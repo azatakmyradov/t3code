@@ -1,5 +1,6 @@
+import { FORK_HOME_DIRECTORY } from "@t3tools/shared/forkIdentity";
 /**
- * `t3 browser setup` - prepares a Linux host for T3's headless browser, which
+ * `t3-fork browser setup` - prepares a Linux host for T3's headless browser, which
  * server browser tabs and HTML render previews share. It is the fix every
  * browser host error names, so it does the whole job in one run:
  *
@@ -72,7 +73,7 @@ const setupBaseDir = Effect.fn("browserSetup.baseDir")(function* (explicit: Opti
     .pipe(Effect.orElseSucceed(() => ""));
   const home = entry.trim().split(":")[5];
   const path = yield* Path.Path;
-  return home ? path.join(home, ".t3") : yield* resolveBaseDir(undefined);
+  return home ? path.join(home, FORK_HOME_DIRECTORY) : yield* resolveBaseDir(undefined);
 });
 
 /** Whether apt has an installable candidate for `name`. */

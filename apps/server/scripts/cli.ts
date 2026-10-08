@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { FORK_CLI_COMMAND, FORK_NPM_SCOPE } from "@t3tools/shared/forkIdentity";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -192,12 +193,12 @@ const publishCmd = Command.make(
       // npm runs with cwd set to the packages dir below, so tarball paths are
       // resolved once here rather than joined twice.
       const packagesDir = path.resolve(config.packagesDir);
-      const scopeDir = path.join(packagesDir, "@t3code");
-      const launcherTarball = path.join(packagesDir, "t3.tgz");
+      const scopeDir = path.join(packagesDir, FORK_NPM_SCOPE);
+      const launcherTarball = path.join(packagesDir, FORK_NPM_SCOPE, `${FORK_CLI_COMMAND}.tgz`);
       const platformTarballs = (yield* fs
         .readDirectory(scopeDir)
         .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => [])))
-        .filter((entry) => entry.startsWith("t3-") && entry.endsWith(".tgz"))
+        .filter((entry) => entry.startsWith(`${FORK_CLI_COMMAND}-`) && entry.endsWith(".tgz"))
         .sort()
         .map((entry) => path.join(scopeDir, entry));
       if (platformTarballs.length === 0) {

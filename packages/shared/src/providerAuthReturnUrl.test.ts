@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { providerAuthReturnUrl } from "./providerAuthReturnUrl.ts";
 
 describe("provider auth return destinations", () => {
-  it.each(["t3code", "t3code-dev"])(
+  it.each(["t3-fork", "t3-fork-dev"])(
     "returns to %s Welcome and the selected settings instance",
     (scheme) => {
       expect(providerAuthReturnUrl(`${scheme}://app/welcome?code=secret#agents:machine-id`)).toBe(
@@ -14,11 +14,11 @@ describe("provider auth return destinations", () => {
     },
   );
   it.each([
-    "t3code://attacker/welcome",
-    "t3code://app:123/welcome",
-    "t3code://app/auth/callback",
-    "t3code://user@ app/welcome",
-    "t3code://app/welcome/../evil",
+    "t3-fork://attacker/welcome",
+    "t3-fork://app:123/welcome",
+    "t3-fork://app/auth/callback",
+    "t3-fork://user@ app/welcome",
+    "t3-fork://app/welcome/../evil",
     "https://attacker.example/welcome",
     "file:///welcome",
     "javascript:alert(1)",

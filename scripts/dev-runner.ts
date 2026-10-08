@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { FORK_HOME_DIRECTORY } from "@t3tools/shared/forkIdentity";
 
 import * as NodeOS from "node:os";
 
@@ -68,7 +69,7 @@ export function isProxiableBindHost(host: string): boolean {
 }
 
 export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
-  path.join(NodeOS.homedir(), ".t3"),
+  path.join(NodeOS.homedir(), FORK_HOME_DIRECTORY),
 );
 
 const MODE_ARGS = {

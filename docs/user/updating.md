@@ -1,5 +1,8 @@
 # Updating T3 Code
 
+> This guide describes upstream T3 Code. For this private fork, use the
+> [T3 Fork setup and update guide](../operations/fork.md).
+
 The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, an update notice appears in the
 conversation and **Settings → Connections**. Update the machine named in that

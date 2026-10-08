@@ -1,3 +1,8 @@
+import {
+  FORK_DESKTOP_SCHEME,
+  FORK_DEVELOPMENT_SCHEME,
+  FORK_PREVIEW_SCHEME,
+} from "@t3tools/shared/forkIdentity";
 import { PermissionUpdateNotice } from "./components/PermissionUpdateNotice";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
@@ -39,7 +44,12 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
 });
 
 const appLinking = {
-  prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
+  prefixes: [
+    Linking.createURL("/"),
+    `${FORK_DESKTOP_SCHEME}://`,
+    `${FORK_DEVELOPMENT_SCHEME}://`,
+    `${FORK_PREVIEW_SCHEME}://`,
+  ],
   // Keep the compact thread list available beneath a directly opened thread.
   config: { initialRouteName: "Home" },
   filter: shouldHandleAppLink,

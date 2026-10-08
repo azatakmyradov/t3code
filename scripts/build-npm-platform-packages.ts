@@ -1,18 +1,24 @@
 #!/usr/bin/env node
+import {
+  FORK_CLI_COMMAND,
+  FORK_NPM_PACKAGE,
+  FORK_NPM_SCOPE,
+  FORK_REPOSITORY,
+} from "@t3tools/shared/forkIdentity";
 /**
  * Turns the per-platform CLI archives of one release into the npm packages
- * behind `npx t3` / `npm i -g t3`: one `@t3code/t3-<platformKey>` package per
- * archive holding the archive's contents verbatim, plus the `t3` launcher
+ * behind `npx @azatakmyradov/t3-fork` / `npm i -g @azatakmyradov/t3-fork`: one `@azatakmyradov/t3-fork-<platformKey>` package per
+ * archive holding the archive's contents verbatim, plus the `t3-fork` launcher
  * that lists them as optionalDependencies and execs the one npm installed.
  * The bytes a user gets from npm are therefore the release archive's, and
  * running them needs neither a Node runtime, npm, nor a native build.
  *
  * Output layout under `--output-dir`:
  *
- *   @t3code/t3-<platformKey>/      archive contents flattened + package.json
- *   @t3code/t3-<platformKey>.tgz   the same tree as an npm tarball
- *   t3/                             launcher: package.json, bin/t3.js, README.md
- *   t3.tgz                          the launcher as an npm tarball
+ *   @azatakmyradov/t3-fork-<platformKey>/      archive contents flattened + package.json
+ *   @azatakmyradov/t3-fork-<platformKey>.tgz   the same tree as an npm tarball
+ *   @azatakmyradov/t3-fork/          launcher: package.json, bin/t3-fork.js, README.md
+ *   @azatakmyradov/t3-fork.tgz        the launcher as an npm tarball
  *
  * The tarballs are what gets published. `npm publish <dir>` always drops
  * `node_modules/` (npm-packlist ignores it whatever `files` says, and
@@ -43,8 +49,8 @@ import serverPackageJson from "../apps/server/package.json" with { type: "json" 
 
 import { windowsSystemTar } from "./build-cli-archive.ts";
 
-export const NPM_PLATFORM_PACKAGE_SCOPE = "@t3code";
-export const NPM_LAUNCHER_PACKAGE_NAME = "t3";
+export const NPM_PLATFORM_PACKAGE_SCOPE = FORK_NPM_SCOPE;
+export const NPM_LAUNCHER_PACKAGE_NAME = FORK_NPM_PACKAGE;
 
 const encodePackageJson = Schema.encodeEffect(fromJsonStringPretty(Schema.Unknown));
 
@@ -85,7 +91,7 @@ export class NpmPackagesArchiveLayoutError extends Schema.TaggedError<NpmPackage
 }
 
 export function npmPlatformPackageName(platformKey: CliArchivePlatformKey): string {
-  return `${NPM_PLATFORM_PACKAGE_SCOPE}/t3-${platformKey}`;
+  return `${NPM_PLATFORM_PACKAGE_SCOPE}/${FORK_CLI_COMMAND}-${platformKey}`;
 }
 
 /**
@@ -107,7 +113,7 @@ export function npmPlatformPackageManifest(
   return {
     name: npmPlatformPackageName(platformKey),
     version,
-    description: `T3 Code CLI executable for ${platformKey}`,
+    description: `T3 Fork CLI executable for ${platformKey}`,
     license: serverPackageJson.license,
     repository: serverPackageJson.repository,
     os: [os],
@@ -155,7 +161,7 @@ export function npmPlatformPackageReadme(platformKey: CliArchivePlatformKey): st
   return [
     `# ${npmPlatformPackageName(platformKey)}`,
     "",
-    `The T3 Code CLI executable for ${platformKey}. Do not install this package directly:`,
+    `The T3 Fork CLI executable for ${platformKey}. Do not install this package directly:`,
     `it is an optional dependency of \`${NPM_LAUNCHER_PACKAGE_NAME}\`, which picks the package for the`,
     "current platform and runs the executable inside it.",
     "",
@@ -163,7 +169,7 @@ export function npmPlatformPackageReadme(platformKey: CliArchivePlatformKey): st
     `npx ${NPM_LAUNCHER_PACKAGE_NAME}@latest`,
     "```",
     "",
-    "Source and documentation: https://github.com/pingdotgg/t3code",
+    `Source and documentation: https://github.com/${FORK_REPOSITORY}`,
     "",
   ].join("\n");
 }
@@ -176,10 +182,10 @@ export function npmLauncherPackageManifest(
   return {
     name: NPM_LAUNCHER_PACKAGE_NAME,
     version,
-    description: "T3 Code CLI. Installs the self-contained executable for this platform.",
+    description: "T3 Fork CLI. Installs the self-contained executable for this platform.",
     license: serverPackageJson.license,
     repository: serverPackageJson.repository,
-    bin: { t3: "./bin/t3.js" },
+    bin: { [FORK_CLI_COMMAND]: `./bin/${FORK_CLI_COMMAND}.js` },
     files: ["bin", "dist"],
     optionalDependencies: Object.fromEntries(
       platformKeys.map((key) => [npmPlatformPackageName(key), version]),
@@ -192,8 +198,7 @@ export function npmLauncherPackageManifest(
  * loads on any Node that npm itself runs on; the real work happens in the
  * single-executable it execs.
  */
-export const NPM_LAUNCHER_SCRIPT = `#!/usr/bin/env node
-"use strict";
+export const NPM_LAUNCHER_SCRIPT = `"use strict";
 const { spawnSync } = require("node:child_process");
 const { constants } = require("node:os");
 const { dirname, join } = require("node:path");
@@ -203,14 +208,14 @@ const key = process.platform + "-" + process.arch;
 
 let packageDir;
 try {
-  packageDir = dirname(require.resolve("${NPM_PLATFORM_PACKAGE_SCOPE}/t3-" + key + "/package.json"));
+  packageDir = dirname(require.resolve("${NPM_PLATFORM_PACKAGE_SCOPE}/${FORK_CLI_COMMAND}-" + key + "/package.json"));
 } catch {
   process.stderr.write(
     [
-      "t3: no T3 Code CLI build is available for this platform (" + key + ").",
+      "${FORK_CLI_COMMAND}: no T3 Fork CLI build is available for this platform (" + key + ").",
       "Supported platforms: " + SUPPORTED.join(", ") + ".",
-      "If yours is listed, reinstall t3 so npm fetches its optional dependency.",
-      "The desktop app and release archives are at https://github.com/pingdotgg/t3code/releases",
+      "If yours is listed, reinstall ${FORK_NPM_PACKAGE} so npm fetches its optional dependency.",
+      "The desktop app and release archives are at https://github.com/${FORK_REPOSITORY}/releases",
       "",
     ].join("\\n"),
   );
@@ -220,7 +225,7 @@ try {
 const executable = join(packageDir, process.platform === "win32" ? "t3.exe" : "t3");
 const result = spawnSync(executable, process.argv.slice(2), { stdio: "inherit" });
 if (result.error) {
-  process.stderr.write("t3: failed to start " + executable + ": " + result.error.message + "\\n");
+  process.stderr.write("${FORK_CLI_COMMAND}: failed to start " + executable + ": " + result.error.message + "\\n");
   process.exit(1);
 }
 // A child killed by a signal has no status; report it the way a shell would.
@@ -383,7 +388,7 @@ const stageLauncherPackage = Effect.fn("stageLauncherPackage")(function* (input:
     path.join(stageDir, "package.json"),
     `${yield* encodePackageJson(npmLauncherPackageManifest(input.version, input.platformKeys))}\n`,
   );
-  const launcherScript = path.join(stageDir, "bin/t3.js");
+  const launcherScript = path.join(stageDir, `bin/${FORK_CLI_COMMAND}.js`);
   yield* fs.writeFileString(launcherScript, NPM_LAUNCHER_SCRIPT);
   yield* fs.chmod(launcherScript, 0o755);
   // Older service updaters and launchers run this exact path with Node.
@@ -477,7 +482,7 @@ const command = Command.make(
   buildNpmPlatformPackages,
 ).pipe(
   Command.withDescription(
-    "Build the t3 launcher and @t3code/t3-<platform> npm packages from CLI release archives.",
+    "Build the t3 launcher and @azatakmyradov/t3-fork-<platform> npm packages from CLI release archives.",
   ),
 );
 

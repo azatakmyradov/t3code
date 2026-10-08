@@ -1,3 +1,4 @@
+import { FORK_HOME_DIRECTORY } from "@t3tools/shared/forkIdentity";
 /**
  * AgentSessionScanner - discovery of projects a user already works on.
  *
@@ -558,7 +559,8 @@ function isT3ManagedWorktree(
   const normalized = normalizeForWorktreeMatch(candidatePath, caseFold);
   return (
     normalized.startsWith(normalizeForWorktreeMatch(worktreesDir, caseFold)) ||
-    normalized.includes("/.t3/worktrees/")
+    normalized.includes("/.t3/worktrees/") ||
+    normalized.includes(`/${FORK_HOME_DIRECTORY}/worktrees/`)
   );
 }
 

@@ -1,5 +1,8 @@
 # Install T3 Code
 
+> This guide describes upstream T3 Code. For this private fork, use the
+> [T3 Fork setup and update guide](../operations/fork.md).
+
 T3 Code runs coding agents on your computer and lets you control them from its
 desktop, web, or mobile app. Set up the machine where the agents will work first.
 

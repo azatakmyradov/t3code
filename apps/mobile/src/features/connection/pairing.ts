@@ -1,3 +1,8 @@
+import {
+  FORK_DESKTOP_SCHEME,
+  FORK_DEVELOPMENT_SCHEME,
+  FORK_PREVIEW_SCHEME,
+} from "@t3tools/shared/forkIdentity";
 import { readHostedPairingRequest } from "@t3tools/shared/remote";
 import * as Schema from "effect/Schema";
 
@@ -78,7 +83,16 @@ export function extractPairingUrlFromQrPayload(payload: string): string {
 
   try {
     const url = new URL(trimmed);
-    if (url.protocol === "t3code:") {
+    if (
+      [
+        "t3code",
+        "t3code-dev",
+        "t3code-preview",
+        FORK_DESKTOP_SCHEME,
+        FORK_DEVELOPMENT_SCHEME,
+        FORK_PREVIEW_SCHEME,
+      ].some((scheme) => url.protocol === `${scheme}:`)
+    ) {
       const pairingUrl = url.searchParams.get(MOBILE_PAIRING_URL_PARAM)?.trim() ?? "";
       if (pairingUrl.length > 0) {
         return pairingUrl;

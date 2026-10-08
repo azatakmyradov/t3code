@@ -70,6 +70,39 @@ describe("untraced requests", () => {
 });
 
 describe("browser API CORS", () => {
+  it.each(["t3-fork://app", "t3-fork-dev://app", "t3code://app"])(
+    "accepts credentialed development requests from %s",
+    async (origin) => {
+      const layerConfig = Layer.effect(
+        ServerConfig.ServerConfig,
+        Effect.map(ServerConfig.ServerConfig, (config) => ({
+          ...config,
+          devUrl: new URL("http://localhost:5173"),
+        })),
+      ).pipe(
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "fork-cors-test-" })),
+        Layer.provide(NodeServices.layer),
+      );
+      const { handler, dispose } = HttpRouter.toWebHandler(
+        ServerHttp.layerBrowserApiCors.pipe(Layer.provide(layerConfig)),
+        { disableLogger: true },
+      );
+      try {
+        const response = await handler(
+          new Request("http://localhost/api/environment", {
+            method: "OPTIONS",
+            headers: { origin, "access-control-request-method": "GET" },
+          }),
+        );
+        expect(response.status).toBe(204);
+        expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+        expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+      } finally {
+        await dispose();
+      }
+    },
+  );
+
   it("accepts protocol negotiation with authenticated browser headers", async () => {
     const layerRoute = Layer.effectDiscard(
       Effect.gen(function* () {

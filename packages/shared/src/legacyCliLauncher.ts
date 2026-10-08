@@ -1,3 +1,4 @@
+import { FORK_CLI_COMMAND, FORK_NPM_SCOPE } from "./forkIdentity.ts";
 /**
  * `dist/bin.mjs` of the `t3` npm package: the entry point boot-service
  * launchers installed before 0.0.41 run with Node to start a new version they
@@ -17,14 +18,14 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const executableName = process.platform === "win32" ? "t3.exe" : "t3";
-const executable = join(dirname(require.resolve("@t3code/t3-" + process.platform + "-" + process.arch + "/package.json")), executableName);
+const executable = join(dirname(require.resolve("${FORK_NPM_SCOPE}/${FORK_CLI_COMMAND}-" + process.platform + "-" + process.arch + "/package.json")), executableName);
 const ipc = process.send !== undefined;
 const child = spawn(executable, process.argv.slice(2), {
   stdio: ipc ? ["inherit", "inherit", "inherit", "ipc"] : "inherit",
 });
 const fail = (error) => {
   if (!error) return;
-  process.stderr.write("t3: " + error.message + "\\n");
+  process.stderr.write("${FORK_CLI_COMMAND}: " + error.message + "\\n");
   child.kill("SIGTERM");
   process.exitCode = 1;
 };

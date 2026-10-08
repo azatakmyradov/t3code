@@ -826,13 +826,15 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
         const codexHomePath = yield* makeTempDir("t3code-codex-home-");
         const fileSystem = yield* FileSystem.FileSystem;
 
-        const worktreeCwd = path.join(claudeHomePath, ".t3", "worktrees", "t3code", "wt-1");
-        yield* fileSystem.makeDirectory(worktreeCwd, { recursive: true });
-        yield* writeTranscript({
-          filePath: path.join(claudeHomePath, "projects", "-slug", "a.jsonl"),
-          contents: claudeSessionLine(worktreeCwd),
-          mtimeMs: Date.parse("2026-01-01T00:00:00.000Z"),
-        });
+        for (const home of [".t3", ".t3-fork"]) {
+          const worktreeCwd = path.join(claudeHomePath, home, "worktrees", "t3code", "wt-1");
+          yield* fileSystem.makeDirectory(worktreeCwd, { recursive: true });
+          yield* writeTranscript({
+            filePath: path.join(claudeHomePath, "projects", home, "a.jsonl"),
+            contents: claudeSessionLine(worktreeCwd),
+            mtimeMs: Date.parse("2026-01-01T00:00:00.000Z"),
+          });
+        }
 
         const result = yield* runScan({ claudeHomePath, codexHomePath });
 
@@ -979,9 +981,12 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
         const path = yield* Path.Path;
         const claudeHomePath = yield* makeTempDir("t3code-claude-home-");
         const codexHomePath = yield* makeTempDir("t3code-codex-home-");
-        const configBaseDir = yield* makeTempDir("t3code-scanner-base-");
-        const linkParent = yield* makeTempDir("t3code-scanner-links-");
         const fileSystem = yield* FileSystem.FileSystem;
+        // macOS canonicalizes /var to /private/var when following symlinks.
+        const configBaseDir = yield* fileSystem.realPath(
+          yield* makeTempDir("t3code-scanner-base-"),
+        );
+        const linkParent = yield* makeTempDir("t3code-scanner-links-");
 
         // The recorded cwd is a symlink whose own spelling looks harmless;
         // only its realpath reveals the managed sandbox.

@@ -1,3 +1,4 @@
+import { FORK_CLI_COMMAND, FORK_NPM_PACKAGE } from "@t3tools/shared/forkIdentity";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -51,7 +52,7 @@ function detectCliRunner(entryPath: string): CliRunner | null {
 const InstallManifest = Schema.Struct({
   name: Schema.String,
   version: Schema.String,
-  bin: Schema.optionalKey(Schema.Struct({ t3: Schema.String })),
+  bin: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   optionalDependencies: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 const decodeInstallManifest = Schema.decodeUnknownEffect(Schema.fromJsonString(InstallManifest));
@@ -66,7 +67,7 @@ export const resolveServerInstallation = Effect.gen(function* () {
   const platform = yield* HostProcessPlatform;
   const entry = yield* fs.realPath(executable ? executablePath : (args[1] ?? ""));
   const match =
-    /^(.*)\/lib\/node_modules\/t3\/(?:dist\/bin\.mjs|bin\/t3\.js|node_modules\/@t3code\/t3-[^/]+\/t3)$/.exec(
+    /^(.*)\/lib\/node_modules\/@azatakmyradov\/t3-fork\/(?:dist\/bin\.mjs|bin\/t3-fork\.js|node_modules\/@azatakmyradov\/t3-fork-[^/]+\/t3)$/.exec(
       entry,
     );
   if (!match) {
@@ -86,20 +87,20 @@ export const resolveServerInstallation = Effect.gen(function* () {
   )
     return null;
 
-  const packageRoot = path.join(prefix, "lib/node_modules/t3");
+  const packageRoot = path.join(prefix, "lib/node_modules", FORK_NPM_PACKAGE);
   const manifest = yield* fs
     .readFileString(path.join(packageRoot, "package.json"))
     .pipe(Effect.flatMap(decodeInstallManifest));
-  if (manifest.name !== "t3" || !manifest.bin) return null;
-  const bin = yield* fs.realPath(path.join(packageRoot, manifest.bin.t3));
-  const globalBin = yield* fs.realPath(path.join(prefix, "bin/t3"));
+  if (manifest.name !== FORK_NPM_PACKAGE || !manifest.bin?.[FORK_CLI_COMMAND]) return null;
+  const bin = yield* fs.realPath(path.join(packageRoot, manifest.bin[FORK_CLI_COMMAND]!));
+  const globalBin = yield* fs.realPath(path.join(prefix, "bin", FORK_CLI_COMMAND));
   if (globalBin !== bin) return null;
   if (executable) {
     const nativeManifest = yield* fs
       .readFileString(path.join(path.dirname(entry), "package.json"))
       .pipe(Effect.flatMap(decodeInstallManifest));
     if (
-      manifest.bin.t3 !== "./bin/t3.js" ||
+      manifest.bin[FORK_CLI_COMMAND]! !== "./bin/t3-fork.js" ||
       manifest.optionalDependencies?.[nativeManifest.name] !== nativeManifest.version ||
       nativeManifest.version !== manifest.version
     )
@@ -118,13 +119,13 @@ export const resolveServerInstallation = Effect.gen(function* () {
  */
 function suggestedPackageSpec(version: string): string {
   const channel = /^[^-+]+-(nightly|preview)\./.exec(version)?.[1];
-  return channel === undefined ? "t3" : `t3@${channel}`;
+  return channel === undefined ? FORK_NPM_PACKAGE : `${FORK_NPM_PACKAGE}@${channel}`;
 }
 
 /**
  * Render a `t3 <subcommand>` suggestion that matches how this process was
- * launched, so copy/pasting it actually works: `npx t3 connect` suggests
- * `npx t3 serve`, a global install suggests `t3 serve`, and a nightly build
+ * launched, so copy/pasting it actually works: `npx t3-fork connect` suggests
+ * `npx t3-fork serve`, a global install suggests `t3-fork serve`, and a nightly build
  * keeps the `@nightly` tag.
  */
 export function formatCliCommand(input: {
@@ -134,7 +135,7 @@ export function formatCliCommand(input: {
 }): string {
   const runner = detectCliRunner(input.entryPath);
   if (runner === null) {
-    return `t3 ${input.subcommand}`;
+    return `${FORK_CLI_COMMAND} ${input.subcommand}`;
   }
   return `${runner} ${suggestedPackageSpec(input.version)} ${input.subcommand}`;
 }
@@ -178,8 +179,8 @@ const resolveInstallLauncher = Effect.gen(function* () {
 const resolveHostCliCommand = (subcommand: string) =>
   Effect.gen(function* () {
     const command = yield* resolveCliCommand(subcommand);
-    if (command !== `t3 ${subcommand}`) return { command, launcher: false };
-    if (yield* isCommandAvailable("t3")) return { command, launcher: false };
+    if (command !== `${FORK_CLI_COMMAND} ${subcommand}`) return { command, launcher: false };
+    if (yield* isCommandAvailable(FORK_CLI_COMMAND)) return { command, launcher: false };
     const launcher = yield* resolveInstallLauncher;
     return Option.isSome(launcher)
       ? { command: `${shellWord(launcher.value)} ${subcommand}`, launcher: true }

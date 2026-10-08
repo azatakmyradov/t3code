@@ -1,3 +1,9 @@
+import {
+  FORK_APP_NAME,
+  FORK_APP_ID,
+  FORK_DESKTOP_SCHEME,
+  FORK_DEVELOPMENT_SCHEME,
+} from "../../../packages/shared/src/forkIdentity.ts";
 // This file mostly exists because we want dev mode to say "T3 Code (Dev)" instead of "electron"
 
 import * as NodeChildProcess from "node:child_process";
@@ -15,11 +21,11 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? `${FORK_APP_NAME} (Dev)` : FORK_APP_NAME;
 const APP_BUNDLE_ID = isDevelopment
-  ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
-  : "com.t3tools.t3code";
-const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
+  ? `${FORK_APP_ID}.dev.${devBundleIdSuffix || "local"}`
+  : FORK_APP_ID;
+const APP_PROTOCOL_SCHEMES = isDevelopment ? [FORK_DEVELOPMENT_SCHEME] : [FORK_DESKTOP_SCHEME];
 const LAUNCHER_VERSION = 19;
 const developmentMacIconPngPath = NodePath.join(
   repoRoot,
@@ -270,8 +276,8 @@ export function resolveMacBundleInfoPlistStrings(executableName) {
     CFBundleExecutable: executableName,
     CFBundleIconFile: "icon.icns",
     NSScreenCaptureUsageDescription:
-      "T3 Code captures the active window when you use the snapshot shortcut.",
-    NSDocumentsFolderUsageDescription: "T3 Code reads project files you open in the desktop app.",
+      "T3 Fork captures the active window when you use the snapshot shortcut.",
+    NSDocumentsFolderUsageDescription: "T3 Fork reads project files you open in the desktop app.",
   };
 }
 

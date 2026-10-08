@@ -1,5 +1,8 @@
 # Running T3 Code in the background
 
+> This guide describes upstream T3 Code. For this private fork, use the
+> [T3 Fork setup and update guide](../operations/fork.md).
+
 On Linux and macOS, T3 Code can run as a service for your user so you do not need
 to keep a terminal open.
 
