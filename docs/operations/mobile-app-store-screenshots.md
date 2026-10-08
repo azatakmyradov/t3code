@@ -110,7 +110,8 @@ appearance settings can never drift apart.
 
 ## Capture in GitHub Actions
 
-Run the `Mobile Showcase Screenshots` workflow from GitHub's Actions tab, choose `all`, `ios`, or
+This fork disables the `Mobile Showcase Screenshots` workflow; use local capture above.
+In upstream, run the workflow from GitHub's Actions tab, choose `all`, `ios`, or
 `android`, select `light`, `dark`, or `both`, and pick a palette (or `all`, which raises each job's
 timeout from 60 to 300 minutes). The default dispatch captures both appearances of the `t3-code`
 palette and runs iOS and Android concurrently: iPhone and iPad capture on a
