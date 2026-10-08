@@ -732,7 +732,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       // Linux must register the renderer schemes so the generated .desktop
       // entry advertises MimeType=x-scheme-handler/t3code; for OAuth deep links.
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
-        { name: "T3 Fork", schemes: ["t3-fork", "t3-fork-dev"] },
+        { name: "T3 Fork", schemes: ["t3code", "t3-fork-dev"] },
       ]);
       assert.deepStrictEqual(linux.toolsets, { appimage: "1.0.3" });
       assert.notProperty(mac, "toolsets");
@@ -2042,7 +2042,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
       assert.match(String(mac.sign), /[\\/]scripts[\\/]sign-macos\.ts$/);
       assert.deepStrictEqual(mac.protocols, [
-        { name: "T3 Fork", schemes: ["t3-fork", "t3-fork-dev"] },
+        { name: "T3 Fork", schemes: ["t3code", "t3-fork-dev"] },
       ]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );

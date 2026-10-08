@@ -1,4 +1,4 @@
-import { FORK_DESKTOP_SCHEME, FORK_DEVELOPMENT_SCHEME } from "./forkIdentity.ts";
+import { FORK_MOBILE_SCHEME, FORK_DEVELOPMENT_SCHEME } from "./forkIdentity.ts";
 import { isLoopbackHost } from "./preview.ts";
 
 /** Only return to a local client or the hosted T3 client, never an arbitrary OAuth-supplied URL. */
@@ -7,7 +7,7 @@ export function providerAuthReturnUrl(value: string | undefined): string | undef
   try {
     const url = new URL(value);
     const desktop =
-      ["t3code:", "t3code-dev:", `${FORK_DESKTOP_SCHEME}:`, `${FORK_DEVELOPMENT_SCHEME}:`].includes(
+      ["t3code:", "t3code-dev:", `${FORK_MOBILE_SCHEME}:`, `${FORK_DEVELOPMENT_SCHEME}:`].includes(
         url.protocol,
       ) && url.host === "app";
     const web =

@@ -1,4 +1,4 @@
-import { FORK_DESKTOP_SCHEME } from "@t3tools/shared/forkIdentity";
+import { FORK_MOBILE_SCHEME } from "@t3tools/shared/forkIdentity";
 import { HStack, Image, Spacer, Text, VStack, ZStack } from "@expo/ui/swift-ui";
 import type { ComponentProps } from "react";
 import {
@@ -173,7 +173,7 @@ export function AgentActivity(
   const deepLinkRow = attentionRow ?? row0;
   const deepLink =
     deepLinkRow && deepLinkRow.deepLink.startsWith("/") && !deepLinkRow.deepLink.startsWith("//")
-      ? `${FORK_DESKTOP_SCHEME}://${deepLinkRow.deepLink.slice(1)}`
+      ? `${FORK_MOBILE_SCHEME}://${deepLinkRow.deepLink.slice(1)}`
       : null;
 
   // A scannable status glyph per phase — reads faster than colored words and

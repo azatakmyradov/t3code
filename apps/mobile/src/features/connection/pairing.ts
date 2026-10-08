@@ -1,5 +1,5 @@
 import {
-  FORK_DESKTOP_SCHEME,
+  FORK_MOBILE_SCHEME,
   FORK_DEVELOPMENT_SCHEME,
   FORK_PREVIEW_SCHEME,
 } from "@t3tools/shared/forkIdentity";
@@ -88,7 +88,7 @@ export function extractPairingUrlFromQrPayload(payload: string): string {
         "t3code",
         "t3code-dev",
         "t3code-preview",
-        FORK_DESKTOP_SCHEME,
+        FORK_MOBILE_SCHEME,
         FORK_DEVELOPMENT_SCHEME,
         FORK_PREVIEW_SCHEME,
       ].some((scheme) => url.protocol === `${scheme}:`)

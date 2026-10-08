@@ -118,7 +118,7 @@ describe("DesktopPreReadyPlatform", () => {
         assert.equal(identity.desktopName, "com.azatakmyradov.t3fork.desktop");
         assert.include(identity.desktopEntry ?? "", 'Exec="/Applications/current.AppImage" %U');
         assert.include(identity.desktopEntry ?? "", "Name=T3 Fork");
-        assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/t3-fork;");
+        assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/t3code;");
         assert.include(
           identity.desktopEntry ?? "",
           "Icon=/xdg/icons/com.azatakmyradov.t3fork.desktop.png",
@@ -148,7 +148,7 @@ describe("DesktopPreReadyPlatform", () => {
     return Effect.gen(function* () {
       yield* DesktopPreReadyPlatform.make;
       const contents = writeFileSyncMock.mock.calls[0]?.[1];
-      assert.include(contents, "MimeType=x-scheme-handler/t3-fork;");
+      assert.include(contents, "MimeType=x-scheme-handler/t3code;");
       assert.include(contents, "Icon=");
       assert.equal(setDesktopNameMock.mock.calls.length, 1);
     }).pipe(Effect.provideService(HostProcessPlatform, "linux"));

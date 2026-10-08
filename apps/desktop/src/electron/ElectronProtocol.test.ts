@@ -42,12 +42,12 @@ describe("ElectronProtocol", () => {
       });
       const protocol = yield* ElectronProtocol.ElectronProtocol;
       yield* protocol.registerDesktopProtocol({
-        scheme: "t3-fork",
+        scheme: "t3code",
         assetDirectory: directory,
         clerkFrontendApiHostname: undefined,
       });
       const request = (pathname: string, init?: RequestInit) =>
-        Effect.promise(() => handler!(new Request(`t3-fork://app${pathname}`, init)));
+        Effect.promise(() => handler!(new Request(`t3code://app${pathname}`, init)));
 
       // SPA routes fall back to index.html, including ones containing dots.
       const page = yield* request("/settings/connections");
@@ -145,11 +145,11 @@ describe("ElectronProtocol", () => {
         Effect.gen(function* () {
           const protocol = yield* ElectronProtocol.ElectronProtocol;
           yield* protocol.registerDesktopProtocol({
-            scheme: "t3-fork",
+            scheme: "t3code",
             targetOrigin: new URL("http://127.0.0.1:3773/"),
             clerkFrontendApiHostname: undefined,
           });
-          return yield* Effect.promise(() => handler!(new Request("t3-fork://other/")));
+          return yield* Effect.promise(() => handler!(new Request("t3code://other/")));
         }),
       );
 
@@ -267,7 +267,7 @@ describe("ElectronProtocol", () => {
       const exit = yield* Effect.exit(
         Effect.scoped(
           protocol.registerDesktopProtocol({
-            scheme: "t3-fork",
+            scheme: "t3code",
             targetOrigin: new URL("http://127.0.0.1:3773/"),
             clerkFrontendApiHostname: undefined,
           }),
@@ -278,16 +278,16 @@ describe("ElectronProtocol", () => {
       if (exit._tag === "Failure") {
         const error = Cause.squash(exit.cause);
         assert.instanceOf(error, ElectronProtocol.ElectronProtocolUnregistrationError);
-        assert.equal(error.scheme, "t3-fork");
+        assert.equal(error.scheme, "t3code");
         assert.strictEqual(error.cause, cause);
-        assert.equal(error.message, 'Failed to unregister Electron protocol scheme "t3-fork".');
+        assert.equal(error.message, 'Failed to unregister Electron protocol scheme "t3code".');
       }
     }).pipe(Effect.provide(layerProtocol)),
   );
 
   it("keeps executable sources host-restricted while allowing runtime network resources", () => {
     const policy = ElectronProtocol.makeDesktopContentSecurityPolicy({
-      scheme: "t3-fork",
+      scheme: "t3code",
       targetOrigin: new URL("http://127.0.0.1:3773/"),
       clerkFrontendApiHostname: "clerk.t3.codes",
     });
@@ -315,14 +315,14 @@ describe("ElectronProtocol", () => {
     ]);
     assert.deepEqual(directives["img-src"], [
       "'self'",
-      "t3-fork:",
+      "t3code:",
       "blob:",
       "data:",
       "http:",
       "https:",
     ]);
-    assert.deepEqual(directives["media-src"], ["'self'", "t3-fork:", "blob:", "http:", "https:"]);
+    assert.deepEqual(directives["media-src"], ["'self'", "t3code:", "blob:", "http:", "https:"]);
     assert.deepEqual(directives["frame-src"], ["'self'", "blob:", "http:", "https:"]);
-    assert.deepEqual(directives["font-src"], ["'self'", "t3-fork:", "data:"]);
+    assert.deepEqual(directives["font-src"], ["'self'", "t3code:", "data:"]);
   });
 });

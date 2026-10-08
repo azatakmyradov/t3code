@@ -42,8 +42,12 @@ installers, update metadata, and CLI archives used by remote environments.
 
 T3 Fork defaults to `~/.t3-fork/userdata` and server port `4773`. Its Electron
 profiles are `t3-fork` and `t3-fork-dev` under the OS application-data directory.
-Its URL schemes, service names, CLI links, and Linux capture helpers have their
-own identities. T3 Code keeps its existing installation and data.
+Its service names, CLI links, Linux capture helpers, and mobile URL schemes have
+their own identities. The production desktop renderer uses `t3code://app` for
+compatibility with upstream T3 Connect. Desktop OAuth callbacks share the
+`t3code` scheme with T3 Code, so either installed app may receive them. Native
+passkeys still require the fork app ID in the website association file.
+T3 Code keeps its existing installation and data.
 
 Existing `T3CODE_HOME`, `T3CODE_PORT`, and explicit `--base-dir`/`--home-dir`
 options still override defaults. Do not point either app at the other's live
@@ -69,7 +73,7 @@ After configuring the Apple credentials below, run **T3 Fork release** from the
 Actions tab on `main`, or run:
 
 ```sh
-gh workflow run fork-release.yml --repo azatakmyradov/t3code --ref main -f version=0.0.45
+gh workflow run fork-release.yml --repo azatakmyradov/t3code --ref main -f version=0.0.46
 ```
 
 Choose a new, increasing stable version for each release. The workflow verifies

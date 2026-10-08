@@ -85,36 +85,42 @@ describe("DesktopClerk", () => {
     storageMock.mockReset();
   });
 
-  it.effect("acquires and releases the SDK bridge with the layer", () => {
-    const cleanup = vi.fn();
-    const events: string[] = [];
-    storageMock.mockReturnValue(storageAdapter);
-    createClerkBridgeMock.mockImplementation(() => {
-      events.push("createClerkBridge");
-      return { cleanup, isPrimaryInstance: true };
-    });
+  it.effect.each([true, false])(
+    "acquires and releases the SDK bridge with an isolated profile (development: %s)",
+    (isDevelopment) => {
+      const cleanup = vi.fn();
+      const events: string[] = [];
+      storageMock.mockReturnValue(storageAdapter);
+      createClerkBridgeMock.mockImplementation(() => {
+        events.push("createClerkBridge");
+        return { cleanup, isPrimaryInstance: true };
+      });
 
-    return Effect.gen(function* () {
-      yield* Effect.scoped(Layer.build(layerDesktopClerk(true, events)));
+      return Effect.gen(function* () {
+        yield* Effect.scoped(Layer.build(layerDesktopClerk(isDevelopment, events)));
 
-      assert.deepEqual(createClerkBridgeMock.mock.calls, [
-        [
-          {
-            storage: storageAdapter,
-            passkeys: true,
-            renderer: { scheme: "t3-fork-dev", host: "app" },
-          },
-        ],
-      ]);
-      assert.equal(cleanup.mock.calls.length, 1);
-      // The bridge acquires Electron's single-instance lock at creation, and
-      // the lock both lives in and creates the userData directory — so the
-      // real path must be set before the bridge exists.
-      assert.deepEqual(events, ["setPath:userData:/tmp/app-data/t3-fork-dev", "createClerkBridge"]);
-      storageMock.mockClear();
-      createClerkBridgeMock.mockClear();
-    });
-  });
+        assert.deepEqual(createClerkBridgeMock.mock.calls, [
+          [
+            {
+              storage: storageAdapter,
+              passkeys: true,
+              renderer: { scheme: isDevelopment ? "t3-fork-dev" : "t3code", host: "app" },
+            },
+          ],
+        ]);
+        assert.equal(cleanup.mock.calls.length, 1);
+        // The bridge acquires Electron's single-instance lock at creation, and
+        // the lock both lives in and creates the userData directory — so the
+        // real path must be set before the bridge exists.
+        assert.deepEqual(events, [
+          `setPath:userData:/tmp/app-data/${isDevelopment ? "t3-fork-dev" : "t3-fork"}`,
+          "createClerkBridge",
+        ]);
+        storageMock.mockClear();
+        createClerkBridgeMock.mockClear();
+      });
+    },
+  );
 
   it.each([
     {
@@ -282,7 +288,7 @@ it.effect(
       yield* clerk.configure;
       const event = { preventDefault: vi.fn() };
       listeners.get("open-url")!(event, "t3-fork-dev://app/auth/callback?code=clerk-code");
-      listeners.get("open-url")!(event, "t3-fork://app/welcome");
+      listeners.get("open-url")!(event, "t3code://app/welcome");
       assert.equal(loadURL.mock.calls.length, 0);
       assert.equal(event.preventDefault.mock.calls.length, 0);
       listeners.get("second-instance")!({}, [

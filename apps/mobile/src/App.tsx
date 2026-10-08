@@ -1,5 +1,5 @@
 import {
-  FORK_DESKTOP_SCHEME,
+  FORK_MOBILE_SCHEME,
   FORK_DEVELOPMENT_SCHEME,
   FORK_PREVIEW_SCHEME,
 } from "@t3tools/shared/forkIdentity";
@@ -46,7 +46,7 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
 const appLinking = {
   prefixes: [
     Linking.createURL("/"),
-    `${FORK_DESKTOP_SCHEME}://`,
+    `${FORK_MOBILE_SCHEME}://`,
     `${FORK_DEVELOPMENT_SCHEME}://`,
     `${FORK_PREVIEW_SCHEME}://`,
   ],

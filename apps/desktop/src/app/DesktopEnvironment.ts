@@ -2,7 +2,7 @@ import {
   FORK_APP_NAME,
   FORK_APP_ID,
   FORK_DEVELOPMENT_SCHEME,
-  FORK_DESKTOP_SCHEME,
+  FORK_CLI_COMMAND,
 } from "@t3tools/shared/forkIdentity";
 import type {
   DesktopAppBranding,
@@ -68,7 +68,7 @@ export class DesktopEnvironment extends Context.Service<
     // extracts on demand (see DesktopWslServerTree).
     readonly serverRoot: string;
     readonly backendEntryPath: string;
-    // Built web client the packaged renderer is served from over t3-fork://app.
+    // Built web client the packaged renderer is served from over t3code://app.
     readonly clientAssetsDir: string;
     readonly backendCwd: string;
     readonly preloadPath: string;
@@ -245,7 +245,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
       isDevelopment ? `${FORK_APP_ID}.dev` : FORK_APP_ID,
     ),
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
-    linuxWmClass: isDevelopment ? FORK_DEVELOPMENT_SCHEME : FORK_DESKTOP_SCHEME,
+    linuxWmClass: isDevelopment ? FORK_DEVELOPMENT_SCHEME : FORK_CLI_COMMAND,
     linuxApplicationsDir,
     appImagePath: config.appImagePath,
     defaultDesktopSettings: DesktopAppSettings.resolveDefaultDesktopSettings(input.appVersion),

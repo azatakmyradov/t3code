@@ -3,7 +3,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
-import { FORK_DESKTOP_SCHEME, FORK_DEVELOPMENT_SCHEME } from "@t3tools/shared/forkIdentity";
+import { FORK_CLI_COMMAND, FORK_DEVELOPMENT_SCHEME } from "@t3tools/shared/forkIdentity";
 
 export class DesktopUserDataInitializationError extends Schema.TaggedError<DesktopUserDataInitializationError>()(
   "DesktopUserDataInitializationError",
@@ -45,7 +45,7 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
     // Never migrate the original app's profile into the fork automatically.
     const destinationPath = path.join(
       input.appDataDirectory,
-      input.isDevelopment ? FORK_DEVELOPMENT_SCHEME : FORK_DESKTOP_SCHEME,
+      input.isDevelopment ? FORK_DEVELOPMENT_SCHEME : FORK_CLI_COMMAND,
     );
     yield* fs
       .makeDirectory(destinationPath, { recursive: true })

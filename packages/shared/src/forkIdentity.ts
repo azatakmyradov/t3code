@@ -7,6 +7,8 @@ export const FORK_NPM_SCOPE = "@azatakmyradov";
 export const FORK_NPM_PACKAGE = `${FORK_NPM_SCOPE}/${FORK_CLI_COMMAND}`;
 export const FORK_REPOSITORY = "azatakmyradov/t3code";
 export const FORK_DEFAULT_PORT = 4773;
-export const FORK_DESKTOP_SCHEME = "t3-fork";
+// Upstream Clerk allows this renderer origin; OAuth callbacks share its OS handler.
+export const FORK_DESKTOP_SCHEME = "t3code";
+export const FORK_MOBILE_SCHEME = "t3-fork";
 export const FORK_DEVELOPMENT_SCHEME = "t3-fork-dev";
 export const FORK_PREVIEW_SCHEME = "t3-fork-preview";

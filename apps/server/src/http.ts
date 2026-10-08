@@ -1,4 +1,8 @@
-import { FORK_DESKTOP_SCHEME, FORK_DEVELOPMENT_SCHEME } from "@t3tools/shared/forkIdentity";
+import {
+  FORK_DESKTOP_SCHEME,
+  FORK_DEVELOPMENT_SCHEME,
+  FORK_MOBILE_SCHEME,
+} from "@t3tools/shared/forkIdentity";
 import * as Mime from "effect/http/Mime";
 import {
   AuthOrchestrationOperateScope,
@@ -56,6 +60,7 @@ const DESKTOP_RENDERER_ORIGINS = [
   "t3code://app",
   "t3code-dev://app",
   `${FORK_DESKTOP_SCHEME}://app`,
+  `${FORK_MOBILE_SCHEME}://app`,
   `${FORK_DEVELOPMENT_SCHEME}://app`,
 ];
 const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox";

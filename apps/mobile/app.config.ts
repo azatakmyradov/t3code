@@ -1,7 +1,7 @@
 import {
   FORK_APP_ID,
   FORK_APP_NAME,
-  FORK_DESKTOP_SCHEME,
+  FORK_MOBILE_SCHEME,
   FORK_DEVELOPMENT_SCHEME,
   FORK_PREVIEW_SCHEME,
 } from "../../packages/shared/src/forkIdentity.ts";
@@ -99,7 +99,7 @@ const VARIANT_CONFIG = {
   },
   production: {
     appName: FORK_APP_NAME,
-    scheme: FORK_DESKTOP_SCHEME,
+    scheme: FORK_MOBILE_SCHEME,
     iosBundleIdentifier: FORK_APP_ID,
     androidPackage: FORK_APP_ID,
     relyingParty: "clerk.t3.codes",

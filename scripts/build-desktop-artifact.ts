@@ -2798,7 +2798,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ],
       desktop: {
         entry: {
-          StartupWMClass: FORK_DESKTOP_SCHEME,
+          StartupWMClass: FORK_CLI_COMMAND,
         },
       },
     };

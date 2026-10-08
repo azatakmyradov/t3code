@@ -1,4 +1,4 @@
-import { FORK_DESKTOP_SCHEME } from "@t3tools/shared/forkIdentity";
+import { FORK_MOBILE_SCHEME } from "@t3tools/shared/forkIdentity";
 import Constants from "expo-constants";
 import { requireOptionalNativeModule } from "expo";
 import { Linking, Platform } from "react-native";
@@ -22,7 +22,7 @@ export function supportsAndroidAgentNotifications(): boolean {
 
 function appScheme(): string {
   const scheme = Constants.expoConfig?.scheme;
-  return (Array.isArray(scheme) ? scheme[0] : scheme) ?? FORK_DESKTOP_SCHEME;
+  return (Array.isArray(scheme) ? scheme[0] : scheme) ?? FORK_MOBILE_SCHEME;
 }
 
 export function configureAndroidAgentNotifications(
