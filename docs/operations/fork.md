@@ -59,8 +59,10 @@ configuration; OTA updates are disabled by default.
 
 Inherited release and deployment entry points remain disabled. The separate
 **T3 Fork release** workflow uses GitHub-hosted runners and the existing desktop
-packager through its reusable workflow to build macOS, Linux, and Windows for x64 and arm64. It publishes CLI
-archives and checksums, plus architecture-specific desktop update metadata.
+packager through its reusable workflow. By default, it builds only macOS for
+Apple Silicon. Enable **Also build Intel Mac, Linux, and Windows** in the dispatch
+form, or pass `-f all_platforms=true`, to build all six platform targets.
+It publishes the selected installers, CLI archives, checksums, and desktop update metadata.
 It does not deploy a website or relay or publish to npm.
 
 After configuring the Apple credentials below, run **T3 Fork release** from the
@@ -71,7 +73,7 @@ gh workflow run fork-release.yml --repo azatakmyradov/t3code --ref main -f versi
 ```
 
 Choose a new, increasing stable version for each release. The workflow verifies
-signing prerequisites before building and publishes only when all platforms
+signing prerequisites before building and publishes only when all selected platforms
 succeed. Windows signing is optional through the existing Azure secrets.
 Keep the same Apple signing identity across macOS updates.
 
