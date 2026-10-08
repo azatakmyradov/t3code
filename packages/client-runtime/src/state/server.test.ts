@@ -12,12 +12,14 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import * as TestClock from "effect/testing/TestClock";
 import { RpcClientError } from "effect/rpc";
 import * as Socket from "effect/socket/Socket";
@@ -26,13 +28,16 @@ import {
   AVAILABLE_CONNECTION_STATE,
   PrimaryConnectionTarget,
   type PreparedConnection,
+  type SupervisorConnectionState,
 } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import * as EnvironmentRegistry from "../connection/registry.ts";
 import * as Persistence from "../platform/persistence.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import {
   applyServerWelcomeEvent,
+  createServerEnvironmentAtoms,
   makeEnvironmentServerWelcomeState,
   makeEnvironmentServerConfigState,
   isLegacyUpdateHandoffLoss,
@@ -89,6 +94,96 @@ function session(client: WsRpcProtocolClient): RpcSession {
 }
 
 describe("update restart reconnect nudges", () => {
+  it.effect("finishes an up-to-date check without installing or reconnecting", () =>
+    Effect.gen(function* () {
+      const result = { targetVersion: "0.0.30", method: "desktop-app", upToDate: true } as const;
+      const config = {
+        ...CONFIG,
+        environment: {
+          ...CONFIG.environment,
+          serverVersion: "0.0.30",
+          capabilities: { serverSelfUpdate: "desktop-managed", serverSelfUpdateProgress: true },
+        },
+      } as ServerConfig;
+      let installs = 0;
+      let reconnects = 0;
+      const client = {
+        [WS_METHODS.subscribeServerConfig]: () => Stream.never,
+        [WS_METHODS.serverUpdateServerWithProgress]: () =>
+          Stream.make({ type: "complete", result }),
+        [WS_METHODS.serverCommitDesktopUpdate]: () =>
+          Effect.sync(() => {
+            installs += 1;
+          }),
+      } as unknown as WsRpcProtocolClient;
+      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+        target: TARGET,
+        state: yield* SubscriptionRef.make<SupervisorConnectionState>({
+          ...AVAILABLE_CONNECTION_STATE,
+          phase: "connected" as const,
+        }),
+        session: yield* SubscriptionRef.make<Option.Option<RpcSession>>(
+          Option.some({ ...session(client), initialConfig: Effect.succeed(config) }),
+        ),
+        prepared: yield* SubscriptionRef.make(Option.none<PreparedConnection>()),
+        connect: Effect.void,
+        disconnect: Effect.void,
+        retryNow: Effect.void,
+      });
+      const environments = EnvironmentRegistry.EnvironmentRegistry.of({
+        run: (_environmentId, effect) =>
+          Effect.provideService(effect, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        runStream: (_environmentId, stream) =>
+          Stream.provideService(stream, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        followStream: () =>
+          Stream.die("An up-to-date check must not await server lifecycle events"),
+        stateChanges: () => SubscriptionRef.changes(supervisor.state),
+        retryNow: () =>
+          Effect.sync(() => {
+            reconnects += 1;
+          }),
+      } satisfies Partial<
+        EnvironmentRegistry.EnvironmentRegistry["Service"]
+      > as unknown as EnvironmentRegistry.EnvironmentRegistry["Service"]);
+      const cache = Persistence.EnvironmentCacheStore.of({
+        loadShell: () => Effect.succeedNone,
+        saveShell: () => Effect.void,
+        loadThread: () => Effect.succeedNone,
+        saveThread: () => Effect.void,
+        removeThread: () => Effect.void,
+        loadServerConfig: () => Effect.succeedNone,
+        saveServerConfig: () => Effect.void,
+        loadVcsRefs: () => Effect.succeedNone,
+        saveVcsRefs: () => Effect.void,
+        removeVcsRefs: () => Effect.void,
+        clearVcsRefs: () => Effect.void,
+        clear: () => Effect.void,
+      });
+      const runtime = Atom.runtime(
+        Layer.merge(
+          Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, environments),
+          Layer.succeed(Persistence.EnvironmentCacheStore, cache),
+        ),
+      );
+      const atoms = createServerEnvironmentAtoms(runtime, {
+        initialConfigValueAtom: () => Atom.make(config),
+      });
+      const registry = yield* Effect.acquireRelease(Effect.sync(AtomRegistry.make), (registry) =>
+        Effect.sync(() => registry.dispose()),
+      );
+      const updated = yield* Effect.promise(() =>
+        atoms.updateServer.run(registry, {
+          environmentId: TARGET.environmentId,
+          input: { targetVersion: "0.0.31" },
+        }),
+      );
+      expect(updated).toMatchObject({ _tag: "Success", value: result });
+      expect(registry.get(atoms.updateStateAtom(TARGET.environmentId))).toEqual({ status: "idle" });
+      expect(installs).toBe(0);
+      expect(reconnects).toBe(0);
+    }),
+  );
+
   it.effect("retries a desktop commit that was lost before delivery", () =>
     Effect.gen(function* () {
       const readyEvents =
@@ -320,6 +415,15 @@ describe("server state projection", () => {
       fromVersion: "0.0.30",
       targetVersion: "0.0.31",
     });
+  });
+
+  it("finishes progress without resuming when the desktop is already current", () => {
+    expect(
+      serverUpdateStateForProgressEvent("0.0.30", "0.0.31", {
+        type: "complete",
+        result: { targetVersion: "0.0.30", method: "desktop-app", upToDate: true },
+      }),
+    ).toEqual({ status: "idle" });
   });
 
   it("keeps active update state and hides stale failures after a version change", () => {
