@@ -154,17 +154,32 @@ it.layer(NodeServices.layer)("desktop app update", (it) => {
     }),
   );
 
-  it.effect("maps up-to-date and failed outcomes to readable errors", () =>
+  it.effect("succeeds without an install token when the desktop is up to date", () =>
     Effect.gen(function* () {
       const upToDate = yield* makeHarness({
         reports: (requestId) => [
           report(requestId, makeState({ status: "up-to-date" }), { outcome: "up-to-date" }),
         ],
       });
-      expect((yield* upToDate.service.run(() => Effect.void).pipe(Effect.flip)).reason).toBe(
-        "The T3 Code desktop app on this machine is already up to date on 1.2.3.",
+      const stages: string[] = [];
+      const run = () => upToDate.service.run((stage) => Effect.sync(() => void stages.push(stage)));
+      expect(yield* run()).toEqual({
+        targetVersion: "1.2.3",
+        method: "desktop-app",
+        upToDate: true,
+      });
+      expect(stages).toEqual([]);
+      // A completed check must release the guard for another request.
+      // The test stream retains the first request ID, so the retry ends
+      // without a matching report rather than failing the in-flight guard.
+      expect((yield* run().pipe(Effect.flip)).reason).toBe(
+        "The desktop app stopped reporting its update.",
       );
+    }),
+  );
 
+  it.effect("maps failed outcomes to readable errors", () =>
+    Effect.gen(function* () {
       const failed = yield* makeHarness({
         reports: (requestId) => [
           report(requestId, makeState({ status: "error", message: "feed unreachable" }), {
