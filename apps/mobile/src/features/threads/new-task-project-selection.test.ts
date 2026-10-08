@@ -135,11 +135,10 @@ describe("resolveDraftProjectSelection", () => {
     });
   });
 
-  it("selects one logical project even when it has multiple physical workspaces", () => {
+  it("requires a folder choice when the only group has multiple physical workspaces", () => {
     const projects = [makeProject("t3code"), makeProject("t3code-2"), makeProject("t3code-3")];
     expect(resolveDraftProjectSelection(null, projects, [makeScope(projects)])).toEqual({
-      kind: "select",
-      project: projects[0],
+      kind: "pick",
     });
   });
 
@@ -147,10 +146,7 @@ describe("resolveDraftProjectSelection", () => {
     const project = makeProject("t3code");
     expect(
       resolveDraftProjectSelection("environment:removed", [project], [makeScope([project])]),
-    ).toEqual({
-      kind: "select",
-      project,
-    });
+    ).toEqual({ kind: "pick" });
   });
 });
 

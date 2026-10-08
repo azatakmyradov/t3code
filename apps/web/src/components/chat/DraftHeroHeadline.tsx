@@ -3,6 +3,7 @@ import { useComposerDraftStore } from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { buildProjectFolderChoices } from "@t3tools/client-runtime/state/project-grouping";
 import { FolderPlusIcon, MessageSquareDashedIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -34,11 +35,17 @@ import {
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
+  MenuRadioItemIndicator,
   MenuSeparator,
+  MenuGroupLabel,
+  MenuSub,
+  MenuSubTrigger,
+  MenuSubPopup,
   MenuTrigger,
 } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { InlineButton } from "../ui/button";
+import { MiddleTruncate } from "../ui/middle-truncate";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
 // Menu value for "No project"; real entries are keyed by logical project key.
@@ -175,7 +182,11 @@ export function DraftHeroHeadline({
   // Project selection changes the target of the open draft in place. The
   // prompt stays in the same composer session, so the sidebar only gets a
   // draft row if the user later navigates away.
-  const selectProject = (project: (typeof projects)[number], logicalProjectKey: string) => {
+  const selectProject = (
+    project: (typeof projects)[number],
+    logicalProjectKey: string,
+    exactFolder = false,
+  ) => {
     if (!draftId) {
       return;
     }
@@ -189,6 +200,7 @@ export function DraftHeroHeadline({
       logicalProjectKey,
       scopeProjectRef(project.environmentId, project.id),
       draftId,
+      exactFolder ? { environmentSelection: "manual", loadBalancedEnvironmentId: null } : undefined,
     );
     if (!hasExplicitComposerModelSelection(currentDraft)) {
       applyStickyState(draftId);
@@ -279,6 +291,56 @@ export function DraftHeroHeadline({
             </MenuRadioItem>
           )}
           {menuEntries.map(({ group }) => {
+            if (group.memberProjects.length > 1) {
+              return (
+                <MenuSub key={group.projectKey}>
+                  <MenuSubTrigger>
+                    <ProjectFavicon project={group} className="size-4 shrink-0" />
+                    {group.displayName}
+                  </MenuSubTrigger>
+                  <MenuSubPopup className="max-h-80 overflow-y-auto">
+                    <MenuRadioGroup
+                      value={activeProjectRef ? scopedProjectKey(activeProjectRef) : ""}
+                    >
+                      {buildProjectFolderChoices(group.memberProjects, activeProjectRef).map(
+                        ({ environmentId, projects: folders }) => (
+                          <div key={environmentId}>
+                            <MenuGroupLabel>
+                              {environmentLabelById.get(environmentId) ?? "Remote"}
+                            </MenuGroupLabel>
+                            {folders.map((folder) => (
+                              <MenuRadioItem
+                                key={folder.physicalProjectKey}
+                                value={scopedProjectKey(
+                                  scopeProjectRef(folder.environmentId, folder.id),
+                                )}
+                                closeOnClick
+                                onClick={() => selectProject(folder, group.projectKey, true)}
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={<span className="flex min-w-0 max-w-96" />}
+                                    >
+                                      <MiddleTruncate
+                                        value={folder.workspaceRoot}
+                                        showTitle={false}
+                                      />
+                                    </TooltipTrigger>
+                                    <TooltipPopup>{folder.workspaceRoot}</TooltipPopup>
+                                  </Tooltip>
+                                  <MenuRadioItemIndicator />
+                                </span>
+                              </MenuRadioItem>
+                            ))}
+                          </div>
+                        ),
+                      )}
+                    </MenuRadioGroup>
+                  </MenuSubPopup>
+                </MenuSub>
+              );
+            }
             return (
               <MenuRadioItem key={group.projectKey} value={group.projectKey} closeOnClick>
                 <span className="flex min-w-0 items-center gap-2">
@@ -373,6 +435,16 @@ export function DraftHeroHeadline({
           <>Add a project to start</>
         )}
       </h1>
+      {activeProjectGroup && activeProjectGroup.memberProjects.length > 1 && activeProject ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={<p className="mt-2 flex max-w-full text-sm text-muted-foreground" />}
+          >
+            <MiddleTruncate value={activeProject.workspaceRoot} showTitle={false} />
+          </TooltipTrigger>
+          <TooltipPopup>{activeProject.workspaceRoot}</TooltipPopup>
+        </Tooltip>
+      ) : null}
       {/* Reserved whenever threads can skip a project, so the heading does not
           move. Without a project, the picker moves here to choose one. */}
       {scratchWorkspaceRoot === null ? null : (

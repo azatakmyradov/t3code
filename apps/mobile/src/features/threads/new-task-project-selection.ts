@@ -40,7 +40,7 @@ function getOnlySelectableProject(
   projectScopes: ReadonlyArray<HomeProjectScope>,
 ): EnvironmentProject | null {
   const onlyScope = projectScopes.length === 1 ? projectScopes[0] : null;
-  return onlyScope?.representative ?? null;
+  return onlyScope?.projects.length === 1 ? onlyScope.projects[0]! : null;
 }
 
 /**
@@ -110,6 +110,7 @@ export function resolveDraftProjectSelection(
   if (hasExplicitProjectSelection) {
     return { kind: "preserve" };
   }
+  if (selectedProjectKey !== null) return { kind: "pick" };
 
   const onlyProject = getOnlySelectableProject(projectScopes);
   return onlyProject ? { kind: "select", project: onlyProject } : { kind: "pick" };

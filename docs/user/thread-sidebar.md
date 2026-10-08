@@ -13,6 +13,13 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
+With project grouping enabled, a repository can contain several added folders.
+Open the project menu in a new thread's heading, or **New thread in...** in the
+command palette, then choose the folder by its path. On mobile, choose the
+project and then its folder. The draft shows the selected path before you send.
+Choosing a folder keeps the draft on that machine even when auto balance is
+enabled. You can change the folder again before starting the thread.
+
 ### Start without a project
 
 A thread does not need a project. To start one without a project, click **or

@@ -72,12 +72,17 @@ export function useNewThreadHandler() {
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
+        environmentSelection?: "manual";
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
       // prepared checkout, a task to write — addresses that one rather than looking the project
       // up again and finding whichever draft it happens to hold.
     ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
       const projects = readProjects();
+      const environmentOptions =
+        options?.environmentSelection === "manual"
+          ? { environmentSelection: "manual" as const, loadBalancedEnvironmentId: null }
+          : {};
       const targetServerSettings =
         environmentServerConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
       const {
@@ -298,6 +303,7 @@ export function useNewThreadHandler() {
             emptyStoredDraftThread.draftId,
             {
               threadId: emptyStoredDraftThread.threadId,
+              ...environmentOptions,
               ...workspaceContext,
               ...(!isDraftAlreadyOpen ? { runtimeMode: defaultRuntimeMode } : {}),
               ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
@@ -345,6 +351,7 @@ export function useNewThreadHandler() {
         }
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, currentRouteTarget.draftId, {
           threadId: latestActiveDraftThread.threadId,
+          ...environmentOptions,
           createdAt: latestActiveDraftThread.createdAt,
           runtimeMode: latestActiveDraftThread.runtimeMode,
           interactionMode: latestActiveDraftThread.interactionMode,
@@ -388,6 +395,7 @@ export function useNewThreadHandler() {
           // contradictory envMode.
           setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, racedDraft.draftId, {
             threadId: racedDraft.threadId,
+            ...environmentOptions,
             createdAt: racedDraft.createdAt,
             runtimeMode: racedDraft.runtimeMode,
             interactionMode: racedDraft.interactionMode,
@@ -402,6 +410,7 @@ export function useNewThreadHandler() {
         }
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
+          ...environmentOptions,
           createdAt,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,

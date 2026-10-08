@@ -1568,6 +1568,19 @@ export function NewTaskDraftScreen(props: {
           </Pressable>
           <Text className="text-2xl font-t3-medium tracking-tight text-foreground">?</Text>
         </View>
+        {projectScopes.some(
+          (scope) =>
+            scope.projects.length > 1 &&
+            scope.projects.some(
+              (project) =>
+                project.environmentId === selectedProject.environmentId &&
+                project.id === selectedProject.id,
+            ),
+        ) ? (
+          <Text className="text-center text-sm text-foreground-muted" numberOfLines={2}>
+            {selectedProject.workspaceRoot}
+          </Text>
+        ) : null}
       </View>
 
       {environmentControl}
