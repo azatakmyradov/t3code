@@ -197,8 +197,11 @@ jobs:
           node-version-file: package.json
           cache: true
           run-install: true
-      - name: Test
-        run: vp run --parallel --concurrency-limit 2 --filter @t3tools/web --filter @t3tools/client-runtime --filter @t3tools/shared --filter @t3tools/contracts test
+      # The web suite needs the runner to itself for its large cold imports.
+      - name: Test web
+        run: vp run --filter @t3tools/web test
+      - name: Test shared client packages
+        run: vp run --parallel --concurrency-limit 2 --filter @t3tools/client-runtime --filter @t3tools/shared --filter @t3tools/contracts test
 
   # Two shards retain every server test and the one-file-at-a-time isolation
   # configured by apps/server, using fewer runners than upstream's six shards.
