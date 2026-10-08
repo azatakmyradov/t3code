@@ -216,6 +216,24 @@ describe.each([
     },
   );
 
+  it("pins an explicitly selected folder while still resolving workspace defaults", async () => {
+    testState.reset(draft, { envMode: "worktree", startFromOrigin: true });
+    const projectRef = { environmentId: "environment-ssh", projectId: "project-remote" } as never;
+    const pendingOpen = useNewThreadHandler()(projectRef, { environmentSelection: "manual" });
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      opened!.draftId,
+      expect.objectContaining({
+        environmentSelection: "manual",
+        loadBalancedEnvironmentId: null,
+        envMode: "worktree",
+      }),
+    );
+  });
+
   it("abandons a delayed draft open when the user navigates elsewhere", async () => {
     testState.reset(draft);
     const openThread = useNewThreadHandler();

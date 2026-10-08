@@ -223,6 +223,7 @@ import {
   buildSidebarProjectSnapshots,
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
+import { buildProjectFolderChoices } from "@t3tools/client-runtime/state/project-grouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 
@@ -1332,10 +1333,11 @@ function OpenCommandPaletteDialog(props: {
   const projectThreadItems = useMemo(() => {
     const isScratch = (project: CommandPaletteProject) =>
       isScratchProject(project, scratchWorkspaceRootFor(project.environmentId));
+    const selectableProjects = pickerProjects.filter((project) => !isScratch(project));
     const projectItems = enumerateCommandPaletteItems(
       buildProjectActionItems({
         // The no-project home shows once, as the "No project" item below.
-        projects: pickerProjects.filter((project) => !isScratch(project)),
+        projects: selectableProjects,
         valuePrefix: "new-thread-in",
         searchTerms: (project) => {
           const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
@@ -1386,7 +1388,40 @@ function OpenCommandPaletteDialog(props: {
           );
         },
       }),
-    );
+    ).map((item, index): CommandPaletteActionItem | CommandPaletteSubmenuItem => {
+      const project = selectableProjects[index]!;
+      const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
+      if (!group || group.memberProjects.length <= 1) return item;
+      return {
+        ...item,
+        kind: "submenu",
+        description: `${group.memberProjects.length} folders`,
+        addonIcon: <FolderIcon className={ADDON_ICON_CLASS} />,
+        groups: buildProjectFolderChoices(group.memberProjects, contextualProjectRef).map(
+          ({ environmentId, projects: folders }) => ({
+            value: `folders:${environmentId}`,
+            label: projectEnvironmentLocationById.get(environmentId)?.label ?? "Remote",
+            items: folders.map((folder) => ({
+              kind: "action",
+              value: `new-thread-in-folder:${folder.environmentId}:${folder.id}`,
+              title: folder.workspaceRoot,
+              description:
+                folder.id === contextualProjectRef?.projectId &&
+                folder.environmentId === contextualProjectRef.environmentId
+                  ? "Current folder"
+                  : folder.title,
+              searchTerms: [folder.workspaceRoot, folder.title, group.displayName],
+              icon: projectFaviconIcon(folder),
+              run: async () => {
+                await handleNewThread(scopeProjectRef(folder.environmentId, folder.id), {
+                  environmentSelection: "manual",
+                });
+              },
+            })),
+          }),
+        ),
+      };
+    });
     if (scratchTargetEnvironmentId === null) return projectItems;
 
     // "No project" goes right after the current project: visible without

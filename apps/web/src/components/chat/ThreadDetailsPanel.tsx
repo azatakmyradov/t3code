@@ -3,6 +3,7 @@ import type {
   EnvironmentId,
   ProjectScript,
   ResolvedKeybindingsConfig,
+  ScopedProjectRef,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -21,6 +22,7 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
+import { ProjectFolderPicker } from "./ProjectFolderPicker";
 
 export interface ThreadDetailsPanelProps extends Pick<
   ComponentProps<typeof ThreadDetailsCard>,
@@ -30,6 +32,8 @@ export interface ThreadDetailsPanelProps extends Pick<
   environmentId: EnvironmentId;
   threadId: ThreadId;
   draftId?: DraftId;
+  activeProjectRef?: ScopedProjectRef | null;
+  folderSelectionLocked?: boolean;
   activeProjectName: string | undefined;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
   preferredScriptId: string | null;
@@ -115,6 +119,15 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   autoEnvironmentLabel={props.autoEnvironmentLabel}
                   onAutoEnvironment={props.onAutoEnvironment}
                   {...branchToolbarProps}
+                />
+              ) : null}
+
+              {density !== "essential" && props.activeProjectRef ? (
+                <ProjectFolderPicker
+                  projectRef={props.activeProjectRef}
+                  draftId={props.draftId ?? null}
+                  locked={props.envLocked || props.folderSelectionLocked === true}
+                  workspacePath={props.gitCwd}
                 />
               ) : null}
 

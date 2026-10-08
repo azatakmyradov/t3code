@@ -1798,6 +1798,40 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
   });
 
+  it("retargets a grouped draft to another folder on the same machine and preserves its content", () => {
+    const store = useComposerDraftStore.getState();
+    const target = {
+      environmentId: TEST_ENVIRONMENT_ID,
+      projectId: ProjectId.make("second-folder"),
+    };
+    store.setLogicalProjectDraftThreadId("grouped-repo", projectRef, draftId, {
+      threadId,
+      branch: "feature/first",
+      worktreePath: "/work/first-worktree",
+      envMode: "worktree",
+      environmentSelection: "auto",
+      loadBalancedEnvironmentId: OTHER_TEST_ENVIRONMENT_ID,
+    });
+    store.setPrompt(draftId, "keep my work");
+    store.addFiles(draftId, [makeFile("same-machine-file")]);
+    store.setLogicalProjectDraftThreadId("grouped-repo", target, draftId, {
+      environmentSelection: "manual",
+      loadBalancedEnvironmentId: null,
+    });
+    expect(
+      useComposerDraftStore.getState().getDraftSessionByLogicalProjectKey("grouped-repo"),
+    ).toMatchObject({
+      environmentId: TEST_ENVIRONMENT_ID,
+      projectId: target.projectId,
+      branch: null,
+      worktreePath: null,
+      environmentSelection: "manual",
+      loadBalancedEnvironmentId: null,
+    });
+    expect(draftByKey(draftId)?.prompt).toBe("keep my work");
+    expect(draftByKey(draftId)?.files).toHaveLength(1);
+  });
+
   it("clears stale upload metadata when retargeting a draft to another environment", () => {
     const store = useComposerDraftStore.getState();
     const hydratedFile: ComposerFileAttachment = {

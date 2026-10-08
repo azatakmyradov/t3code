@@ -2795,7 +2795,10 @@ export default function ChatView(props: ChatViewProps) {
         if (deriveLogicalProjectKeyFromSettings(p, projectGroupingSettings) !== logicalKey)
           continue;
         seen.add(p.environmentId);
-        pushEnvironment(p.environmentId, p.id);
+        pushEnvironment(
+          p.environmentId,
+          p.environmentId === activeProject.environmentId ? activeProject.id : p.id,
+        );
       }
     }
     // Sort: primary first, then alphabetical
@@ -11095,6 +11098,8 @@ export default function ChatView(props: ChatViewProps) {
     environmentId: activeThread.environmentId,
     threadId: activeThread.id,
     ...(draftId ? { draftId } : {}),
+    activeProjectRef,
+    folderSelectionLocked: isSendBusy,
     activeProjectName: activeProject?.title,
     activeProjectScripts: activeProject ? activeProjectScripts : undefined,
     preferredScriptId: activeProject

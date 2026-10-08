@@ -368,7 +368,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     selectedProjectKey ===
       scopedProjectKey(editingPendingProject.environmentId, editingPendingProject.id)
       ? editingPendingProject
-      : (projectsForEnvironment[0] ?? null));
+      : selectedProjectKey === null
+        ? (projectsForEnvironment[0] ?? null)
+        : null);
 
   const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
     selectedProject?.environmentId ?? null,

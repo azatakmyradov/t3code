@@ -202,6 +202,42 @@ export interface ProjectGroup<TProject extends EnvironmentProject = EnvironmentP
   readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef>;
 }
 
+/** Folder pickers keep machines together and put the current folder first. */
+export function buildProjectFolderChoices<TProject extends EnvironmentProject>(
+  projects: ReadonlyArray<TProject>,
+  preferredProjectRef: ScopedProjectRef | null,
+) {
+  const byPhysicalKey = new Map<string, TProject>();
+  for (const project of projects) {
+    const key = derivePhysicalProjectKey(project);
+    const existing = byPhysicalKey.get(key);
+    if (!existing || shouldReplacePhysicalProjectWinner(existing, project)) {
+      byPhysicalKey.set(key, project);
+    }
+  }
+  const byEnvironment = new Map<EnvironmentId, TProject[]>();
+  for (const project of byPhysicalKey.values()) {
+    const folders = byEnvironment.get(project.environmentId) ?? [];
+    folders.push(project);
+    byEnvironment.set(project.environmentId, folders);
+  }
+  return [...byEnvironment]
+    .map(([environmentId, folders]) => ({
+      environmentId,
+      projects: [...folders].sort((left, right) => {
+        const isPreferred = (project: TProject) =>
+          project.environmentId === preferredProjectRef?.environmentId &&
+          project.id === preferredProjectRef.projectId;
+        return Number(isPreferred(right)) - Number(isPreferred(left));
+      }),
+    }))
+    .sort(
+      (left, right) =>
+        Number(right.environmentId === preferredProjectRef?.environmentId) -
+        Number(left.environmentId === preferredProjectRef?.environmentId),
+    );
+}
+
 function projectFreshnessTime(project: EnvironmentProject): number {
   const updatedAtTime = Date.parse(project.updatedAt);
   if (Number.isFinite(updatedAtTime)) {

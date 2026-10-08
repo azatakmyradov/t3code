@@ -5,6 +5,7 @@ import type { EnvironmentProject } from "./models.ts";
 import { chooseLoadBalancedEnvironment } from "../load-balancing.ts";
 import {
   buildProjectGroups,
+  buildProjectFolderChoices,
   derivePhysicalProjectKey,
   type ProjectGroupingSettings,
 } from "./projectGrouping.ts";
@@ -316,5 +317,38 @@ describe("buildProjectGroups", () => {
     });
     expect(groups).toHaveLength(1);
     expect(groups[0]?.members.map((member) => member.project.id)).toEqual(["winner", "sibling"]);
+  });
+});
+
+describe("buildProjectFolderChoices", () => {
+  it("keeps distinct folders on the same machine and puts the selected folder first", () => {
+    const first = makeProject("first", "/work/first");
+    const second = makeProject("second", "/work/second");
+    const remote = makeProject("remote", "/work/first", {
+      environmentId: EnvironmentId.make("remote"),
+    });
+    const choices = buildProjectFolderChoices([remote, first, second], {
+      environmentId,
+      projectId: second.id,
+    });
+    expect(
+      choices.map((choice) => [choice.environmentId, choice.projects.map((project) => project.id)]),
+    ).toEqual([
+      [environmentId, [second.id, first.id]],
+      [remote.environmentId, [remote.id]],
+    ]);
+  });
+
+  it("replaces stale duplicate folder records without merging identical paths across machines", () => {
+    const stale = makeProject("stale", "/work/first");
+    const fresh = makeProject("fresh", "/work/first/", { updatedAt: "2026-07-02T00:00:00.000Z" });
+    const remote = makeProject("remote", "/work/first", {
+      environmentId: EnvironmentId.make("remote"),
+    });
+    expect(
+      buildProjectFolderChoices([stale, fresh, remote], null).flatMap((choice) =>
+        choice.projects.map((project) => project.id),
+      ),
+    ).toEqual([fresh.id, remote.id]);
   });
 });
