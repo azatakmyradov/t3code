@@ -35,6 +35,7 @@ import { Switch } from "../ui/switch";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { McpServerDialog } from "./McpServerDialog";
+import { McpOAuthControls } from "./McpOAuthControls";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
@@ -45,6 +46,7 @@ import {
   groupSkillRows,
   isSkillDisabled,
   listMcpServerRows,
+  resolveMcpOAuthTarget,
   type McpServerRow,
   SKILL_GROUP_LABELS,
   skillReachesSomeProviders,
@@ -435,6 +437,7 @@ function McpServersPanel({ persist }: { readonly persist: PersistToolsPatch }) {
     connectedEnvironments.every((environment) => managers.has(environment.environmentId));
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
   const projectId = isProjectScope ? (target?.projectId ?? null) : null;
+  const selectedTargetCount = isProjectScope ? scope.members.length : scope.environmentIds.length;
   const environmentSettings = target
     ? connectedEnvironments.find(
         (environment) => environment.environmentId === target.environmentId,
@@ -568,6 +571,7 @@ function McpServersPanel({ persist }: { readonly persist: PersistToolsPatch }) {
             <McpServerSettingsRow
               key={row.name}
               row={row}
+              oauthTarget={resolveMcpOAuthTarget(row, targets, selectedTargetCount)}
               canSwitch={canWriteSettings && (isProjectScope || canManageServers)}
               canEdit={canEditServers}
               onEnabledChange={(enabled) => setEnabled(row, enabled)}
@@ -583,6 +587,7 @@ function McpServersPanel({ persist }: { readonly persist: PersistToolsPatch }) {
             <McpServerSettingsRow
               key={row.name}
               row={row}
+              oauthTarget={resolveMcpOAuthTarget(row, targets, selectedTargetCount)}
               canSwitch={canWriteSettings}
               canEdit={false}
               onEnabledChange={(enabled) => setEnabled(row, enabled)}
@@ -658,6 +663,7 @@ function McpServersPanel({ persist }: { readonly persist: PersistToolsPatch }) {
 
 function McpServerSettingsRow({
   row,
+  oauthTarget,
   canSwitch,
   canEdit,
   onEnabledChange,
@@ -666,6 +672,7 @@ function McpServerSettingsRow({
   onReset,
 }: {
   readonly row: McpServerRow;
+  readonly oauthTarget: ReturnType<typeof resolveMcpOAuthTarget>;
   readonly canSwitch: boolean;
   readonly canEdit: boolean;
   readonly onEnabledChange: (enabled: boolean) => void;
@@ -700,6 +707,20 @@ function McpServerSettingsRow({
       className={row.config.enabled ? undefined : "[&_h3]:text-muted-foreground"}
       control={
         <>
+          {transport.type === "http" && transport.authentication === "oauth" ? (
+            oauthTarget ? (
+              <McpOAuthControls
+                key={JSON.stringify([oauthTarget.environmentId, oauthTarget.input, transport.url])}
+                environmentId={oauthTarget.environmentId}
+                input={oauthTarget.input}
+                inherited={oauthTarget.input.projectId === undefined}
+              />
+            ) : (
+              <span className="max-w-48 text-xs text-muted-foreground">
+                Select one environment or checkout to manage sign-in.
+              </span>
+            )
+          ) : null}
           {onReset ? (
             <Button size="xs" variant="ghost" onClick={onReset} disabled={!canSwitch}>
               Reset

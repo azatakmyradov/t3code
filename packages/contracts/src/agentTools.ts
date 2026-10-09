@@ -57,6 +57,8 @@ export type McpStdioTransport = typeof McpStdioTransport.Type;
 export const McpHttpTransport = Schema.Struct({
   type: Schema.Literal("http"),
   url: TrimmedNonEmptyString,
+  /** Omitted for static headers; OAuth credentials are held by the environment. */
+  authentication: Schema.optionalKey(Schema.Literal("oauth")),
   headers: Schema.Array(McpServerVariable).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type McpHttpTransport = typeof McpHttpTransport.Type;

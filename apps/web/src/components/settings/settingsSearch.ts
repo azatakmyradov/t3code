@@ -643,7 +643,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     search: { tab: "mcp" },
     scope: "project-defaults",
     searchTerms: [
-      "model context protocol mcp add server command url stdio http headers env tools agents",
+      "model context protocol mcp add server command url stdio http headers env tools agents oauth connect disconnect browser sign-in authentication",
     ],
   },
   {

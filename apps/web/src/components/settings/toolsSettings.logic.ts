@@ -1,6 +1,8 @@
 import {
   isValidMcpServerName,
   type EnvironmentId,
+  type McpOAuthTarget,
+  type ProjectId,
   type McpServerConfig,
   type McpServerProjectOverride,
   type McpServerTransport,
@@ -315,6 +317,28 @@ export function takenMcpServerNames(
   );
 }
 
+/** A sign-in must name one credential owner, even when settings are being edited in bulk. */
+export function resolveMcpOAuthTarget(
+  row: McpServerRow,
+  targets: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId | null;
+  }>,
+  selectedTargetCount = targets.length,
+): { readonly environmentId: EnvironmentId; readonly input: McpOAuthTarget } | null {
+  if (selectedTargetCount !== 1 || targets.length !== 1) return null;
+  const target = targets[0]!;
+  return {
+    environmentId: target.environmentId,
+    input: {
+      name: row.name,
+      ...(row.origin === "project" && target.projectId !== null
+        ? { projectId: target.projectId }
+        : {}),
+    },
+  };
+}
+
 // ── Server editor draft ────────────────────────────────────────────
 
 export interface McpVariableDraft {
@@ -334,6 +358,7 @@ export interface McpServerDraft {
   readonly command: string;
   readonly args: string;
   readonly url: string;
+  readonly authentication: "headers" | "oauth";
   readonly env: ReadonlyArray<McpVariableDraft>;
   readonly headers: ReadonlyArray<McpVariableDraft>;
 }
@@ -357,6 +382,7 @@ export const EMPTY_MCP_SERVER_DRAFT: McpServerDraft = {
   command: "",
   args: "",
   url: "",
+  authentication: "headers",
   env: [],
   headers: [],
 };
@@ -379,6 +405,7 @@ export function mcpServerDraftFrom(name: string, config: McpServerConfig): McpSe
         originalName: name,
         type: "http",
         url: transport.url,
+        authentication: transport.authentication ?? "headers",
         headers: variableDrafts(transport.headers),
       };
 }
@@ -482,6 +509,14 @@ export function mcpServerFromDraft(
         message: `Remove the duplicate variable “${variableName}”.`,
       };
     }
+    if (draft.type === "http" && draft.authentication === "oauth" && key === "authorization") {
+      return {
+        ok: false,
+        field: "variables",
+        message:
+          "Remove the Authorization header to use browser sign-in. OAuth supplies it securely.",
+      };
+    }
     names.add(key);
     if (!variable.stored || variable.value.length > 0) continue;
     if (draft.originalName !== name) {
@@ -541,7 +576,12 @@ export function mcpServerFromDraft(
   return {
     ok: true,
     name,
-    transport: { type: "http", url, headers: variablesFromDrafts(draft.headers) },
+    transport: {
+      type: "http",
+      url,
+      ...(draft.authentication === "oauth" ? { authentication: "oauth" } : {}),
+      headers: variablesFromDrafts(draft.headers),
+    },
   };
 }
 
@@ -591,6 +631,8 @@ export function parseMcpServerJson(text: string): McpServerDraft | null {
       name: name.toLowerCase(),
       type: "http",
       url,
+      authentication:
+        server.authentication === "oauth" || server.oauth === true ? "oauth" : "headers",
       headers: toVariables(server.headers),
     };
   }

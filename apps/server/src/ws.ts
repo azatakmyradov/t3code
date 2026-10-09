@@ -118,6 +118,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
+import * as OutboundMcpConnections from "./mcp/OutboundMcpConnections.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
@@ -1186,6 +1187,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
 
 const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
+  connectionOrigin: string,
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
@@ -1210,6 +1212,7 @@ const layerWsRpc = (
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
+      const outboundMcp = yield* OutboundMcpConnections.OutboundMcpConnections;
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Client-origin attribution (#7774): every thread/turn the connecting
       // client starts is credited to its surface + app version. Best-effort:
@@ -2403,6 +2406,10 @@ const layerWsRpc = (
             const keybindingsConfig = yield* keybindings.removeKeybindingRule(rule);
             return { keybindings: keybindingsConfig, issues: [] };
           }),
+        [WS_METHODS.mcpOAuthBegin]: (input) => outboundMcp.begin(input, connectionOrigin),
+        [WS_METHODS.mcpOAuthStatus]: (input) => outboundMcp.status(input),
+        [WS_METHODS.mcpOAuthCancel]: (input) => outboundMcp.cancel(input),
+        [WS_METHODS.mcpOAuthDisconnect]: (input) => outboundMcp.disconnect(input),
         [WS_METHODS.serverGetSettings]: (_input) =>
           serverSettings.getSettings.pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
         [WS_METHODS.serverUpdateSettings]: (input) =>
@@ -3207,6 +3214,7 @@ export const layer = Layer.unwrap(
           Effect.provide(
             layerWsRpc(
               session,
+              requestUrl.value.origin,
               clientOrigin,
               clientAnalyticsProps,
               previewAutomationBroker,

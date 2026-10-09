@@ -8,6 +8,8 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   AuthOrchestrationOperateScope,
+  AuthProvidersManageScope,
+  AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
   ThreadId,
   EnvironmentId,
@@ -294,4 +296,52 @@ it.effect("checks bot mutations against the destination environment's current gr
       }
     }),
   ),
+);
+
+it.effect(
+  "requires provider management to inspect MCP sign-in and settings write to change it",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        registry.set(sessions(other), AsyncResult.success(grant(false)));
+        const status = createCommandPermissions(runtime, WS_METHODS.mcpOAuthStatus);
+        const mutations = [
+          WS_METHODS.mcpOAuthBegin,
+          WS_METHODS.mcpOAuthCancel,
+          WS_METHODS.mcpOAuthDisconnect,
+        ].map((method) => createCommandPermissions(runtime, method));
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthProvidersManageScope],
+            permissions: [AuthProvidersManageScope],
+          }),
+        );
+        expect(registry.get(status.permissionAtom(env))).toBe(true);
+        yield* status.authorize(registry, env);
+        for (const command of mutations) {
+          expect(registry.get(command.permissionAtom(env))).toBe(false);
+          expect(
+            (yield* command.authorize(registry, env).pipe(Effect.flip)).requiredPermission,
+          ).toBe(AuthSettingsWriteScope);
+        }
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthProvidersManageScope, AuthSettingsWriteScope],
+            permissions: [AuthProvidersManageScope, AuthSettingsWriteScope],
+          }),
+        );
+        for (const command of mutations) {
+          expect(registry.get(command.permissionAtom(env))).toBe(true);
+          yield* command.authorize(registry, env);
+          expect((yield* command.authorize(registry, other).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+        }
+      }),
+    ),
 );

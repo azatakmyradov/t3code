@@ -186,6 +186,7 @@ describe("project settings authorization", () => {
       AuthSettingsWriteScope,
     ]);
     for (const next of [
+      { ...retained, authentication: "oauth" as const },
       { ...retained, url: "https://other.example.com/mcp" },
       {
         ...retained,

@@ -53,6 +53,7 @@ import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { proxyAgentTools } from "../../mcp/resolveAgentTools.ts";
 import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { HtmlToolkit } from "../../mcp/toolkits/html/tools.ts";
 import { EnvironmentToolkit } from "../../mcp/toolkits/environment/tools.ts";
@@ -733,6 +734,57 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
         ClaudeAdapterV2.claudeMcpQueryOverrides({ threadId, readOnlySandbox: false }),
       );
       assert.notEqual(clearedKey, initialKey);
+    } finally {
+      McpProviderSession.clearMcpProviderSession(threadId);
+    }
+  });
+
+  it("routes shared OAuth servers through the bridge without exposing credentials in Claude config", () => {
+    const threadId = ThreadId.make("thread-claude-shared-oauth");
+    const credential = {
+      environmentId: EnvironmentId.make("environment-claude-shared-oauth"),
+      threadId,
+      providerSessionId: "mcp-session-claude-shared-oauth",
+      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+      endpoint: "http://127.0.0.1:43123/mcp",
+      authorizationHeader: "Bearer thread-bridge-credential",
+      browserToolsAvailable: false,
+    };
+    McpProviderSession.setMcpProviderSession({
+      ...credential,
+      tools: proxyAgentTools(
+        {
+          servers: [
+            {
+              name: "linear",
+              transport: {
+                type: "http",
+                url: "https://mcp.linear.app/mcp",
+                authentication: "oauth",
+                headers: [{ name: "X-Workspace", value: "upstream-only", sensitive: true }],
+              },
+            },
+          ],
+          disabledSkills: [],
+          fingerprint: "shared-oauth-config",
+        },
+        credential,
+      ),
+    });
+    try {
+      const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
+        threadId,
+        readOnlySandbox: false,
+      });
+      assert.deepEqual(overrides.mcpServers?.linear, {
+        type: "http",
+        url: "http://127.0.0.1:43123/api/mcp-oauth/proxy/linear",
+        headers: { Authorization: "${T3_CODE_MCP_0_0}" },
+      });
+      assert.equal(overrides.mcpEnvironment?.T3_CODE_MCP_0_0, "Bearer thread-bridge-credential");
+      assert.notInclude(JSON.stringify(overrides.mcpServers), "thread-bridge-credential");
+      assert.notInclude(JSON.stringify(overrides), "https://mcp.linear.app/mcp");
+      assert.notInclude(JSON.stringify(overrides), "upstream-only");
     } finally {
       McpProviderSession.clearMcpProviderSession(threadId);
     }

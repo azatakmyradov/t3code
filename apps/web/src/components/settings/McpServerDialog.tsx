@@ -198,6 +198,29 @@ export function McpServerDialog({
                 ) : null}
               </div>
             )}
+            {draft.type === "http" ? (
+              <div className="grid gap-1.5">
+                <Label>Authentication</Label>
+                <ToggleGroup
+                  aria-label="Server authentication"
+                  variant="segmented"
+                  value={[draft.authentication]}
+                  onValueChange={(next) => {
+                    const value = next[0];
+                    if (value === "headers" || value === "oauth") update({ authentication: value });
+                  }}
+                >
+                  <Toggle value="headers">Headers / none</Toggle>
+                  <Toggle value="oauth">Browser sign-in</Toggle>
+                </ToggleGroup>
+                {draft.authentication === "oauth" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Save this server, then choose Connect. One sign-in is shared by your agents on
+                    this environment. Project overrides have their own sign-in.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <VariablesEditor
               label={draft.type === "stdio" ? "Environment variables" : "Headers"}
               namePlaceholder={draft.type === "stdio" ? "API_KEY" : "Authorization"}

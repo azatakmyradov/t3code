@@ -57,6 +57,10 @@ import * as ForgejoCli from "./sourceControl/ForgejoCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as OutboundMcpOAuth from "./mcp/OutboundMcpOAuth.ts";
+import * as OutboundMcpOAuthHttp from "./mcp/OutboundMcpOAuthHttp.ts";
+import * as OutboundMcpConnections from "./mcp/OutboundMcpConnections.ts";
+import * as OutboundMcpHttp from "./mcp/outboundMcpHttp.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -195,7 +199,13 @@ const layerApplicationObservability = EventLoopMonitor.layer.pipe(
 
 const layerPtyAdapter = NodePtyAdapter.layer;
 
+const layerOutboundMcpOAuth = OutboundMcpOAuth.layer.pipe(
+  Layer.provide(OutboundMcpOAuthHttp.layer),
+  Layer.provide(ServerSecretStore.layer),
+);
+
 const layerServerSettings = ServerSettings.layer.pipe(
+  Layer.provide(layerOutboundMcpOAuth),
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),
 );
@@ -564,6 +574,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ReplayMarkers.layer,
 ).pipe(
   // Core Services
+  Layer.provideMerge(
+    OutboundMcpConnections.layer.pipe(
+      Layer.provide(ProjectionStoreV2.layer),
+      Layer.provide(layerOutboundMcpOAuth),
+    ),
+  ),
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
@@ -675,6 +691,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAssetRoute,
     ServerHttp.layerAttachmentUploadRoute,
     DeviceHubProxy.layer,
+    OutboundMcpHttp.layer,
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,

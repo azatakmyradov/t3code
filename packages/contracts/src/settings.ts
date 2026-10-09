@@ -1896,6 +1896,7 @@ function unchangedMcpTransport(
     current?.type === "http" &&
     next?.type === "http" &&
     current.url === next.url &&
+    current.authentication === next.authentication &&
     unchangedMcpVariables(current.headers, next.headers)
   );
 }
