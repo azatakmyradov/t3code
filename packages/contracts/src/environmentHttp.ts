@@ -8,6 +8,7 @@ import * as HttpApiMiddleware from "effect/http-api/HttpApiMiddleware";
 import * as HttpApiSchema from "effect/http-api/HttpApiSchema";
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
+import { BotError, BotRemoteSyncInput, BotRemoteTaskInput, BotTask } from "./bots.ts";
 
 import {
   AuthAccessTokenResult,
@@ -758,7 +759,40 @@ class EnvironmentWebhooksHttpApi extends HttpApiGroup.make("webhooks")
   .add(HttpApiEndpoint.patch("webhookPatch", WEBHOOK_PATH, webhookEndpoint))
   .add(HttpApiEndpoint.get("webhookGet", WEBHOOK_PATH, webhookEndpoint)) {}
 
+const EnvironmentBotTaskErrors = [
+  BotError,
+  EnvironmentAuthInvalidError,
+  ...EnvironmentScopedOperationErrors,
+] as const;
+
+class EnvironmentBotsHttpApi extends HttpApiGroup.make("bots")
+  .add(
+    HttpApiEndpoint.post("remoteTask", "/api/bots/remote-task", {
+      headers: OptionalBearerHeaders,
+      payload: BotRemoteTaskInput,
+      success: BotTask,
+      error: EnvironmentBotTaskErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("remoteTaskSync", "/api/bots/remote-task-sync", {
+      headers: OptionalBearerHeaders,
+      payload: BotRemoteSyncInput,
+      success: BotTask,
+      error: EnvironmentBotTaskErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("remoteTaskState", "/api/bots/remote-task/:taskId", {
+      headers: OptionalBearerHeaders,
+      params: Schema.Struct({ taskId: Schema.String }),
+      success: BotTask,
+      error: EnvironmentBotTaskErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  ) {}
+
 export class EnvironmentHttpApi extends HttpApi.make("environment")
+  .add(EnvironmentBotsHttpApi)
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentMcpOAuthHttpApi)

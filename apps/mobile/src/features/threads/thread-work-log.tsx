@@ -822,7 +822,7 @@ function WorkspacePreparationRetryButton(props: {
           input: { threadId: props.threadId, runId: props.runId },
         }).finally(() => setBusy(false));
       }}
-      className="ml-7 mt-2 min-h-11 flex-row items-center gap-1.5 self-start rounded-full border border-border px-4"
+      className="ml-7 mt-2 min-h-11 flex-row items-center gap-1.5 self-start rounded-lg border border-border px-4"
       style={{ opacity: busy ? 0.5 : 1 }}
     >
       <SymbolView name="arrow.clockwise" size={13} tintColorClassName="accent-icon" />

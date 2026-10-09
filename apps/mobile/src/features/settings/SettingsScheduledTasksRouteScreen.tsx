@@ -1005,7 +1005,7 @@ function TaskForm({
           !canOperate || saving || dictationPending || taskMissing || environmentUnavailable
         }
         onPress={() => void save()}
-        className="min-h-12 items-center justify-center rounded-[14px] bg-primary px-4 disabled:opacity-50"
+        className="min-h-12 items-center justify-center rounded-lg bg-primary px-4 disabled:opacity-50"
       >
         <Text className="text-base font-t3-medium text-primary-foreground">
           {saving ? "Saving…" : draft.task ? "Save changes" : "Create task"}

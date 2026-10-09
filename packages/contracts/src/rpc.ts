@@ -1,4 +1,24 @@
 import {
+  BotTaskCancelInput,
+  BotDeleteInput,
+  BotSendInput,
+  BotList,
+  BotGetInput,
+  BotDetail,
+  BotProfile,
+  BotCreateInput,
+  BotUpdateInput,
+  BotContextWriteInput,
+  BotTaskStartInput,
+  BotTask,
+  BotRequestInput,
+  BotReplyInput,
+  BotConnection,
+  BotConnectInput,
+  BotDisconnectInput,
+  BotError,
+} from "./bots.ts";
+import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -492,6 +512,22 @@ export const WS_METHODS = {
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
+
+  botsSendMessage: "bots.sendMessage",
+  botsList: "bots.list",
+  botsSubscribe: "bots.subscribe",
+  botsGet: "bots.get",
+  botsCreate: "bots.create",
+  botsUpdate: "bots.update",
+  botsWriteContext: "bots.writeContext",
+  botsStartTask: "bots.startTask",
+  botsCancelTask: "bots.cancelTask",
+  botsDelete: "bots.delete",
+  botsRequest: "bots.request",
+  botsReply: "bots.reply",
+  botsConnections: "bots.connections",
+  botsConnect: "bots.connect",
+  botsDisconnect: "bots.disconnect",
 
   // Scheduled tasks
   scheduledTasksList: "scheduledTasks.list",
@@ -1802,6 +1838,70 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
 ) {}
 
 export const WsRpcGroup = RpcGroup.make(
+  Rpc.make(WS_METHODS.botsSendMessage, {
+    payload: BotSendInput,
+    success: Schema.Void,
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsList, { payload: Schema.Struct({}), success: BotList, error: BotError }),
+  Rpc.make(WS_METHODS.botsSubscribe, {
+    payload: Schema.Struct({}),
+    success: BotList,
+    error: BotError,
+    stream: true,
+  }),
+  Rpc.make(WS_METHODS.botsGet, { payload: BotGetInput, success: BotDetail, error: BotError }),
+  Rpc.make(WS_METHODS.botsCreate, {
+    payload: BotCreateInput,
+    success: BotProfile,
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsUpdate, {
+    payload: BotUpdateInput,
+    success: BotProfile,
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsWriteContext, {
+    payload: BotContextWriteInput,
+    success: BotProfile,
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsCancelTask, {
+    payload: BotTaskCancelInput,
+    success: Schema.Void,
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsDelete, {
+    payload: BotDeleteInput,
+    success: Schema.Void,
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsStartTask, {
+    payload: BotTaskStartInput,
+    success: BotTask,
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsRequest, {
+    payload: BotRequestInput,
+    success: Schema.Struct({ requestId: Schema.String }),
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsReply, { payload: BotReplyInput, success: Schema.Void, error: BotError }),
+  Rpc.make(WS_METHODS.botsConnections, {
+    payload: BotGetInput,
+    success: Schema.Array(BotConnection),
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsConnect, {
+    payload: BotConnectInput,
+    success: BotConnection,
+    error: BotError,
+  }),
+  Rpc.make(WS_METHODS.botsDisconnect, {
+    payload: BotDisconnectInput,
+    success: Schema.Void,
+    error: BotError,
+  }),
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

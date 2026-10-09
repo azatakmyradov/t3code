@@ -130,7 +130,7 @@ function ProjectOverviewContent(props: {
                 accessibilityRole="button"
                 accessibilityLabel="Save project name"
                 onPress={saveName}
-                className="rounded-full bg-subtle-strong px-4 py-2 active:opacity-70"
+                className="rounded-lg bg-subtle-strong px-4 py-2 active:opacity-70"
               >
                 <Text className="text-sm font-t3-medium text-foreground">Save</Text>
               </Pressable>

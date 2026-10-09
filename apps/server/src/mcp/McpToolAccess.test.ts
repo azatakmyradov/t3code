@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import {
+  BotError,
   EnvironmentId,
   OrchestratorMcpFailure,
   ProviderInstanceId,
@@ -12,6 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 
+import * as BotRuntime from "../bots/BotRuntime.ts";
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
@@ -307,6 +309,27 @@ it.effect("refuses a change when the calling thread cannot be read", () =>
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getThreadShell: (threadId) =>
             Effect.fail(new OrchestratorProjectionError({ threadId, cause: "unreadable" })),
+        }),
+      ),
+    ),
+  ),
+);
+
+it.effect("leaves delegation to delegate_task, so a bot without it still starts threads", () =>
+  call("starts_threads", supervised).pipe(
+    Effect.map((outcome) => expect(outcome).toBe("approval-required/default")),
+    Effect.provideService(BotRuntime.BotRuntime, {
+      forThread: () => Effect.succeed(null),
+      isRemoteTask: () => Effect.succeed(false),
+      authorize: (_, tool) =>
+        tool === "delegate_task"
+          ? Effect.fail(new BotError({ code: "permission_denied" }))
+          : Effect.succeed(null),
+    }),
+    Effect.provide(
+      probeServer(
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: (threadId) => Effect.succeed(shells.get(threadId) ?? null),
         }),
       ),
     ),

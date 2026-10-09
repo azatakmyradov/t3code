@@ -1,3 +1,4 @@
+import { createBotEnvironmentAtoms } from "./bots.ts";
 import {
   type EnvironmentId,
   type ServerConfig,
@@ -993,6 +994,7 @@ export function createServerEnvironmentAtoms<R, E>(
   });
 
   return {
+    bots: createBotEnvironmentAtoms(runtime),
     configValueAtom,
     updateStateAtom,
     settingsValueAtom,

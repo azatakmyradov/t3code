@@ -40,6 +40,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as BotRuntime from "../bots/BotRuntime.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -771,6 +772,45 @@ export const layer = Layer.effect(
                   ? "The task was paused before this delivery ran."
                   : null;
           if (reason !== null) return yield* new WebhookDeliverySkipped({ reason });
+        }
+
+        if (active.threadId !== null) {
+          const runtime = yield* BotRuntime.BotRuntime;
+          const threadId = ThreadId.make(active.threadId);
+          // A bot thread runs only while its bot is live and may still reach the project.
+          const refusal = yield* runtime
+            .authorize(threadId, "run", active.projectId, threadId)
+            .pipe(
+              Effect.as(null),
+              Effect.catchTags({
+                BotError: (error) =>
+                  error.code === "paused" || error.code === "permission_denied"
+                    ? Effect.succeed(error.code)
+                    : Effect.fail(
+                        taskError("Could not check bot permissions.", {
+                          taskId: active.id,
+                          cause: error,
+                        }),
+                      ),
+              }),
+            );
+          if (refusal !== null) {
+            if (webhook !== undefined)
+              return yield* new WebhookDeliverySkipped({
+                reason:
+                  refusal === "paused"
+                    ? "The bot is paused."
+                    : "The bot can no longer access this project.",
+              });
+            if (trigger !== "scheduled")
+              return yield* taskError(
+                refusal === "paused"
+                  ? "Resume this bot before running its routines."
+                  : "Give this bot access to the project before running its routines.",
+                { taskId: active.id },
+              );
+            return active;
+          }
         }
 
         yield* markRunning(active.id, startedAtIso);

@@ -113,10 +113,10 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
               : undefined
           }
         >
-          <View className="gap-3 bg-card p-4 android:rounded-[20px] ios:rounded-[22px] ios:border ios:border-border">
+          <View className="gap-3 rounded-xl bg-card p-4 ios:border ios:border-border">
             <View className="android:gap-1 ios:flex-row ios:items-center ios:justify-between ios:gap-3">
               <Text className="text-foreground-muted text-sm font-medium">Branch</Text>
-              <Text className="text-foreground text-base android:font-t3-medium ios:font-t3-bold">
+              <Text className="text-foreground text-base font-t3-medium">
                 {gitStatus.data?.refName ?? "(detached HEAD)"}
               </Text>
             </View>
@@ -127,12 +127,10 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
             ) : null}
           </View>
 
-          <View className="gap-3 bg-card p-4 android:rounded-[20px] ios:rounded-[22px] ios:border ios:border-border">
+          <View className="gap-3 rounded-xl bg-card p-4 ios:border ios:border-border">
             <View className="flex-row items-center justify-between gap-3">
               <View className="gap-1">
-                <Text className="text-foreground text-base android:font-t3-medium ios:font-t3-bold">
-                  Files
-                </Text>
+                <Text className="text-foreground text-base font-t3-medium">Files</Text>
                 <Text className="text-foreground-muted text-xs leading-normal">
                   {selectedFiles.length} selected · +{selectedInsertions} / -{selectedDeletions}
                 </Text>
@@ -140,7 +138,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
               <View className="flex-row items-center gap-2">
                 {!allSelected && isEditingFiles ? (
                   <Pressable
-                    className="rounded-full px-3 android:min-h-12 android:justify-center android:active:bg-subtle ios:bg-subtle ios:py-2"
+                    className="rounded-lg px-3 android:min-h-12 android:justify-center android:active:bg-subtle ios:bg-subtle ios:py-2"
                     onPress={() => setExcludedFiles(new Set())}
                   >
                     <Text className="android:text-primary-text android:text-sm android:font-t3-medium ios:text-foreground ios:text-2xs ios:font-t3-bold ios:uppercase">
@@ -149,7 +147,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                   </Pressable>
                 ) : null}
                 <Pressable
-                  className="rounded-full px-3 android:min-h-12 android:justify-center android:active:bg-subtle ios:bg-subtle ios:py-2"
+                  className="rounded-lg px-3 android:min-h-12 android:justify-center android:active:bg-subtle ios:bg-subtle ios:py-2"
                   onPress={() => setIsEditingFiles((current) => !current)}
                 >
                   <Text className="android:text-primary-text android:text-sm android:font-t3-medium ios:text-foreground ios:text-2xs ios:font-t3-bold ios:uppercase">
@@ -192,7 +190,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                     <Pressable
                       key={file.path}
                       className={cn(
-                        "px-4 py-3 android:rounded-xl ios:rounded-[18px] ios:border",
+                        "rounded-xl px-4 py-3 ios:border",
                         included
                           ? "android:bg-subtle ios:border-border"
                           : "ios:border-border-subtle",
@@ -214,7 +212,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                     >
                       {Platform.OS !== "android" ? (
                         <View
-                          className={`absolute inset-0 rounded-[18px] ${included ? "bg-card" : "bg-subtle"}`}
+                          className={`absolute inset-0 rounded-xl ${included ? "bg-card" : "bg-subtle"}`}
                         />
                       ) : null}
                       <View className="flex-row items-start justify-between gap-3">
@@ -264,7 +262,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
             )}
           </View>
 
-          <View className="android:gap-3 android:rounded-[20px] android:bg-card android:p-4 ios:gap-2">
+          <View className="android:gap-3 android:rounded-xl android:bg-card android:p-4 ios:gap-2">
             <Text className="text-foreground android:text-base android:font-t3-medium ios:text-sm ios:font-t3-bold">
               Commit message
             </Text>
@@ -275,7 +273,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
               onChangeText={setDialogCommitMessage}
               placeholder="Leave empty to auto-generate"
               textAlignVertical="top"
-              className="min-h-[128px] px-4 py-3.5 android:rounded-xl android:bg-sheet-solid ios:rounded-[20px]"
+              className="min-h-[128px] rounded-lg px-4 py-3.5 android:bg-sheet-solid"
             />
           </View>
 

@@ -109,9 +109,9 @@ export function SettingsLegalDocumentRouteScreen({
               setLoadError(null);
               setReloadKey((value) => value + 1);
             }}
-            className="items-center rounded-xl bg-foreground px-4 py-3 active:opacity-80"
+            className="items-center rounded-lg bg-foreground px-4 py-3 active:opacity-80"
           >
-            <Text className="font-t3-bold text-base text-sheet">Try Again</Text>
+            <Text className="font-t3-medium text-base text-sheet">Try Again</Text>
           </Pressable>
           <Pressable
             accessibilityRole="link"

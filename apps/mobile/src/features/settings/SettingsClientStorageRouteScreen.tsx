@@ -189,7 +189,7 @@ function CacheEnvironmentRow(props: {
         accessibilityRole="button"
         disabled={props.disabled}
         onPress={props.onClear}
-        className="rounded-full px-3 py-2 disabled:opacity-40"
+        className="rounded-lg px-3 py-2 disabled:opacity-40"
       >
         <Text className="font-t3-medium tabular-nums text-danger-foreground" numberOfLines={1}>
           Clear {formatBytes(props.environment.payloadBytes)}

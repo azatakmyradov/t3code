@@ -61,7 +61,7 @@ function SelectionRow(props: {
           props.icon === "arrow.triangle.branch" ? (
             <SymbolView
               name="arrow.triangle.branch"
-              size={24}
+              size={20}
               tintColorClassName="accent-icon-muted"
             />
           ) : (
@@ -165,14 +165,8 @@ function BranchSelectionRow(props: {
   return (
     <View
       className={cn(
-        props.isFirst &&
-          (Platform.OS === "android"
-            ? "overflow-hidden rounded-t-[28px]"
-            : "overflow-hidden rounded-t-2xl"),
-        props.isLast &&
-          (Platform.OS === "android"
-            ? "overflow-hidden rounded-b-[28px]"
-            : "overflow-hidden rounded-b-2xl"),
+        props.isFirst && "overflow-hidden rounded-t-xl",
+        props.isLast && "overflow-hidden rounded-b-xl",
       )}
     >
       <SelectionRow
@@ -190,13 +184,7 @@ function BranchSelectionRow(props: {
 
 function PickerSurface(props: { readonly children: ReactNode }) {
   return (
-    <View
-      className={
-        Platform.OS === "android"
-          ? "overflow-hidden rounded-[28px] bg-grouped-card"
-          : "overflow-hidden rounded-2xl bg-grouped-card"
-      }
-    >
+    <View className="overflow-hidden rounded-xl border border-border bg-grouped-card">
       {props.children}
     </View>
   );
@@ -241,7 +229,7 @@ export function NewTaskEnvironmentPickerRouteScreen() {
                     kind={resolveEnvironmentMachineKind(
                       serverConfigs.get(environment.environmentId) ?? null,
                     )}
-                    size={Platform.OS === "android" ? 24 : 17}
+                    size={Platform.OS === "android" ? 20 : 17}
                     tintColorClassName="accent-icon-muted"
                   />
                 }
@@ -454,12 +442,7 @@ export function BranchPickerScreen(props: {
   );
 
   const branchListHeader = props.worktree ? (
-    <View
-      className={cn(
-        "mb-3 overflow-hidden",
-        Platform.OS === "android" ? "rounded-[28px]" : "rounded-2xl",
-      )}
-    >
+    <View className="mb-3 overflow-hidden rounded-xl border border-border">
       <ToggleRow
         onValueChange={props.worktree.onChangeStartFromOrigin}
         title="Start from origin"
@@ -499,7 +482,7 @@ export function BranchPickerScreen(props: {
           {!props.loading && props.error ? (
             <Pressable
               accessibilityRole="button"
-              className="rounded-full bg-card px-4 py-2 active:opacity-70"
+              className="rounded-lg bg-card px-4 py-2 active:opacity-70"
               onPress={props.onRefresh}
             >
               <Text className="text-sm font-t3-medium text-foreground">Try again</Text>
@@ -550,7 +533,7 @@ export function BranchPickerScreen(props: {
             autoCapitalize="none"
             autoCorrect={false}
             accessibilityLabel="Find a branch"
-            className="h-12 rounded-full border border-input-border bg-input px-4 font-sans text-base text-foreground"
+            className="h-12 rounded-lg border border-input-border bg-input px-4 font-sans text-base text-foreground"
             selectionColorClassName="accent-focus/32"
             cursorColorClassName="accent-focus"
             selectionHandleColorClassName="accent-focus"

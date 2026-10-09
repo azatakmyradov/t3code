@@ -746,6 +746,45 @@ describe("deriveMessagesTimelineRows", () => {
     expect(first.kind === "work" && first.entry.toolLifecycleStatus).toBe("inProgress");
   });
 
+  it("keeps a bot's standalone update visible after its provider response", () => {
+    const fixture = makeStreamingTimelineFixture();
+    const source = fixture.visibleTurnItems.at(-1)!;
+    if (source.item.type !== "assistant_message") throw new Error("Expected assistant fixture");
+    const update = {
+      ...source,
+      position: source.position + 1,
+      sourceItemId: TurnItemId.make("bot-update"),
+      item: {
+        ...source.item,
+        id: TurnItemId.make("bot-update"),
+        messageId: MessageId.make("bot-update"),
+        runId: null,
+        nodeId: null,
+        status: "completed" as const,
+        streaming: false,
+        text: "Your research task is ready.",
+        startedAt: DateTime.makeUnsafe(fixture.time(60)),
+        completedAt: DateTime.makeUnsafe(fixture.time(60)),
+        updatedAt: DateTime.makeUnsafe(fixture.time(60)),
+      },
+    };
+    const entries = deriveTimelineEntriesFromVisibleTurnItems({
+      visibleTurnItems: [...fixture.visibleTurnItems, update],
+      optimisticMessages: [],
+    });
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: entries,
+      isWorking: false,
+      runningRunId: null,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    expect(
+      rows.filter((row) => row.kind === "message" && row.message.id === "bot-update"),
+    ).toMatchObject([{ message: { text: update.item.text, streaming: false } }]);
+  });
+
   it("shows the CUA action title for a retained tool item", () => {
     const fixture = makeStreamingTimelineFixture();
     const source = fixture.visibleTurnItems.find((row) => row.item.type === "dynamic_tool")!;

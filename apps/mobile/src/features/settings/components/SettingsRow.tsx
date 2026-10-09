@@ -40,8 +40,8 @@ export function SettingsRow(props: {
         leading={
           <SymbolView
             name={props.icon}
-            size={24}
-            tintColorClassName="accent-icon"
+            size={20}
+            tintColorClassName="accent-icon-muted"
             type="monochrome"
             weight="regular"
           />
@@ -59,22 +59,27 @@ export function SettingsRow(props: {
     );
   }
   const content = (
-    <View className={cn("flex-row items-center gap-4 p-4", props.disabled && "opacity-[0.45]")}>
+    <View
+      className={cn(
+        "min-h-13 flex-row items-center gap-3 px-3.5 py-3",
+        props.disabled && "opacity-[0.45]",
+      )}
+    >
       <SymbolView
         name={props.icon}
-        size={22}
-        tintColorClassName="accent-icon"
+        size={20}
+        tintColorClassName="accent-icon-muted"
         type="monochrome"
         weight="regular"
       />
       <>
-        <Text className="shrink-0 text-lg text-foreground" numberOfLines={1}>
+        <Text className="shrink text-base text-foreground" numberOfLines={1}>
           {props.label}
         </Text>
         <View className="min-w-0 flex-1 items-end">
           {props.value ? (
             <Text
-              className="max-w-[180px] text-right text-base text-foreground-muted"
+              className="max-w-[180px] text-right text-sm text-foreground-muted"
               ellipsizeMode="middle"
               numberOfLines={1}
             >

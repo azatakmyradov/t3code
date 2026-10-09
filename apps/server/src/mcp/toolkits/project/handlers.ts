@@ -9,7 +9,13 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
+import {
+  authorizeBotTarget,
+  newCommandId,
+  readCaller,
+  resolveProjectId,
+  unavailable,
+} from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
 
 function projectFailure(error: Project.ProjectServiceError) {
@@ -57,6 +63,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
     (input, { runtimeMode, interactionMode }) =>
       Effect.gen(function* () {
         const context = yield* readCaller();
+        yield* authorizeBotTarget(context, "t3_thread_launch");
         const { caller } = context;
         const commandId = yield* newCommandId();
         const threadId = ThreadId.make(commandId);
@@ -157,7 +164,15 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
     Effect.gen(function* () {
       const projects = yield* access;
       const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
-      const rows = snapshot.projects.filter((project) => project.deletedAt === null);
+      const context = yield* readCaller();
+      const rows = yield* Effect.filter(
+        snapshot.projects.filter((project) => project.deletedAt === null),
+        (project) =>
+          authorizeBotTarget(context, "project", project.id).pipe(
+            Effect.as(true),
+            Effect.catchTags({ OrchestratorMcpFailure: () => Effect.succeed(false) }),
+          ),
+      );
       const start = input.cursor ?? 0,
         end = start + (input.limit ?? 20);
       return { projects: rows.slice(start, end), nextCursor: end < rows.length ? end : null };
@@ -166,6 +181,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   t3_project_read: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const projects = yield* access;
+      yield* authorizeBotTarget(yield* readCaller(), "project", input.projectId);
       const result = yield* projects.getById(input.projectId).pipe(Effect.mapError(unavailable));
       if (Option.isNone(result))
         return yield* new OrchestratorMcpFailure({
@@ -221,6 +237,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   ),
   t3_project_update: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
+      yield* authorizeBotTarget(yield* readCaller(), "project", input.projectId);
       const projects = yield* Project.ProjectService;
       return yield* projects
         .update({ ...input, commandId: yield* newCommandId() })
@@ -229,6 +246,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   ),
   t3_project_delete: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
+      yield* authorizeBotTarget(yield* readCaller(), "project", input.projectId);
       const projects = yield* Project.ProjectService;
       return yield* projects
         .delete({ ...input, commandId: yield* newCommandId() })

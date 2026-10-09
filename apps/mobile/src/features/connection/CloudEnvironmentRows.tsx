@@ -114,12 +114,15 @@ function CloudEnvironmentRowsContent(
     <View collapsable={false} className={cn("gap-3", showHeader && "mt-5")}>
       {showHeader ? (
         <View className="px-1">
-          <Text className="text-sm font-t3-bold uppercase text-foreground-muted">T3 Connect</Text>
+          <Text className="text-xs font-t3-medium text-foreground-muted">T3 Connect</Text>
         </View>
       ) : null}
 
       {hasCloudRows ? (
-        <View collapsable={false} className="overflow-hidden rounded-[24px] bg-grouped-card">
+        <View
+          collapsable={false}
+          className="overflow-hidden rounded-xl border border-border bg-grouped-card"
+        >
           {props.connectedCloudEnvironments.map((environment) => (
             <ConnectedCloudEnvironmentRow
               key={environment.environmentId}
@@ -150,14 +153,17 @@ function CloudEnvironmentRowsContent(
           ))}
         </View>
       ) : controller.relayDiscovery.isRefreshing ? (
-        <View collapsable={false} className="items-center gap-3 rounded-[24px] bg-grouped-card p-6">
+        <View
+          collapsable={false}
+          className="items-center gap-3 rounded-xl border border-border bg-grouped-card p-6"
+        >
           <ActivityIndicator colorClassName={"accent-icon"} />
           <Text className="text-center text-sm leading-normal text-foreground-muted">
             Loading linked cloud environments.
           </Text>
         </View>
       ) : controller.relayDiscovery.error ? null : (
-        <View collapsable={false} className="rounded-[24px] bg-grouped-card p-5">
+        <View collapsable={false} className="rounded-xl border border-border bg-grouped-card p-5">
           <Text className="text-sm leading-normal text-foreground-muted">
             No additional linked cloud environments.
           </Text>
@@ -169,7 +175,10 @@ function CloudEnvironmentRowsContent(
       {discoveryAvailable &&
       controller.relayDiscovery.error &&
       !controller.relayDiscovery.isRefreshing ? (
-        <View collapsable={false} className="gap-3 rounded-[24px] bg-grouped-card p-5">
+        <View
+          collapsable={false}
+          className="gap-3 rounded-xl border border-border bg-grouped-card p-5"
+        >
           <Text className="text-base font-t3-bold text-foreground">
             Could not load T3 Connect environments
           </Text>
@@ -182,9 +191,9 @@ function CloudEnvironmentRowsContent(
             onPress={() => {
               void controller.refreshRelayEnvironments();
             }}
-            className="self-start rounded-full bg-subtle px-3.5 py-2 active:opacity-70"
+            className="self-start rounded-lg bg-subtle px-3.5 py-2 active:opacity-70"
           >
-            <Text className="text-xs font-t3-bold text-foreground">Try again</Text>
+            <Text className="text-xs font-t3-medium text-foreground">Try again</Text>
           </Pressable>
         </View>
       ) : null}
@@ -427,7 +436,7 @@ function CopyTraceIdButton(props: { readonly traceId: string }) {
       onPress={() => {
         copyTextWithHaptic(props.traceId, { target: "connection-trace-id" });
       }}
-      className="self-start flex-row items-center gap-1.5 rounded-full bg-subtle px-3 py-2 active:opacity-70"
+      className="self-start flex-row items-center gap-1.5 rounded-lg bg-subtle px-3 py-2 active:opacity-70"
     >
       <SymbolView
         name="doc.on.doc"
@@ -435,7 +444,7 @@ function CopyTraceIdButton(props: { readonly traceId: string }) {
         tintColorClassName={"accent-icon"}
         type="monochrome"
       />
-      <Text className="text-xs font-t3-bold text-foreground">Copy trace ID</Text>
+      <Text className="text-xs font-t3-medium text-foreground">Copy trace ID</Text>
     </Pressable>
   );
 }

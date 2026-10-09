@@ -411,6 +411,7 @@ import {
 } from "../state/server";
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
+import { useBotForThread } from "../state/bots";
 import { workspacePreparationRetryRunIds } from "@t3tools/client-runtime/state/turn-item-presentation";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { vcsEnvironment } from "../state/vcs";
@@ -1576,6 +1577,15 @@ export default function ChatView(props: ChatViewProps) {
     forceExpandedMobileComposer = false,
   } = props;
   const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
+  const bot = useBotForThread(threadId);
+  const mainBot = bot?.environmentId === environmentId && bot.threadId === threadId ? bot : null;
+  const updateBotAuthority = useAtomCommand(serverEnvironment.bots.update, {
+    reportFailure: false,
+  });
+  const canUpdateBotAuthority = useAtomValue(
+    serverEnvironment.bots.update.permissionAtom(environmentId),
+  );
+  const botAuthorityInFlight = useRef(false);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const hasTerminalWriteAccess = useCallback(
     () => readEnvironmentScope(environmentId, AuthTerminalOperateScope),
@@ -2201,6 +2211,7 @@ export default function ChatView(props: ChatViewProps) {
   // Implicit drafts follow their current project/environment, including retargets.
   // Explicit composer choices and existing server threads retain their permissions.
   const runtimeMode =
+    mainBot?.permissions.runtimeMode ??
     composerRuntimeMode ??
     (isServerThread ? activeThread?.runtimeMode : undefined) ??
     defaultRuntimeMode;
@@ -5342,8 +5353,23 @@ export default function ChatView(props: ChatViewProps) {
   );
 
   const handleRuntimeModeChange = useCallback(
-    (mode: RuntimeMode) => {
+    async (mode: RuntimeMode) => {
       if (mode === runtimeMode) return;
+      // A bot's main conversation edits the bot's authority, which also bounds its tasks.
+      if (mainBot) {
+        if (!canUpdateBotAuthority || botAuthorityInFlight.current) return;
+        botAuthorityInFlight.current = true;
+        const result = await updateBotAuthority({
+          environmentId,
+          input: { botId: mainBot.id, expectedRevision: mainBot.revision, runtimeMode: mode },
+        });
+        botAuthorityInFlight.current = false;
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          setThreadError(threadId, chatActionErrorMessage(squashAtomCommandFailure(result)));
+        }
+        scheduleComposerFocus();
+        return;
+      }
       setComposerDraftRuntimeMode(composerDraftTarget, mode);
       if (isLocalDraftThread) {
         setDraftThreadContext(composerDraftTarget, { runtimeMode: mode });
@@ -5351,6 +5377,12 @@ export default function ChatView(props: ChatViewProps) {
       scheduleComposerFocus();
     },
     [
+      mainBot,
+      canUpdateBotAuthority,
+      updateBotAuthority,
+      environmentId,
+      setThreadError,
+      threadId,
       isLocalDraftThread,
       runtimeMode,
       scheduleComposerFocus,
@@ -11722,6 +11754,7 @@ export default function ChatView(props: ChatViewProps) {
                               getModelDisabledReason={getModelDisabledReason}
                               toggleInteractionMode={toggleInteractionMode}
                               handleRuntimeModeChange={handleRuntimeModeChange}
+                              runtimeModeDisabled={mainBot !== null && !canUpdateBotAuthority}
                               handleInteractionModeChange={handleInteractionModeChange}
                               focusComposer={focusComposer}
                               scheduleComposerFocus={scheduleComposerFocus}

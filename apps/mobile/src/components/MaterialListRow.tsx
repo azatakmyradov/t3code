@@ -34,13 +34,13 @@ export function MaterialListRow({
       unstable_pressDelay={Platform.OS === "android" ? 50 : undefined}
       {...props}
       className={cn(
-        "flex-row items-center gap-4 overflow-hidden bg-card px-4 py-3",
-        subtitle ? "min-h-18" : "min-h-14",
+        "flex-row items-center gap-3 overflow-hidden bg-card px-3.5 py-3",
+        subtitle ? "min-h-16" : "min-h-13",
         props.disabled && "opacity-45",
         className,
       )}
     >
-      {leading ? <View className="size-6 items-center justify-center">{leading}</View> : null}
+      {leading ? <View className="size-5 items-center justify-center">{leading}</View> : null}
       <View className="min-w-0 flex-1 gap-1">
         <AppText className={cn("text-base text-foreground", titleClassName)} numberOfLines={2}>
           {title}

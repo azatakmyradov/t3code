@@ -19,7 +19,7 @@ export function SegmentedControl<Value extends number | string>(
       accessible={false}
       className={cn(
         "flex-row overflow-hidden",
-        "rounded-full border-continuous bg-card",
+        "rounded-lg border border-border bg-card",
         props.className,
       )}
     >
@@ -28,7 +28,7 @@ export function SegmentedControl<Value extends number | string>(
         layout={LinearTransition.duration(200)
           .easing(Easing.out(Easing.cubic))
           .reduceMotion(ReduceMotion.System)}
-        className="absolute inset-y-0 rounded-full bg-secondary"
+        className="absolute inset-y-0 rounded-lg bg-secondary"
         style={{
           width: `${100 / props.options.length}%`,
           start: `${
@@ -51,8 +51,8 @@ export function SegmentedControl<Value extends number | string>(
             accessibilityState={{ selected: active }}
             onPress={() => props.onSelect(option.value)}
             className={cn(
-              "flex-1 items-center justify-center rounded-full",
-              compact ? "h-9" : "h-11",
+              "flex-1 items-center justify-center rounded-lg",
+              compact ? "min-h-11" : "min-h-12",
             )}
           >
             <Text
