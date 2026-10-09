@@ -6,6 +6,7 @@ import {
   AssetCreateUrlInput,
   AuthAccessReadScope,
   ServerSettingsPatch,
+  type ServerSettings,
   ProviderInstanceMutation,
   requiredScopesForServerSettingsPatch,
   AuthSettingsWriteScope,
@@ -234,9 +235,25 @@ const SettingsUpdate = Schema.Struct({
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
 });
 
-const requiredScopesForSettingsUpdate = (payload: unknown) => {
-  const input = Schema.decodeUnknownSync(SettingsUpdate)(payload);
-  const scopes = requiredScopesForServerSettingsPatch(input.patch);
+const decodeSettingsUpdate = Schema.decodeUnknownSync(SettingsUpdate);
+const decodeAssetCreateUrlInput = Schema.decodeUnknownSync(AssetCreateUrlInput);
+
+const requiredScopesForSettingsUpdate = (
+  input: typeof SettingsUpdate.Type,
+  current?: ServerSettings,
+) => {
+  // Project entries include unchanged transports. The service checks those
+  // against its latest snapshot under the write lock, before any mutation.
+  const { projectSettingsOverrides, ...otherPatch } = input.patch;
+  const scopes =
+    current === undefined
+      ? [
+          ...new Set([
+            ...requiredScopesForServerSettingsPatch(otherPatch),
+            ...(projectSettingsOverrides === undefined ? [] : [AuthSettingsWriteScope]),
+          ]),
+        ]
+      : requiredScopesForServerSettingsPatch(input.patch, current);
   if (input.providerInstanceMutation === undefined) return scopes;
   // An atomic provider mutation carries an empty patch unless it also changes settings.
   return Object.values(input.patch).every((value) => value === undefined)
@@ -252,7 +269,7 @@ const requiredScopesForRpcCall = (
     return [AuthEnvironmentMaintainScope, AuthDiagnosticsReadScope];
   }
   if (method === WS_METHODS.assetsCreateUrl) {
-    const { resource } = Schema.decodeUnknownSync(AssetCreateUrlInput)(payload);
+    const { resource } = decodeAssetCreateUrlInput(payload);
     return [
       resource._tag === "workspace-file" ||
       resource._tag === "media-file" ||
@@ -261,11 +278,23 @@ const requiredScopesForRpcCall = (
         : AuthOrchestrationReadScope,
     ];
   }
-  if (method === WS_METHODS.serverUpdateSettings) return requiredScopesForSettingsUpdate(payload);
+  if (method === WS_METHODS.serverUpdateSettings) {
+    return requiredScopesForSettingsUpdate(decodeSettingsUpdate(payload));
+  }
   const guarded = clientRpcRequiredScopes(method, payload);
   if (guarded.length > 0) return guarded;
   return [requiredScopeForRpcMethod(method)];
 };
+
+/** Passed into the settings service so state-dependent grants are checked under its write lock. */
+export const authorizeSettingsUpdate =
+  (scopes: ReadonlyArray<AuthEnvironmentScope>, input: typeof SettingsUpdate.Type) =>
+  (current: ServerSettings): Effect.Effect<void, EnvironmentAuthorizationError> => {
+    const missing = requiredScopesForSettingsUpdate(input, current).find(
+      (scope) => !scopes.includes(scope),
+    );
+    return missing === undefined ? Effect.void : Effect.fail(rpcAuthorizationError(missing));
+  };
 
 /** Authorizes every RPC on one connection against that connection's session scopes. */
 export const layer = (scopes: ReadonlyArray<AuthEnvironmentScope>) =>

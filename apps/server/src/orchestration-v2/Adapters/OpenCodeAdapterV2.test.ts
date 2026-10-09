@@ -1,8 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import type { OpencodeClient, ToolPart } from "@opencode-ai/sdk/v2";
 import {
   CheckpointId,
+  EnvironmentId,
+  McpServerName,
   NodeId,
   OpenCodeSettings,
   ProjectId,
@@ -18,6 +21,7 @@ import {
   type OrchestrationV2ProviderTurn,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -31,6 +35,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as ServerConfig from "../../config.ts";
 import type { EventNdjsonLogger } from "../../provider/EventNdjsonLogger.ts";
 import type { OpenCodeRuntimeShape } from "../../provider/opencodeRuntime.ts";
@@ -157,6 +162,7 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
   };
   const policy = runtimePolicy("full-access", { cwd: "/workspace" });
   const adapter = makeOpenCodeAdapterV2({
+    crypto: yield* Crypto.Crypto.pipe(Effect.provide(NodeCrypto.layer)),
     instanceId,
     settings: OPEN_CODE_TEST_SETTINGS,
     environment: {},
@@ -240,6 +246,140 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
 });
 
 describe("OpenCodeAdapterV2", () => {
+  it.effect("keeps disabled skills denied on create, resume, and rollback", () =>
+    Effect.gen(function* () {
+      const suffix = "disabled-skills";
+      const threadId = ThreadId.make(`thread-opencode-${suffix}`);
+      McpProviderSession.setMcpProviderSession({
+        environmentId: EnvironmentId.make("environment:opencode-test"),
+        threadId,
+        providerSessionId: "mcp:disabled-skills",
+        providerInstanceId: ProviderInstanceId.make(`opencode-${suffix}`),
+        endpoint: "http://127.0.0.1/mcp",
+        authorizationHeader: "Bearer test",
+        browserToolsAvailable: false,
+        tools: { servers: [], disabledSkills: ["deploy"], fingerprint: "disabled-deploy" },
+      });
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
+      );
+      const writes: Array<{
+        sessionID: string;
+        permission: ReturnType<typeof openCodePermissionRules>;
+      }> = [];
+      const native = (id: string) => ({ id, time: { created: 1, updated: 1 } });
+      const nativeEvents = asyncEventStream();
+      const harness = yield* makeOpenCodeRuntimeHarness(suffix, "root", {
+        event: { subscribe: async () => ({ stream: nativeEvents.stream }) },
+        session: {
+          create: async (input: { permission: ReturnType<typeof openCodePermissionRules> }) => {
+            writes.push({ sessionID: "root", permission: input.permission });
+            return { data: native("root") };
+          },
+          get: async ({ sessionID }: { sessionID: string }) => ({ data: native(sessionID) }),
+          update: async (input: (typeof writes)[number]) => {
+            writes.push(input);
+            return { data: native(input.sessionID) };
+          },
+          messages: async ({ sessionID }: { sessionID: string }) => ({
+            data: sessionID === "root" ? [{ info: { id: "first", role: "user" }, parts: [] }] : [],
+          }),
+          fork: async () => ({ data: native("fork") }),
+          abort: async () => ({ data: true }),
+          children: async () => ({ data: [] }),
+        },
+      });
+      yield* harness.runtime.resumeThread({ providerThread: harness.providerThread });
+      const rolledBack = yield* harness.runtime.rollbackThread({
+        providerThread: harness.providerThread,
+        target: {
+          type: "thread_start",
+          checkpointId: CheckpointId.make("checkpoint:start"),
+          appRunOrdinal: 0,
+        },
+        providerThreadTurns: [],
+      });
+      assert.equal(rolledBack.providerThread.nativeThreadRef?.nativeId, "fork");
+      assert.deepEqual(
+        writes.map((write) => write.sessionID),
+        ["root", "root", "fork"],
+      );
+      for (const { permission } of writes) {
+        assert.deepEqual(permission.at(-1), {
+          permission: "skill",
+          pattern: "deploy",
+          action: "deny",
+        });
+      }
+    }).pipe(Effect.provide(IdAllocator.layer), Effect.scoped),
+  );
+
+  it.effect("registers user HTTP MCP servers on an external OpenCode server", () =>
+    Effect.gen(function* () {
+      const suffix = "remote-mcp";
+      const threadId = ThreadId.make(`thread-opencode-${suffix}`);
+      McpProviderSession.setMcpProviderSession({
+        environmentId: EnvironmentId.make("environment:opencode-test"),
+        threadId,
+        providerSessionId: "mcp:remote",
+        providerInstanceId: ProviderInstanceId.make(`opencode-${suffix}`),
+        endpoint: "http://127.0.0.1/mcp",
+        authorizationHeader: "Bearer test",
+        browserToolsAvailable: false,
+        tools: {
+          servers: [
+            {
+              name: McpServerName.make("docs"),
+              transport: { type: "http", url: "https://docs.example/mcp", headers: [] },
+            },
+          ],
+          disabledSkills: [],
+          fingerprint: "docs",
+        },
+      });
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
+      );
+      const registrations: Array<{ name: string; config: unknown }> = [];
+      const disconnected: string[] = [];
+      let permissions: ReturnType<typeof openCodePermissionRules> = [];
+      const nativeEvents = asyncEventStream();
+      yield* makeOpenCodeRuntimeHarness(suffix, "root", {
+        event: { subscribe: async () => ({ stream: nativeEvents.stream }) },
+        mcp: {
+          add: async (input: { name: string; config: unknown }) => {
+            registrations.push(input);
+            return { data: {} };
+          },
+          disconnect: async ({ name }: { name: string }) => {
+            disconnected.push(name);
+            return { data: true };
+          },
+        },
+        session: {
+          create: async (input: { permission: typeof permissions }) => {
+            permissions = input.permission;
+            return { data: { id: "root", time: { created: 1, updated: 1 } } };
+          },
+          abort: async () => ({ data: true }),
+          children: async () => ({ data: [] }),
+        },
+      }).pipe(Effect.scoped);
+      assert.equal(registrations.length, 1);
+      assert.deepEqual(disconnected, [registrations[0]!.name]);
+      assert.match(registrations[0]!.name, /^t3u-[a-f0-9]{8}-docs$/);
+      assert.deepEqual(registrations[0]!.config, {
+        type: "remote",
+        url: "https://docs.example/mcp",
+        headers: {},
+      });
+      assert.deepEqual(permissions.slice(-2), [
+        { permission: "t3u-*", pattern: "*", action: "deny" },
+        { permission: `${registrations[0]!.name}_*`, pattern: "*", action: "allow" },
+      ]);
+    }).pipe(Effect.provide(IdAllocator.layer), Effect.scoped),
+  );
+
   it.effect.each(["completed", "failed", "unresolved", "unavailable", "reconnect"] as const)(
     "normalizes OpenCode step usage for %s turns",
     (ending) =>
@@ -1488,6 +1628,7 @@ describe("OpenCodeAdapterV2", () => {
         mcp: { add: async () => ({ data: true }) },
       };
       const adapter = makeOpenCodeAdapterV2({
+        crypto: yield* Crypto.Crypto.pipe(Effect.provide(NodeCrypto.layer)),
         instanceId: ProviderInstanceId.make("opencode-test"),
         settings: OPEN_CODE_TEST_SETTINGS,
         environment: {},
@@ -1783,6 +1924,7 @@ describe("OpenCodeAdapterV2", () => {
         mcp: { add: async () => ({ data: true }) },
       };
       const adapter = makeOpenCodeAdapterV2({
+        crypto: yield* Crypto.Crypto.pipe(Effect.provide(NodeCrypto.layer)),
         instanceId: ProviderInstanceId.make("opencode-initial-stop-test"),
         settings: OPEN_CODE_TEST_SETTINGS,
         environment: {},
@@ -2467,6 +2609,7 @@ describe("OpenCodeAdapterV2", () => {
       const threadId = ThreadId.make("thread-opencode-adopt");
       const modelSelection = { instanceId, model: "default" };
       const adapter = makeOpenCodeAdapterV2({
+        crypto: yield* Crypto.Crypto.pipe(Effect.provide(NodeCrypto.layer)),
         instanceId,
         settings: OPENCODE_TEST_SETTINGS,
         environment: {},
@@ -2652,6 +2795,31 @@ describe("OpenCodeAdapterV2", () => {
     assert.equal(permissionAction(childApprovalRules, "bash"), "ask");
     assert.equal(permissionAction(childApprovalRules, "task"), "deny");
   });
+
+  it("keeps skill and MCP isolation after a native child agent's own allows", () => {
+    const rules = openCodeChildPermissionRules(
+      runtimePolicy("full-access"),
+      [{ permission: "*", pattern: "*", action: "allow" }],
+      ["deploy"],
+      ["t3u-own-docs"],
+    );
+    assert.deepEqual(rules.slice(-3), [
+      { permission: "t3u-*", pattern: "*", action: "deny" },
+      { permission: "t3u-own-docs_*", pattern: "*", action: "allow" },
+      { permission: "skill", pattern: "deploy", action: "deny" },
+    ]);
+  });
+
+  it.each(["approval-required", "auto-accept-edits"] as const)(
+    "requires approval for own MCP tools in %s mode",
+    (mode) => {
+      const rules = openCodePermissionRules(runtimePolicy(mode), [], ["t3u-own-docs"]);
+      assert.deepEqual(rules.slice(-2), [
+        { permission: "t3u-*", pattern: "*", action: "deny" },
+        { permission: "t3u-own-docs_*", pattern: "*", action: "ask" },
+      ]);
+    },
+  );
 
   it("uses the next native user message as the exclusive fork and revert boundary", () => {
     const first = providerTurn({ id: "turn:first", ordinal: 1, nativeId: "msg-user-1" });

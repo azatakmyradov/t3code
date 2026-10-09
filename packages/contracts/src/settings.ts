@@ -43,6 +43,16 @@ import {
   type ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
+import {
+  DisabledSkills,
+  DisabledSkillsProjectOverride,
+  McpServerConfig,
+  McpServerName,
+  McpServerProjectOverrides,
+  McpServers,
+  type McpServerTransport,
+  type McpServerVariable,
+} from "./agentTools.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -1205,6 +1215,8 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "sidebarAutoSettleAfterDays",
   "continueThreadsAfterServerUpdate",
   "responseStreamingMode",
+  "mcpServers",
+  "disabledSkills",
 ] as const;
 export type ProjectScopedServerSettingKey = (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number];
 
@@ -1236,6 +1248,9 @@ export const ProjectSettingsOverrides = Schema.Struct({
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
+  // Sparse: merged per name over the environment's value, not a replacement.
+  mcpServers: ForwardCompatibleOptional(McpServerProjectOverrides),
+  disabledSkills: ForwardCompatibleOptional(DisabledSkillsProjectOverride),
 } satisfies Record<ProjectScopedServerSettingKey, unknown>);
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
@@ -1504,6 +1519,10 @@ export const ServerSettings = Schema.Struct({
   usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  /** MCP servers T3 adds to every provider session, keyed by server name. */
+  mcpServers: McpServers.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /** Skill names hidden from every agent on this environment. */
+  disabledSkills: DisabledSkills.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1823,21 +1842,100 @@ export const ServerSettingsPatch = Schema.Struct({
   usageModelAliases: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(TrimmedNonEmptyString)),
   ),
+  /**
+   * Each entry replaces one server; `null` removes it. A sensitive variable
+   * sent back with `valueRedacted` and no value keeps its stored secret.
+   */
+  mcpServers: Schema.optionalKey(Schema.Record(McpServerName, Schema.NullOr(McpServerConfig))),
+  disabledSkills: Schema.optionalKey(DisabledSkills),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
-/** A mixed settings patch must be authorized for every configuration domain it changes. */
+function unchangedMcpVariables(
+  current: ReadonlyArray<McpServerVariable>,
+  next: ReadonlyArray<McpServerVariable>,
+): boolean {
+  return (
+    current.length === next.length &&
+    next.every((variable, index) => {
+      const previous = current[index];
+      if (
+        !previous ||
+        previous.name !== variable.name ||
+        previous.sensitive !== variable.sensitive
+      ) {
+        return false;
+      }
+      // An empty redacted value retains the secret at this same project/server/name.
+      if (variable.sensitive && variable.valueRedacted && variable.value === "") {
+        return previous.valueRedacted === true || previous.value.length > 0;
+      }
+      return (
+        previous.value === variable.value &&
+        (variable.value.length > 0 ||
+          Boolean(previous.valueRedacted) === Boolean(variable.valueRedacted))
+      );
+    })
+  );
+}
+
+function unchangedMcpTransport(
+  current: McpServerTransport | undefined,
+  next: McpServerTransport | undefined,
+): boolean {
+  if (current === next) return true;
+  if (current?.type === "stdio" && next?.type === "stdio") {
+    return (
+      current.command === next.command &&
+      current.args.length === next.args.length &&
+      current.args.every((arg, index) => arg === next.args[index]) &&
+      unchangedMcpVariables(current.env, next.env)
+    );
+  }
+  return (
+    current?.type === "http" &&
+    next?.type === "http" &&
+    current.url === next.url &&
+    unchangedMcpVariables(current.headers, next.headers)
+  );
+}
+
+/**
+ * A mixed settings patch needs every configuration domain it changes. Project
+ * entries replace their whole value, so compare transports against the current
+ * snapshot rather than treating a copied transport as a provider change. Without
+ * a snapshot, conservatively require management for every submitted transport.
+ */
 export function requiredScopesForServerSettingsPatch(
   patch: ServerSettingsPatch,
+  current?: Pick<ServerSettings, "projectSettingsOverrides">,
 ): ReadonlyArray<AuthEnvironmentScope> {
   let changesProviders = false;
   let changesSettings = false;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    if (key === "providers" || key === "providerInstances" || key === "usageLimitSources") {
+    if (
+      key === "providers" ||
+      key === "providerInstances" ||
+      key === "usageLimitSources" ||
+      // A server is a command T3 runs for every agent, like a provider binary.
+      key === "mcpServers"
+    ) {
       changesProviders = true;
     } else {
       changesSettings = true;
+    }
+  }
+  for (const [projectId, entry] of Object.entries(patch.projectSettingsOverrides ?? {})) {
+    const previous = current?.projectSettingsOverrides[ProjectId.make(projectId)]?.mcpServers ?? {};
+    const next = entry?.mcpServers ?? {};
+    const names = new Set([...Object.keys(previous), ...Object.keys(next)]);
+    if (
+      [...names].some(
+        (name) => !unchangedMcpTransport(previous[name]?.transport, next[name]?.transport),
+      )
+    ) {
+      changesProviders = true;
     }
   }
   return [

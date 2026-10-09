@@ -481,9 +481,11 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
 
       const canWriteServerPatch =
         environmentId === null ||
-        requiredScopesForServerSettingsPatch(serverPatch).every((scope) =>
-          readEnvironmentScope(environmentId, scope),
-        );
+        requiredScopesForServerSettingsPatch(
+          serverPatch,
+          environments.find((target) => target.environmentId === environmentId)?.serverConfig
+            ?.settings,
+        ).every((scope) => readEnvironmentScope(environmentId, scope));
       if (Object.keys(serverPatch).length > 0 && !canWriteServerPatch) {
         toastManager.add({
           type: "warning",
@@ -533,9 +535,10 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
             const session = appAtomRegistry.get(environmentSession.sessionStateAtom(targetId));
             if (
               session._tag !== "Initial" &&
-              !requiredScopesForServerSettingsPatch(sharedPatch).every((scope) =>
-                readEnvironmentScope(targetId, scope),
-              )
+              !requiredScopesForServerSettingsPatch(
+                targetPatch,
+                target?.serverConfig?.settings,
+              ).every((scope) => readEnvironmentScope(targetId, scope))
             ) {
               permissionDenied = true;
               continue;

@@ -1,9 +1,12 @@
 import {
   isProviderWorkspaceSnapshotCurrent,
+  type ProjectId,
   type ServerProvider,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type ServerSettings,
 } from "@t3tools/contracts";
+import { mergeProjectDisabledSkills } from "@t3tools/shared/projectSettings";
 
 export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
 
@@ -115,16 +118,41 @@ export function hasCurrentProviderWorkspaceSnapshot(
   );
 }
 
+/** The selected project's Tools switches, normalized like composer skill names. */
+export function resolveDisabledProviderSkillNames(
+  settings: Pick<ServerSettings, "disabledSkills" | "projectSettingsOverrides"> | undefined,
+  projectId: ProjectId | null,
+): ReadonlySet<string> {
+  return new Set(
+    mergeProjectDisabledSkills(
+      settings?.disabledSkills ?? [],
+      projectId === null
+        ? undefined
+        : settings?.projectSettingsOverrides[projectId]?.disabledSkills,
+    ).map((name) => name.trim().toLowerCase()),
+  );
+}
+
 export function resolveProviderSkillsForCwd(
   provider: ServerProvider,
   cwd: string | null | undefined,
+  disabledSkillNames?: ReadonlySet<string>,
 ): ServerProvider["skills"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.skills ?? provider.skills;
+  const skills = resolveProviderWorkspaceSnapshot(provider, cwd)?.skills ?? provider.skills;
+  return disabledSkillNames?.size
+    ? skills.filter((skill) => !disabledSkillNames.has(skill.name.trim().toLowerCase()))
+    : skills;
 }
 
 export function resolveProviderSlashCommandsForCwd(
   provider: ServerProvider,
   cwd: string | null | undefined,
+  disabledSkillNames?: ReadonlySet<string>,
 ): ServerProvider["slashCommands"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
+  const commands =
+    resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
+  // Providers may expose the same skill through both discovery lists.
+  return disabledSkillNames?.size
+    ? commands.filter((command) => !disabledSkillNames.has(command.name.trim().toLowerCase()))
+    : commands;
 }
