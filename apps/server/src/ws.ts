@@ -2405,17 +2405,26 @@ const layerWsRpc = (
           }),
         [WS_METHODS.serverGetSettings]: (_input) =>
           serverSettings.getSettings.pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
-        [WS_METHODS.serverUpdateSettings]: ({ patch, providerInstanceMutation }) =>
+        [WS_METHODS.serverUpdateSettings]: (input) =>
           Effect.gen(function* () {
+            const { patch, providerInstanceMutation } = input;
             const deviceHosts = patch.deviceHosts
               ? yield* remoteSshDeviceHosts(patch.deviceHosts).pipe(
                   Effect.provide(deviceHostContext),
                 )
               : undefined;
             const nextPatch = { ...patch, ...(deviceHosts ? { deviceHosts } : {}) };
+            const authorize = RpcAuthorization.authorizeSettingsUpdate(
+              currentSession.scopes,
+              input,
+            );
             const settings = yield* providerInstanceMutation === undefined
-              ? serverSettings.updateSettings(nextPatch)
-              : serverSettings.updateProviderInstance(providerInstanceMutation, nextPatch);
+              ? serverSettings.updateSettings(nextPatch, authorize)
+              : serverSettings.updateProviderInstance(
+                  providerInstanceMutation,
+                  nextPatch,
+                  authorize,
+                );
             return ServerSettings.redactServerSettingsForClient(settings);
           }),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) => sourceControlDiscovery.discover,

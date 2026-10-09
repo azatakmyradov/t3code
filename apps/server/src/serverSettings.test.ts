@@ -1714,6 +1714,181 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
+  it.effect(
+    "keeps MCP server secrets in the secret store for the environment and each project",
+    () =>
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const projectId = ProjectId.make("project-mcp");
+        const stdio = (token: string) => ({
+          enabled: true,
+          transport: {
+            type: "stdio" as const,
+            command: "npx",
+            args: ["-y", "@supabase/mcp-server-supabase"],
+            env: [
+              { name: "SUPABASE_ACCESS_TOKEN", value: token, sensitive: true },
+              { name: "READ_ONLY", value: "true", sensitive: false },
+            ],
+          },
+        });
+
+        const saved = yield* serverSettings.updateSettings({
+          mcpServers: { supabase: stdio("env-token") },
+          projectSettingsOverrides: {
+            [projectId]: { mcpServers: { supabase: stdio("project-token") } },
+          },
+        });
+        // The server reads real values.
+        const envVars = (settings: typeof saved, scope: "env" | "project") => {
+          const server =
+            scope === "env"
+              ? settings.mcpServers.supabase
+              : settings.projectSettingsOverrides[projectId]?.mcpServers?.supabase;
+          return server?.transport?.type === "stdio" ? server.transport.env : [];
+        };
+        assert.equal(envVars(saved, "env")[0]?.value, "env-token");
+        assert.equal(envVars(saved, "project")[0]?.value, "project-token");
+
+        // Neither the file nor a client sees them; plain values stay readable.
+        const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+        assert.notInclude(raw, "env-token");
+        assert.notInclude(raw, "project-token");
+        const forClient = ServerSettingsModule.redactServerSettingsForClient(saved);
+        assert.deepEqual(envVars(forClient, "env"), [
+          { name: "SUPABASE_ACCESS_TOKEN", value: "", sensitive: true, valueRedacted: true },
+          { name: "READ_ONLY", value: "true", sensitive: false },
+        ]);
+        assert.equal(envVars(forClient, "project")[0]?.value, "");
+
+        // Echoing the redacted server back (an edit that changed only args) keeps its secret.
+        const echoed = forClient.mcpServers.supabase!;
+        yield* serverSettings.updateSettings({
+          mcpServers: {
+            supabase: {
+              ...echoed,
+              transport: { ...echoed.transport, args: ["--read-only"] } as never,
+            },
+          },
+        });
+        assert.equal(envVars(yield* serverSettings.getSettings, "env")[0]?.value, "env-token");
+
+        // Removing the environment server drops its secret, not the project's.
+        const removed = yield* serverSettings.updateSettings({ mcpServers: { supabase: null } });
+        assert.isUndefined(removed.mcpServers.supabase);
+        assert.equal(envVars(removed, "project")[0]?.value, "project-token");
+      }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
+  it.effect("rejects missing MCP credential placeholders before changing settings or secrets", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const saved = yield* serverSettings.updateSettings({
+        mcpServers: {
+          original: {
+            enabled: true,
+            transport: {
+              type: "http",
+              url: "https://example.com/mcp",
+              headers: [{ name: "Cookie", value: "existing-credential", sensitive: true }],
+            },
+          },
+        },
+      });
+      const placeholder =
+        ServerSettingsModule.redactServerSettingsForClient(saved).mcpServers.original!;
+      const originalFile = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      const renamedServer = yield* Effect.exit(
+        serverSettings.updateSettings({
+          mcpServers: { original: null, renamed: placeholder },
+        }),
+      );
+      assert.equal(renamedServer._tag, "Failure");
+      const renamedVariable = yield* Effect.exit(
+        serverSettings.updateSettings({
+          mcpServers: {
+            original: {
+              ...placeholder,
+              transport: {
+                type: "http",
+                url: "https://example.com/mcp",
+                headers: [{ name: "NewCookie", value: "", sensitive: true, valueRedacted: true }],
+              },
+            },
+          },
+        }),
+      );
+      assert.equal(renamedVariable._tag, "Failure");
+      assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), originalFile);
+      assert.deepEqual((yield* serverSettings.getSettings).mcpServers, saved.mcpServers);
+    }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
+  it.effect("keeps hand-edited MCP credentials when a client echoes redacted settings", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const projectId = ProjectId.make("project-inline-mcp");
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        JSON.stringify({
+          mcpServers: {
+            stdio: {
+              enabled: true,
+              transport: {
+                type: "stdio",
+                command: "npx",
+                args: [],
+                env: [{ name: "TOKEN", value: "inline-env-token", sensitive: true }],
+              },
+            },
+          },
+          projectSettingsOverrides: {
+            [projectId]: {
+              mcpServers: {
+                remote: {
+                  enabled: true,
+                  transport: {
+                    type: "http",
+                    url: "https://example.com/mcp",
+                    headers: [
+                      { name: "Authorization", value: "inline-project-token", sensitive: true },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        }),
+      );
+      const forClient = ServerSettingsModule.redactServerSettingsForClient(
+        yield* serverSettings.getSettings,
+      );
+      const updated = yield* serverSettings.updateSettings({
+        mcpServers: forClient.mcpServers,
+        projectSettingsOverrides: forClient.projectSettingsOverrides,
+      });
+      const stdio = updated.mcpServers.stdio?.transport;
+      const http = updated.projectSettingsOverrides[projectId]?.mcpServers?.remote?.transport;
+      assert.equal(stdio?.type === "stdio" ? stdio.env[0]?.value : undefined, "inline-env-token");
+      assert.equal(
+        http?.type === "http" ? http.headers[0]?.value : undefined,
+        "inline-project-token",
+      );
+      const disk = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.notInclude(disk, "inline-env-token");
+      assert.notInclude(disk, "inline-project-token");
+      const reloaded = yield* serverSettings.getSettings;
+      assert.deepEqual(reloaded.mcpServers, updated.mcpServers);
+      assert.deepEqual(reloaded.projectSettingsOverrides, updated.projectSettingsOverrides);
+    }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
   it.effect("removes a Bitbucket secret once its token is cleared by hand in settings.json", () =>
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig.ServerConfig;

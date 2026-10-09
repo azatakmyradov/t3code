@@ -10,6 +10,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import * as Result from "effect/Result";
@@ -17,6 +18,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Stream from "effect/Stream";
 import { describe, expect } from "vite-plus/test";
 
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
 import * as EffectAcpErrors from "effect-acp/errors";
@@ -648,6 +650,148 @@ describe("AcpSessionRuntime", () => {
       Effect.provide(NodeServices.layer),
     );
   });
+
+  it.effect.each([true, false])(
+    "resolves MCP executables using the agent environment (extendEnv=%s)",
+    (extendEnv) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "acp-mcp-path-" });
+        const filename = (yield* HostProcessPlatform) === "win32" ? "mcp-tool.cmd" : "mcp-tool";
+        for (const directory of ["agent-bin", "server-bin"]) {
+          yield* fs.makeDirectory(NodePath.join(cwd, directory));
+          yield* fs.writeFileString(NodePath.join(cwd, directory, filename), "#!/bin/sh\nexit 0\n");
+          yield* fs.chmod(NodePath.join(cwd, directory, filename), 0o755);
+        }
+        const requestEvents: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];
+        const absoluteCommand = NodePath.join(cwd, "already-absolute");
+        const runtime = yield* AcpSessionRuntime.make({
+          ...mockRuntimeOptions,
+          spawn: {
+            command: process.execPath,
+            args: mockAgentArgs,
+            cwd,
+            extendEnv,
+            env: { PATH: "agent-bin", T3_ACP_SESSION_LIFECYCLE: "1" },
+          },
+          cwd,
+          mcpServers: [
+            { name: "from-agent", command: "mcp-tool", args: ["serve"], env: [] },
+            {
+              type: "stdio",
+              name: "from-server",
+              command: "mcp-tool",
+              args: [],
+              env: [{ name: "PATH", value: "server-bin" }],
+            },
+            { name: "relative", command: `./agent-bin/${filename}`, args: [], env: [] },
+            { name: "absolute", command: absoluteCommand, args: [], env: [] },
+            { type: "http", name: "unsupported-http", url: "https://example.com/mcp", headers: [] },
+            { type: "custom", name: "extension", command: "opaque-remote-id", env: [] },
+          ],
+          requestLogger: (event) =>
+            Effect.sync(() => {
+              requestEvents.push(event);
+            }),
+        });
+        yield* runtime.start();
+        expect(
+          requestEvents.find(
+            (event) => event.method === "session/new" && event.status === "started",
+          )?.payload,
+        ).toMatchObject({
+          mcpServers: [
+            {
+              name: "from-agent",
+              command: NodePath.join(cwd, "agent-bin", filename),
+              args: ["serve"],
+              env: [],
+            },
+            {
+              name: "from-server",
+              command: NodePath.join(cwd, "server-bin", filename),
+              env: [{ name: "PATH", value: "server-bin" }],
+            },
+            { name: "relative", command: NodePath.join(cwd, "agent-bin", filename) },
+            { name: "absolute", command: absoluteCommand },
+            { type: "custom", name: "extension", command: "opaque-remote-id", env: [] },
+          ],
+        });
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.each(["loadSession", "resumeSession", "forkSession"] as const)(
+    "resolves changed MCP commands before %s",
+    (method) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "acp-mcp-activation-" });
+        const filename = (yield* HostProcessPlatform) === "win32" ? "mcp-tool.cmd" : "mcp-tool";
+        const executable = NodePath.join(cwd, filename);
+        yield* fs.writeFileString(executable, "#!/bin/sh\nexit 0\n");
+        yield* fs.chmod(executable, 0o755);
+        const requestEvents: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];
+        const runtime = yield* AcpSessionRuntime.make({
+          ...mockRuntimeOptions,
+          spawn: {
+            command: process.execPath,
+            args: mockAgentArgs,
+            cwd,
+            env: { PATH: cwd, T3_ACP_SESSION_LIFECYCLE: "1" },
+          },
+          cwd,
+          sessionLoadReplayIdleGap: "0 millis",
+          requestLogger: (event) =>
+            Effect.sync(() => {
+              requestEvents.push(event);
+            }),
+        });
+        yield* runtime.start();
+        yield* runtime[method]("mock-session-1", {
+          mcpServers: [{ name: "added", command: "mcp-tool", args: [], env: [] }],
+        });
+        const requestedMethod =
+          method === "forkSession"
+            ? "session/fork"
+            : method === "loadSession"
+              ? "session/load"
+              : "session/resume";
+        expect(
+          requestEvents.find(
+            (event) => event.method === requestedMethod && event.status === "started",
+          )?.payload,
+        ).toMatchObject({
+          mcpServers: [{ name: "added", command: executable }],
+        });
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("rejects an unresolved MCP command before creating a session", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "acp-mcp-missing-" });
+      const methods: string[] = [];
+      const runtime = yield* AcpSessionRuntime.make({
+        ...mockRuntimeOptions,
+        spawn: {
+          command: process.execPath,
+          args: mockAgentArgs,
+          cwd,
+          env: { PATH: "" },
+          extendEnv: false,
+        },
+        cwd,
+        mcpServers: [{ name: "missing", command: "mcp-command-not-installed", args: [], env: [] }],
+        requestLogger: (event) =>
+          Effect.sync(() => {
+            methods.push(event.method);
+          }),
+      });
+      const error = yield* runtime.start().pipe(Effect.flip);
+      expect(error._tag).toBe("AcpSpawnError");
+      expect(methods).not.toContain("session/new");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 
   it.effect("supports v2 session deletion and secret-safe provider management", () => {
     const requestEvents: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];

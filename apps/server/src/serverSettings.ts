@@ -62,6 +62,12 @@ import {
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import {
+  materializeMcpServerSecrets,
+  mcpServerSecretNames,
+  planMcpServerSecrets,
+  redactMcpServerSecrets,
+} from "./mcpServerSecrets.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
 
@@ -215,7 +221,13 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
       Object.entries(settings.github.tokens).map(([host, token]) => [host, redactSecret(token)]),
     ),
   };
-  return { ...settings, providerInstances, usageLimitSources, bitbucket, github };
+  return redactMcpServerSecrets({
+    ...settings,
+    providerInstances,
+    usageLimitSources,
+    bitbucket,
+    github,
+  });
 }
 
 export function applyProviderInstanceMutation(
@@ -263,16 +275,18 @@ export class ServerSettingsService extends Context.Service<
     /** Read the current settings. */
     readonly getSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
 
-    /** Patch settings and persist. Returns the new full settings object. */
-    readonly updateSettings: (
+    /** Patch settings and persist. An optional authorization check runs under the write lock. */
+    readonly updateSettings: <E = never>(
       patch: ServerSettingsPatch,
-    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
+      authorize?: (current: ServerSettings) => Effect.Effect<void, E>,
+    ) => Effect.Effect<ServerSettings, ServerSettingsError | E>;
 
     /** Apply a patch and one provider-instance mutation against the same latest settings snapshot. */
-    readonly updateProviderInstance: (
+    readonly updateProviderInstance: <E = never>(
       mutation: ProviderInstanceMutation,
       patch?: ServerSettingsPatch,
-    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
+      authorize?: (current: ServerSettings) => Effect.Effect<void, E>,
+    ) => Effect.Effect<ServerSettings, ServerSettingsError | E>;
 
     /** Run an effect against a settings snapshot while settings writes are paused. */
     readonly withSettingsSnapshot: <A, E, R>(
@@ -312,11 +326,13 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
     const writeSemaphore = yield* Semaphore.make(1);
     const getSettings = Ref.get(currentSettingsRef).pipe(Effect.map(resolveTextGenerationProvider));
 
-    const updateTestSettings = (
-      update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
-    ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+    const updateTestSettings = <E>(
+      update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError | E>,
+      authorize?: (current: ServerSettings) => Effect.Effect<void, E>,
+    ): Effect.Effect<ServerSettings, ServerSettingsError | E> =>
       writeSemaphore.withPermits(1)(
         Ref.get(currentSettingsRef).pipe(
+          Effect.tap((current) => authorize?.(current) ?? Effect.void),
           Effect.flatMap(update),
           Effect.flatMap(normalizeServerSettings),
           Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
@@ -328,21 +344,24 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
       start: Effect.void,
       ready: Effect.void,
       getSettings,
-      updateSettings: (patch) =>
-        updateTestSettings((currentSettings) =>
-          Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
+      updateSettings: (patch, authorize) =>
+        updateTestSettings(
+          (currentSettings) => Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
+          authorize,
         ),
-      updateProviderInstance: (mutation, patch = {}) =>
-        updateTestSettings((currentSettings) =>
-          Effect.gen(function* () {
-            yield* ensureProviderInstanceMutationAllowed(
-              currentSettings,
-              mutation,
-              "test settings",
-            );
-            const patched = applyServerSettingsPatch(currentSettings, patch);
-            return applyProviderInstanceMutation(patched, mutation);
-          }),
+      updateProviderInstance: (mutation, patch = {}, authorize) =>
+        updateTestSettings(
+          (currentSettings) =>
+            Effect.gen(function* () {
+              yield* ensureProviderInstanceMutationAllowed(
+                currentSettings,
+                mutation,
+                "test settings",
+              );
+              const patched = applyServerSettingsPatch(currentSettings, patch);
+              return applyProviderInstanceMutation(patched, mutation);
+            }),
+          authorize,
         ),
       withSettingsSnapshot: (use) =>
         writeSemaphore.withPermits(1)(getSettings.pipe(Effect.flatMap(use))),
@@ -925,13 +944,27 @@ const make = Effect.gen(function* () {
           );
         tokens[host] = Option.isSome(secret) ? textDecoder.decode(secret.value) : "";
       }
-      return {
-        ...settings,
-        providerInstances: providerInstances as ServerSettings["providerInstances"],
-        usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
-        bitbucket,
-        github: { ...settings.github, tokens },
-      };
+      const mcpSecrets = new Map<string, string>();
+      for (const secretName of mcpServerSecretNames(settings)) {
+        const secret = yield* secretStore
+          .get(secretName)
+          .pipe(
+            Effect.mapError(
+              (cause) => new ServerSettingsError({ settingsPath, operation: "read-secret", cause }),
+            ),
+          );
+        if (Option.isSome(secret)) mcpSecrets.set(secretName, textDecoder.decode(secret.value));
+      }
+      return materializeMcpServerSecrets(
+        {
+          ...settings,
+          providerInstances: providerInstances as ServerSettings["providerInstances"],
+          usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
+          bitbucket,
+          github: { ...settings.github, tokens },
+        },
+        mcpSecrets,
+      );
     });
 
   const materializeChanges = (changes: Stream.Stream<ServerSettings>) =>
@@ -961,7 +994,7 @@ const make = Effect.gen(function* () {
   );
 
   const persistProviderEnvironmentSecrets = (current: ServerSettings, next: ServerSettings) =>
-    Effect.sync(() => {
+    Effect.gen(function* () {
       const providerInstances: Record<string, ProviderInstanceConfig> = {
         ...next.providerInstances,
       };
@@ -1124,9 +1157,33 @@ const make = Effect.gen(function* () {
         });
       }
 
+      const mcp = planMcpServerSecrets(current, next);
+      if (mcp.missingSecrets.length > 0) {
+        return yield* Effect.fail(
+          new ServerSettingsError({
+            settingsPath,
+            operation: "read-secret",
+            cause: new Error(
+              "An MCP credential cannot be preserved at its new location. Supply a replacement value.",
+            ),
+          }),
+        );
+      }
+      for (const change of mcp.changes) {
+        changes.push(
+          change.kind === "write"
+            ? {
+                kind: "write",
+                secretName: change.secretName,
+                value: textEncoder.encode(change.value),
+              }
+            : { kind: "remove", secretName: change.secretName, operation: "remove-secret" },
+        );
+      }
+
       return {
         settings: {
-          ...next,
+          ...mcp.settings,
           providerInstances: providerInstances as ServerSettings["providerInstances"],
           usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
           bitbucket,
@@ -1212,12 +1269,15 @@ const make = Effect.gen(function* () {
     );
   };
 
-  const updateAndPersistSettings = (
-    update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
-  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+  const updateAndPersistSettings = <E>(
+    update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError | E>,
+    authorize?: (current: ServerSettings) => Effect.Effect<void, E>,
+  ): Effect.Effect<ServerSettings, ServerSettingsError | E> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* getSettingsFromCache;
+        // Authorize against the exact snapshot being changed, while writes are locked.
+        if (authorize) yield* authorize(current);
         const updated = yield* update(current);
         const persisted = yield* persistProviderEnvironmentSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
@@ -1369,17 +1429,20 @@ const make = Effect.gen(function* () {
       Effect.flatMap(materializeProviderEnvironmentSecrets),
       Effect.map(resolveTextGenerationProvider),
     ),
-    updateSettings: (patch) =>
-      updateAndPersistSettings((current) =>
-        Effect.succeed(applyServerSettingsPatch(current, patch)),
+    updateSettings: (patch, authorize) =>
+      updateAndPersistSettings(
+        (current) => Effect.succeed(applyServerSettingsPatch(current, patch)),
+        authorize,
       ),
-    updateProviderInstance: (mutation, patch = {}) =>
-      updateAndPersistSettings((current) =>
-        Effect.gen(function* () {
-          yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
-          const patched = applyServerSettingsPatch(current, patch);
-          return applyProviderInstanceMutation(patched, mutation);
-        }),
+    updateProviderInstance: (mutation, patch = {}, authorize) =>
+      updateAndPersistSettings(
+        (current) =>
+          Effect.gen(function* () {
+            yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
+            const patched = applyServerSettingsPatch(current, patch);
+            return applyProviderInstanceMutation(patched, mutation);
+          }),
+        authorize,
       ),
     withSettingsSnapshot,
     get streamChanges() {
