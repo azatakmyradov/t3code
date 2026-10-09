@@ -2,7 +2,7 @@ import type { ViewStyle } from "react-native";
 import type { MobileThemeVariables } from "../../lib/mobileTheme";
 
 export const THREAD_LIST_V2_MONO_FONT = "Menlo";
-export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-5 py-2.5";
+export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-4 py-3";
 export const THREAD_LIST_V2_ROW_DIVIDERS = true;
 
 export const selectedThreadRowColors = {
@@ -25,11 +25,11 @@ export function getThreadListV2RowAppearance(
   const style: ViewStyle | undefined = sidebarPane
     ? {
         backgroundColor: selected ? selectedBackgroundColor : theme["--color-drawer"],
-        borderRadius: 12,
+        borderRadius: 8,
       }
     : undefined;
   const swipeContainerStyle: ViewStyle | undefined = sidebarPane
-    ? { borderRadius: 12, overflow: "hidden" }
+    ? { borderRadius: 8, overflow: "hidden" }
     : undefined;
 
   return {

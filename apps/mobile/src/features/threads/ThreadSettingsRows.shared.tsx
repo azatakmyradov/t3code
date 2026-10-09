@@ -43,8 +43,9 @@ export function ModelRowContent(
       className={cn(
         "mx-4 min-h-11 flex-row items-center gap-2 bg-grouped-card px-4",
         props.selectedClassName,
-        props.isFirst && "rounded-t-2xl",
-        props.isLast ? "rounded-b-2xl" : "border-b border-border-subtle",
+        props.isFirst && "rounded-t-xl border-t border-border",
+        "border-x border-border",
+        props.isLast ? "rounded-b-xl border-b border-border" : "border-b border-border-subtle",
       )}
     >
       <Pressable

@@ -111,6 +111,7 @@ import {
 } from "effect/http";
 import { RpcSerialization, RpcServer } from "effect/rpc";
 
+import * as BotService from "./bots/BotService.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
@@ -1225,6 +1226,7 @@ const layerWsRpc = (
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const bots = yield* BotService.BotService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
@@ -2040,6 +2042,21 @@ const layerWsRpc = (
               Effect.andThen(subscribeOrchestrationV2Thread(input)),
             ),
           ),
+        [WS_METHODS.botsList]: () => bots.navigation(),
+        [WS_METHODS.botsSubscribe]: () => bots.subscribe(),
+        [WS_METHODS.botsGet]: (input) => bots.get(input.botId),
+        [WS_METHODS.botsSendMessage]: (input) => bots.sendMessage(input),
+        [WS_METHODS.botsCreate]: (input) => bots.create(input),
+        [WS_METHODS.botsUpdate]: (input) => bots.update(input),
+        [WS_METHODS.botsWriteContext]: (input) => bots.writeContext(input),
+        [WS_METHODS.botsCancelTask]: (input) => bots.cancelTask(input.botId, input.taskId),
+        [WS_METHODS.botsDelete]: (input) => bots.remove(input.botId, input.expectedRevision),
+        [WS_METHODS.botsStartTask]: (input) => bots.startTask(input),
+        [WS_METHODS.botsRequest]: (input) => bots.request(input),
+        [WS_METHODS.botsReply]: (input) => bots.reply(input.botId, input.requestId, input.text),
+        [WS_METHODS.botsConnections]: (input) => bots.connections(input.botId),
+        [WS_METHODS.botsConnect]: (input) => bots.connect(input),
+        [WS_METHODS.botsDisconnect]: (input) => bots.disconnect(input.botId, input.environmentId),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           scheduledTasks.list().pipe(Effect.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>

@@ -3,6 +3,7 @@ import {
   FilledTonalIconButton,
   Host,
   IconButton,
+  Shape,
 } from "@expo/ui/jetpack-compose";
 import { size } from "@expo/ui/jetpack-compose/modifiers";
 import { View } from "react-native";
@@ -10,6 +11,10 @@ import { View } from "react-native";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 import { SymbolView, type AppSymbolName } from "./AppSymbol";
+
+const CONTROL_SHAPE = Shape.RoundedCorner({
+  cornerRadii: { topStart: 8, topEnd: 8, bottomStart: 8, bottomEnd: 8 },
+});
 
 export function MaterialIconButton(props: {
   readonly accessibilityLabel: string;
@@ -63,6 +68,7 @@ export function MaterialIconButton(props: {
           style={{ width: buttonSize, height: buttonSize }}
         >
           <Component
+            shape={CONTROL_SHAPE}
             onClick={props.onPress}
             enabled={!props.disabled}
             modifiers={[size(buttonSize, buttonSize)]}

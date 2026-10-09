@@ -26,27 +26,11 @@ export function getMobileThemeRuntimeVariables(
   const variables = usesDefaultPalette
     ? defaults[appearance]
     : getMobileThemeVariables(themeId, appearance);
-  // Android's frame surrounds the sidebar and chat panes. Light iPad sidebars
-  // reuse that stronger tonal fill; dark sidebars retain the shared black pane
-  // beneath the near-black chat canvas. System colors replace these roles later.
-  const frame = themeColorWithAlpha(
-    variables[usesDefaultPalette ? "--color-row-hover" : "--color-drawer"],
-    1,
-  );
-  if (platform === "ios" && usesDefaultPalette && appearance === "light") {
-    return {
-      ...variables,
-      "--color-header": frame,
-      "--color-header-foreground": variables["--color-drawer-foreground"],
-      "--color-drawer": frame,
-      "--color-drawer-foreground-muted": variables["--color-foreground-muted"],
-    };
-  }
   if (platform !== "android") return variables;
 
   return {
     ...variables,
-    "--color-header": frame,
-    "--color-header-foreground": variables["--color-drawer-foreground"],
+    // Android headers render in flow and need an opaque toolbar background.
+    "--color-header": themeColorWithAlpha(variables["--color-header"], 1),
   };
 }

@@ -481,6 +481,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.created.record":
       return command.parentThreadId;
     case "secret_request.record":
+    case "thread.bot-update.record":
       return command.threadId;
     case "thread.fork":
     case "thread.merge_back":
@@ -6965,6 +6966,69 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     },
   );
 
+  const dispatchBotUpdateRecord = Effect.fn("orchestrationV2.dispatch.botUpdateRecord")(function* (
+    command: Extract<OrchestrationV2InternalCommand, { readonly type: "thread.bot-update.record" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const [projection, existing] = yield* Effect.all([
+      projectionStore.getThreadRecords(command.threadId, []),
+      projectionStore.getTurnItem({ threadId: command.threadId, itemId: command.turnItemId }),
+    ]).pipe(
+      Effect.mapError(
+        (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+      ),
+    );
+    if (existing !== null) {
+      // A retried update re-emits the recorded item; different content is a conflict.
+      if (existing.type === "assistant_message" && existing.text === command.text) {
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "turn-item.updated",
+          threadId: command.threadId,
+          occurredAt: existing.updatedAt,
+          payload: existing,
+        });
+        return;
+      }
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "This bot update already exists with different content.",
+      });
+    }
+    const now = yield* DateTime.now;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "turn-item.updated",
+      threadId: command.threadId,
+      occurredAt: now,
+      payload: {
+        id: command.turnItemId,
+        threadId: command.threadId,
+        runId: null,
+        nodeId: null,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: yield* nextTurnItemOrdinal(projection),
+        status: "completed",
+        title: null,
+        startedAt: now,
+        completedAt: now,
+        updatedAt: now,
+        type: "assistant_message",
+        messageId: MessageId.make(command.turnItemId),
+        text: command.text,
+        streaming: false,
+      },
+    });
+  });
+
   /**
    * Records or updates the card for a secret an agent asked the user for. The
    * item carries the request and its status only; the value goes straight to
@@ -10407,6 +10471,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "secret_request.record":
         yield* dispatchSecretRequestRecord(command, events);
+        break;
+      case "thread.bot-update.record":
+        yield* dispatchBotUpdateRecord(command, events);
         break;
       default:
         return yield* dispatchUnsupported(command);

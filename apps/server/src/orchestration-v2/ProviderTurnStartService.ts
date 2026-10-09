@@ -22,6 +22,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
+import * as BotRuntime from "../bots/BotRuntime.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
@@ -522,8 +523,23 @@ export const layer: Layer.Layer<
       });
       const { isCurrentAttemptInStatus } = runControls;
 
+      const botRuntime = yield* BotRuntime.BotRuntime;
+      // A bot thread runs only while its bot is live and may still reach the thread's project.
+      const bot = yield* botRuntime.authorize(
+        projection.thread.id,
+        "run",
+        projection.thread.projectId,
+        projection.thread.id,
+      );
+      const remoteBotTask = bot !== null && (yield* botRuntime.isRemoteTask(projection.thread.id));
       const resolvedRuntimePolicy = yield* runtimePolicy.resolve({
-        thread: projection.thread,
+        thread:
+          bot === null
+            ? projection.thread
+            : {
+                ...projection.thread,
+                runtimeMode: BotRuntime.botRuntimeMode(bot, projection.thread),
+              },
         modelSelection: run.modelSelection,
       });
       const existingSessionProjection = projection.providerSessions.find(
@@ -950,10 +966,18 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
-      const userText = projectComposerContextForProvider({
+      const messageText = projectComposerContextForProvider({
         text: message.text,
         records: message.context?.records ?? [],
       });
+      const userText =
+        bot === null
+          ? messageText
+          : `${BotRuntime.botTurnInstructions(
+              bot,
+              projection.thread.id,
+              remoteBotTask,
+            )}\n\n${messageText}`;
       // Delivered once: this run's provider turn marks the work as told. A
       // restart continuation is prompted by its own text or resumes natively.
       const noteContinuation = isRestartNoteContinuation(

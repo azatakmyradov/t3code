@@ -108,6 +108,12 @@ import { enqueueThreadOutboxMessage } from "./thread-outbox";
 import { dispatchingQueuedMessageIdAtom, useThreadOutboxMessages } from "./use-thread-outbox";
 import { threadEnvironment } from "./threads";
 import { useAtomCommand } from "./use-atom-command";
+import { useBotForThread } from "./bots";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
+import { serverEnvironment } from "./server";
 
 const EMPTY_QUEUE_WORKFLOW_ATOM = Atom.make<null>(null).pipe(
   Atom.withLabel("mobile-thread-queue-workflow:empty"),
@@ -182,6 +188,17 @@ export function useThreadComposerState() {
     selectedThreadCreation,
     selectedEnvironmentRuntime,
   } = useThreadSelection();
+  const botEntry = useBotForThread(selectedThreadShell?.id ?? null);
+  const mainBot =
+    botEntry?.bot.environmentId === selectedThreadShell?.environmentId &&
+    botEntry?.bot.threadId === selectedThreadShell?.id
+      ? botEntry?.bot
+      : null;
+  const updateBotAuthority = useAtomCommand(serverEnvironment.bots.update);
+  const canUpdateBotAuthority = useAtomValue(
+    serverEnvironment.bots.update.permissionAtom(selectedThreadShell?.environmentId ?? null),
+  );
+  const botAuthorityInFlight = useRef(false);
   const selectedThreadProjection = useSelectedThreadProjection();
   const selectedThreadVisibleTurnItems = useSelectedThreadVisibleTurnItems();
   const composerDrafts = useAtomValue(composerDraftsAtom);
@@ -331,7 +348,11 @@ export function useThreadComposerState() {
   const selectedThreadQueueCount = selectedThreadQueuedMessages.length;
   const selectedThread = selectedThreadShell;
   const modelSelection = selectedDraft?.modelSelection ?? selectedThread?.modelSelection ?? null;
-  const runtimeMode = selectedDraft?.runtimeMode ?? selectedThread?.runtimeMode ?? null;
+  const runtimeMode =
+    mainBot?.permissions.runtimeMode ??
+    selectedDraft?.runtimeMode ??
+    selectedThread?.runtimeMode ??
+    null;
   const selectedProvider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
     (provider) => provider.instanceId === modelSelection?.instanceId,
   );
@@ -698,7 +719,7 @@ export function useThreadComposerState() {
         attachments,
         context: draft.context,
         modelSelection,
-        runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
+        runtimeMode: mainBot?.permissions.runtimeMode ?? draft.runtimeMode ?? thread.runtimeMode,
         interactionMode: resolveProviderInteractionMode(
           provider,
           draft.interactionMode ?? thread.interactionMode,
@@ -733,6 +754,7 @@ export function useThreadComposerState() {
       canSteerActiveTurn,
       followUpBehavior,
       saveQueuedRunEdit,
+      mainBot,
       selectedEnvironmentRuntime?.connectionState,
       selectedEnvironmentRuntime?.serverConfig,
       selectedThreadCreation,
@@ -1023,13 +1045,30 @@ export function useThreadComposerState() {
   );
 
   const onUpdateRuntimeMode = useCallback(
-    (value: RuntimeMode) => {
+    async (value: RuntimeMode) => {
       if (!selectedThreadKey) {
+        return;
+      }
+      if (mainBot) {
+        if (!canUpdateBotAuthority || botAuthorityInFlight.current) return;
+        botAuthorityInFlight.current = true;
+        // A bot's main conversation saves authority on the bot, not the draft.
+        const result = await updateBotAuthority({
+          environmentId: mainBot.environmentId,
+          input: { botId: mainBot.id, expectedRevision: mainBot.revision, runtimeMode: value },
+        });
+        botAuthorityInFlight.current = false;
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const cause = squashAtomCommandFailure(result);
+          setPendingConnectionError(
+            cause instanceof Error ? cause.message : "Could not update bot authority.",
+          );
+        }
         return;
       }
       updateComposerDraftSettings(selectedThreadKey, { runtimeMode: value });
     },
-    [selectedThreadKey],
+    [selectedThreadKey, mainBot, canUpdateBotAuthority, updateBotAuthority],
   );
 
   const onUpdateInteractionMode = useCallback(
@@ -1087,6 +1126,7 @@ export function useThreadComposerState() {
     onSendMessage,
     onUpdateModelSelection,
     onUpdateRuntimeMode,
+    canUpdateRuntimeMode: !mainBot || canUpdateBotAuthority,
     onUpdateInteractionMode,
   };
 }

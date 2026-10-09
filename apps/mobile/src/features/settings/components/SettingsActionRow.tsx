@@ -16,11 +16,11 @@ export function SettingsActionRow(props: {
 }) {
   const danger = props.tone === "danger";
   const textClassName = danger ? "tabular-nums text-danger-foreground" : "text-foreground";
-  const iconColorClassName = danger ? "accent-danger-foreground" : "accent-icon";
+  const iconColorClassName = danger ? "accent-danger-foreground" : "accent-icon-muted";
   const icon = (
     <SymbolView
       name={props.icon}
-      size={Platform.OS === "android" ? 24 : 22}
+      size={20}
       tintColorClassName={iconColorClassName}
       type="monochrome"
       weight="regular"
@@ -47,10 +47,10 @@ export function SettingsActionRow(props: {
       accessibilityRole="button"
       disabled={props.disabled}
       onPress={props.onPress}
-      className="flex-row items-center gap-4 p-4 disabled:opacity-40"
+      className="min-h-13 flex-row items-center gap-3 px-3.5 py-3 disabled:opacity-40"
     >
       {icon}
-      <Text className={cn("flex-1 text-lg", textClassName)}>{props.label}</Text>
+      <Text className={cn("flex-1 text-base", textClassName)}>{props.label}</Text>
       {spinner}
     </Pressable>
   );

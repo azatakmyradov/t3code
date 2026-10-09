@@ -55,7 +55,7 @@ export function ConnectionsRouteScreen() {
         className="flex-1"
         contentContainerStyle={{
           paddingBottom: Math.max(insets.bottom, 18) + 18,
-          paddingHorizontal: 20,
+          paddingHorizontal: 16,
           paddingTop: 16,
         }}
       >

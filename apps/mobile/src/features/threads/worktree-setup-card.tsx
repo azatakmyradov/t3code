@@ -92,7 +92,7 @@ export function WorktreeSetupCard(props: WorktreeSetupCardProps) {
           <View
             className={
               backgroundSetup
-                ? "min-w-0 flex-row items-center gap-1 rounded-full border border-border px-2 py-1"
+                ? "min-w-0 flex-row items-center gap-1 rounded-md border border-border px-2 py-1"
                 : "flex-row items-center gap-1"
             }
           >

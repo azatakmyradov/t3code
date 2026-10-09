@@ -35,16 +35,23 @@ if [[ -z "$pairing_url" ]]; then
   exit 1
 fi
 
-deep_link="$(PAIRING_URL="$pairing_url" node - <<'NODE'
+deep_link="$(PAIRING_URL="$pairing_url" node --input-type=module - <<'NODE'
+import { FORK_DEVELOPMENT_SCHEME } from './packages/shared/src/forkIdentity.ts';
 const query = new URLSearchParams({
   pairingUrl: process.env.PAIRING_URL,
   autoConnect: "1",
 });
-process.stdout.write(`t3code-dev://connections/new?${query}`);
+process.stdout.write(`${FORK_DEVELOPMENT_SCHEME}://connections/new?${query}`);
 NODE
 )"
 
-if ! "$agent_device_command" open com.t3tools.t3code.dev "$deep_link" "$@" \
+bundle_id="$(node --input-type=module - <<'NODE'
+import { FORK_APP_ID } from './packages/shared/src/forkIdentity.ts';
+process.stdout.write(`${FORK_APP_ID}.dev`);
+NODE
+)"
+
+if ! "$agent_device_command" open "$bundle_id" "$deep_link" "$@" \
   >/dev/null 2>&1; then
   echo "AgentDevice could not open the pairing route. Check the Device panel and retry with a fresh credential." >&2
   exit 1

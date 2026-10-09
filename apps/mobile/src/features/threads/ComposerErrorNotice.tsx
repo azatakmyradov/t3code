@@ -21,7 +21,7 @@ export function ComposerErrorNotice({
   }, [message]);
   return (
     <View className="px-4 pb-3">
-      <View className="flex-row items-start gap-3 rounded-[20px] border-continuous bg-card p-4">
+      <View className="flex-row items-start gap-3 rounded-xl border-continuous bg-card p-4">
         <SymbolView
           name="exclamationmark.circle"
           size={16}

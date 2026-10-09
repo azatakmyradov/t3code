@@ -374,7 +374,10 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         >
           {canStartScratch && listScopes.length > 0 ? (
             Platform.OS === "android" ? (
-              <View collapsable={false} className="overflow-hidden rounded-[28px] bg-grouped-card">
+              <View
+                collapsable={false}
+                className="overflow-hidden rounded-xl border border-border bg-grouped-card"
+              >
                 <MaterialListRow
                   className="bg-grouped-card"
                   title="No project"
@@ -383,7 +386,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                   leading={
                     <SymbolView
                       name="text.bubble"
-                      size={22}
+                      size={20}
                       tintColorClassName="accent-icon-muted"
                       type="monochrome"
                     />
@@ -391,7 +394,10 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 />
               </View>
             ) : (
-              <View collapsable={false} className="overflow-hidden rounded-[24px] bg-grouped-card">
+              <View
+                collapsable={false}
+                className="overflow-hidden rounded-xl border border-border bg-grouped-card"
+              >
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="No project"
@@ -407,7 +413,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                     />
                   </View>
                   <View className="min-w-0 flex-1">
-                    <Text className="text-base font-t3-bold leading-snug">No project</Text>
+                    <Text className="text-base font-t3-medium leading-snug">No project</Text>
                     <Text className="text-xs leading-snug text-foreground-muted" numberOfLines={1}>
                       Start a task without a project
                     </Text>
@@ -427,13 +433,13 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               collapsable={false}
               className={cn(
                 "items-center gap-3 px-6 py-8",
-                Platform.OS !== "android" && "rounded-[24px] bg-grouped-card",
+                Platform.OS !== "android" && "rounded-xl border border-border bg-grouped-card",
               )}
             >
               {projectEmptyState.loading ? (
                 <ActivityIndicator colorClassName="accent-icon-muted" />
               ) : null}
-              <Text className="text-center text-lg font-t3-bold text-foreground">
+              <Text className="text-center text-lg font-t3-medium text-foreground">
                 {projectEmptyState.title}
               </Text>
               <Text className="text-center text-sm leading-normal text-foreground-muted">
@@ -460,29 +466,29 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 </>
               ) : !catalogState.hasReadyEnvironment ? (
                 <Pressable
-                  className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
+                  className="mt-1 rounded-lg bg-primary px-4 py-2.5 active:opacity-70"
                   onPress={() => navigation.navigate("ConnectionsNew")}
                 >
-                  <Text className="text-sm font-t3-bold text-primary-foreground">
+                  <Text className="text-sm font-t3-medium text-primary-foreground">
                     Add environment
                   </Text>
                 </Pressable>
               ) : (
                 <>
                   <Pressable
-                    className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
+                    className="mt-1 rounded-lg bg-primary px-4 py-2.5 active:opacity-70"
                     onPress={() => navigation.dispatch(StackActions.push("AddProject"))}
                   >
-                    <Text className="text-sm font-t3-bold text-primary-foreground">
+                    <Text className="text-sm font-t3-medium text-primary-foreground">
                       Add new project
                     </Text>
                   </Pressable>
                   {canStartScratch ? (
                     <Pressable
-                      className="rounded-full bg-subtle px-4 py-2.5 active:opacity-70"
+                      className="rounded-lg bg-subtle px-4 py-2.5 active:opacity-70"
                       onPress={() => void startScratch()}
                     >
-                      <Text className="text-sm font-t3-bold text-foreground">
+                      <Text className="text-sm font-t3-medium text-foreground">
                         Start without a project
                       </Text>
                     </Pressable>
@@ -492,7 +498,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
             </View>
           ) : pickerRows.length === 0 ? (
             <View className="items-center gap-2 px-6 py-8">
-              <Text className="text-center text-lg font-t3-bold text-foreground">
+              <Text className="text-center text-lg font-t3-medium text-foreground">
                 No matching projects
               </Text>
               <Text className="text-center text-sm leading-normal text-foreground-muted">
@@ -502,11 +508,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           ) : (
             <View
               collapsable={false}
-              className={
-                Platform.OS === "android"
-                  ? "overflow-hidden rounded-[28px] bg-grouped-card"
-                  : "overflow-hidden rounded-[24px] bg-grouped-card"
-              }
+              className="overflow-hidden rounded-xl border border-border bg-grouped-card"
             >
               {pickerRows.map((row, index) => {
                 const icon = (
@@ -514,7 +516,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                     environmentId={row.project.environmentId}
                     faviconPath={row.project.faviconPath}
                     projectIcon={row.project.projectIcon}
-                    size={Platform.OS === "android" ? 24 : 20}
+                    size={20}
                     projectTitle={row.project.title}
                     workspaceRoot={row.project.workspaceRoot}
                   />
@@ -554,7 +556,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                     >
                       <View className="h-7 w-7 items-center justify-center">{icon}</View>
                       <View className="min-w-0 flex-1">
-                        <Text className="text-base leading-snug font-t3-bold" numberOfLines={2}>
+                        <Text className="text-base leading-snug font-t3-medium" numberOfLines={2}>
                           {row.title}
                         </Text>
                         <Text

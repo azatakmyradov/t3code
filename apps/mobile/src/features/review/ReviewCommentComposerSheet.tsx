@@ -163,7 +163,9 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
         >
           <View className="flex-row items-center justify-between py-2">
             <Pressable
-              className="bg-subtle h-12 w-12 items-center justify-center rounded-full"
+              accessibilityLabel="Close"
+              accessibilityRole="button"
+              className="h-12 w-12 items-center justify-center rounded-lg bg-subtle"
               onPress={dismissComposer}
             >
               <SymbolView
@@ -180,7 +182,7 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
           </View>
 
           {!target ? (
-            <View className="rounded-[22px] border border-border bg-card px-4 py-5">
+            <View className="rounded-xl border border-border bg-card px-4 py-5">
               <Text className="text-base font-t3-bold text-foreground">No selection</Text>
               <Text className="mt-1 text-sm leading-normal text-foreground-muted">
                 Select a diff line or range first.
@@ -201,7 +203,7 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
                 </Text>
               </View>
 
-              <View className="overflow-hidden rounded-[22px] border border-border bg-card">
+              <View className="overflow-hidden rounded-xl border border-border bg-card">
                 <ScrollView
                   horizontal
                   bounces={false}
@@ -251,7 +253,7 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
 
               <View className="min-h-0 flex-1 gap-2">
                 <Text className="text-sm font-t3-bold text-foreground">Comment</Text>
-                <View className="min-h-[132px] flex-1 overflow-hidden rounded-[20px] border border-border bg-card">
+                <View className="min-h-[132px] flex-1 overflow-hidden rounded-xl border border-border bg-card">
                   <View className="min-h-0 flex-1 px-4 pt-3.5">
                     <TextInputWrapper onPaste={handleNativePaste} style={{ flex: 1, minHeight: 0 }}>
                       <TextInput

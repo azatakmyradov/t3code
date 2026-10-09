@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  BotError,
   CommandId,
   EnvironmentId,
   NodeId,
@@ -28,6 +29,7 @@ import {
   OrchestratorProjectionError,
   OrchestratorThreadAboveModeLimitError,
 } from "../orchestration-v2/Orchestrator.ts";
+import * as BotRuntime from "../bots/BotRuntime.ts";
 import type { ProviderAdapterV2Shape } from "../orchestration-v2/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -1803,6 +1805,100 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.equal(yield* Ref.get(upserted), 1);
         assert.equal(updated.scheduledTaskId, bound.id);
         assert.equal(updated.webhookUrl, undefined);
+      }),
+    );
+
+    it.effect("keeps a bot to its own routines in a shared project", () =>
+      Effect.gen(function* () {
+        const callerId = ThreadId.make("thread:bot-main");
+        const shell = { ...liveThreadShell(callerId), projectId };
+        const own = task({ id: ScheduledTaskId.make("scheduled-task:own"), threadId: callerId });
+        const peer = task({
+          id: ScheduledTaskId.make("scheduled-task:peer"),
+          threadId: boundThreadId,
+        });
+        const upserted = yield* Ref.make(0);
+        const deleted = yield* Ref.make(0);
+        const caller: McpInvocationScope = {
+          ...supervisedClient,
+          requestNamespace: "provider:bot-main",
+          thread: {
+            threadId: callerId,
+            providerSessionId: "provider:bot-main",
+            providerInstanceId: shell.providerInstanceId,
+          },
+          client: undefined,
+        };
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+          Effect.provide(
+            OrchestratorMcpService.layer.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  NodeServices.layer,
+                  Layer.mock(ThreadManagementService.ThreadManagementService)({
+                    getThreadShell: () => Effect.succeed(null),
+                    getThreadRecords: () => Effect.succeed(idleThreadProjection(shell)),
+                  }),
+                  Layer.mock(ProviderRegistry.ProviderRegistry)({
+                    getProviders: Effect.succeed([]),
+                  }),
+                  Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+                    list: () => Effect.succeed([]),
+                  }),
+                  Layer.mock(ProjectService.ProjectService)({}),
+                  Layer.mock(SecretRequests.SecretRequests)({}),
+                  Layer.mock(ScheduledTaskService.ScheduledTaskService)({
+                    list: () => Effect.succeed({ tasks: [own, peer] }),
+                    upsert: () =>
+                      Ref.update(upserted, (count) => count + 1).pipe(Effect.as({ task: own })),
+                    delete: () =>
+                      Ref.update(deleted, (count) => count + 1).pipe(Effect.as({ id: own.id })),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        );
+        // The bot owns only routines bound to its own thread.
+        const bots = {
+          forThread: () => Effect.succeed(null),
+          authorize: (_caller: ThreadId, tool: string, _project?: ProjectId, target?: ThreadId) =>
+            target === callerId || (tool !== "schedule" && target === undefined)
+              ? Effect.succeed(null)
+              : Effect.fail(new BotError({ code: "permission_denied" })),
+          isRemoteTask: () => Effect.succeed(false),
+        };
+        const asBot = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+          effect.pipe(Effect.provideService(BotRuntime.BotRuntime, bots));
+
+        const listed = yield* asBot(mcp.listScheduledTasks(caller, { projectId }));
+        assert.deepEqual(
+          listed.tasks.map((summary) => summary.scheduledTaskId),
+          [own.id],
+        );
+        const updateError = yield* asBot(
+          mcp.updateScheduledTask(caller, { scheduledTaskId: peer.id, prompt: "Replaced" }),
+        ).pipe(Effect.flip);
+        assert.equal(updateError.code, "capability_denied");
+        const deleteError = yield* asBot(
+          mcp.deleteScheduledTask(caller, { scheduledTaskId: peer.id }),
+        ).pipe(Effect.flip);
+        assert.equal(deleteError.code, "capability_denied");
+        // An unbound routine would run as an ordinary thread, outside the bot's pause.
+        const unboundError = yield* asBot(
+          mcp.scheduleTask(caller, {
+            prompt: "Work",
+            schedule: { type: "interval", everyMs: 60_000 },
+            bindToCurrentThread: false,
+          }),
+        ).pipe(Effect.flip);
+        assert.equal(unboundError.code, "capability_denied");
+        const unbindError = yield* asBot(
+          mcp.updateScheduledTask(caller, { scheduledTaskId: own.id, bindToCurrentThread: false }),
+        ).pipe(Effect.flip);
+        assert.equal(unbindError.code, "capability_denied");
+        assert.equal(yield* Ref.get(upserted), 0);
+        assert.equal(yield* Ref.get(deleted), 0);
       }),
     );
   });

@@ -23,7 +23,7 @@ export function ProjectCloneBanner(props: {
   const name = projectCloneDisplayName(clone);
   if (clone.phase === "running") {
     return (
-      <View className="flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3.5 py-3">
+      <View className="flex-row items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3">
         <ActivityIndicator size="small" />
         <View className="min-w-0 flex-1">
           <Text className="font-t3-medium text-sm" numberOfLines={1}>
@@ -41,7 +41,7 @@ export function ProjectCloneBanner(props: {
   return (
     <View
       className={cn(
-        "rounded-2xl border px-3.5 py-3",
+        "rounded-xl border px-3.5 py-3",
         cancelled ? "border-warning-border bg-warning" : "border-danger-border bg-danger",
       )}
     >
@@ -72,7 +72,7 @@ function BannerAction(props: { readonly label: string; readonly onPress: () => v
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={props.label}
-      className="rounded-full border border-border bg-background px-3 py-1.5"
+      className="rounded-lg border border-border px-3 py-1.5"
       onPress={props.onPress}
     >
       <Text className="font-t3-medium text-xs">{props.label}</Text>

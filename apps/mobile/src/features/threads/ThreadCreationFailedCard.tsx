@@ -13,7 +13,7 @@ export function ThreadCreationFailedCard(props: {
   readonly onEditTask: () => void;
 }) {
   return (
-    <View className="gap-2.5 rounded-[20px] border border-border-subtle bg-card-alt p-4">
+    <View className="gap-2.5 rounded-xl border border-border-subtle bg-card-alt p-4">
       <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-danger-foreground">
         Could not start task
       </Text>

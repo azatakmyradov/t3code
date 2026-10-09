@@ -5,7 +5,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  Text as SystemText,
   View,
   type LayoutChangeEvent,
 } from "react-native";
@@ -246,22 +245,19 @@ const VoiceWaveform = memo(function VoiceWaveform(props: {
   );
 });
 
-/**
- * Renders the recording time in the system font: DM Sans has no tabular
- * figures, so `tabular-nums` alone would still let the width jitter.
- */
+/** Renders the recording time with tabular figures so its width stays fixed. */
 export function DictationElapsedTime(props: {
   readonly seconds: number;
   readonly className?: string;
 }) {
   return (
-    <SystemText
+    <Text
       className={cn("text-xs", props.className)}
       numberOfLines={1}
       style={{ fontVariant: ["tabular-nums"] }}
     >
       {Math.floor(props.seconds / 60)}:{String(props.seconds % 60).padStart(2, "0")}
-    </SystemText>
+    </Text>
   );
 }
 

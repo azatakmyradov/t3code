@@ -261,3 +261,37 @@ it.effect("rejects protected unary and streamed RPCs outside a guarded command",
     expect(writes).toBe(0);
   }),
 );
+
+it.effect("checks bot mutations against the destination environment's current grant", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const registry = yield* setup;
+      registry.set(sessions(env), AsyncResult.success(grant(true)));
+      registry.set(sessions(other), AsyncResult.success(grant(false)));
+      for (const tag of [
+        WS_METHODS.botsCreate,
+        WS_METHODS.botsUpdate,
+        WS_METHODS.botsWriteContext,
+        WS_METHODS.botsStartTask,
+        WS_METHODS.botsCancelTask,
+        WS_METHODS.botsDelete,
+        WS_METHODS.botsSendMessage,
+        WS_METHODS.botsRequest,
+        WS_METHODS.botsReply,
+        WS_METHODS.botsConnect,
+        WS_METHODS.botsDisconnect,
+      ]) {
+        const command = createCommandPermissions(runtime, tag);
+        expect(registry.get(command.permissionAtom(env))).toBe(true);
+        expect(registry.get(command.permissionAtom(other))).toBe(false);
+        yield* command.authorize(registry, env);
+        const denied = yield* command.authorize(registry, other).pipe(Effect.flip);
+        expect(denied._tag).toBe("EnvironmentAuthorizationError");
+        registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(registry.get(command.permissionAtom(env))).toBe(false);
+        yield* command.authorize(registry, env).pipe(Effect.flip);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+      }
+    }),
+  ),
+);

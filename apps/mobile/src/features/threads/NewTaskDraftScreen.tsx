@@ -1698,15 +1698,7 @@ export function NewTaskDraftScreen(props: {
         </Pressable>
       ) : null}
 
-      <ComposerSurface
-        style={{
-          borderRadius: 26,
-          minHeight: 140,
-          overflow: "hidden",
-          paddingBottom: 6,
-          paddingTop: 14,
-        }}
-      >
+      <ComposerSurface style={{ minHeight: 140, paddingBottom: 6, paddingTop: 14 }}>
         {stripAttachments.length > 0 ? (
           <View className="px-[14px] pb-2.5">
             <ComposerAttachmentStrip

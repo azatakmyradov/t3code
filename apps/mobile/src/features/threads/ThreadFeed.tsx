@@ -859,7 +859,7 @@ function ArtifactTemplateCard(props: {
   readonly onUse?: ((template: CodexArtifactTemplate) => void) | undefined;
 }) {
   return (
-    <View className="my-2 min-w-0 flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3">
+    <View className="my-2 min-w-0 flex-row items-center gap-3 rounded-xl border border-border bg-card px-3 py-3">
       <View className="relative h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-subtle">
         <SymbolView
           name={ARTIFACT_TEMPLATE_SYMBOL_BY_KIND[props.template.artifactKind]}
@@ -891,7 +891,7 @@ function ArtifactTemplateCard(props: {
           className="min-h-9 justify-center rounded-lg border border-border bg-subtle px-3 active:opacity-65"
           onPress={() => props.onUse?.(props.template)}
         >
-          <Text className="font-t3-bold text-xs text-foreground">Use template</Text>
+          <Text className="font-t3-medium text-xs text-foreground">Use template</Text>
         </Pressable>
       ) : null}
     </View>
@@ -1727,7 +1727,7 @@ function renderFeedEntry(
             />
           ) : null}
           <View
-            className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
+            className="min-w-0 gap-2 rounded-xl px-3.5 py-2.5"
             style={{
               backgroundColor: userBubbleColor,
               maxWidth: props.userBubbleMaxWidth,
@@ -1816,7 +1816,7 @@ function renderFeedEntry(
                 accessibilityRole="text"
                 accessibilityLabel={intentBadge.accessibilityLabel}
                 className={cn(
-                  "rounded-full border px-1.5 py-0.5",
+                  "rounded-md border px-1.5 py-0.5",
                   intentBadge.tone === "queued"
                     ? "border-adaptive-amber-500-a25-400-a25 bg-adaptive-amber-500-a10-400-a10"
                     : "border-adaptive-sky-500-a25-400-a25 bg-adaptive-sky-500-a10-400-a10",
