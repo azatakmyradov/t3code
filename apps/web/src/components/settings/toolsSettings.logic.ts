@@ -123,8 +123,6 @@ export interface SkillRow {
 }
 
 function skillGroup(skill: ServerProviderSkill): SkillGroupKind {
-  const path = skill.path.replaceAll("\\", "/");
-  if (path.includes("/plugins/")) return "plugin";
   switch (resolveProviderSkillSourceKind(skill)) {
     case "project":
     case "repo":

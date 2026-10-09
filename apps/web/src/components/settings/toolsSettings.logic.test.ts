@@ -39,6 +39,39 @@ const provider = (
   }) as ServerProvider;
 
 describe("collectSkillRows", () => {
+  it("keeps repository plugins directories separate from provider plugin installs", () => {
+    const rows = collectSkillRows(
+      [
+        provider("codex", [
+          {
+            name: "repo-plugin",
+            path: "/workspace/plugins/review/SKILL.md",
+            scope: "project",
+            enabled: true,
+          },
+          {
+            name: "installed-plugin",
+            path: "/home/me/.codex/plugins/review/SKILL.md",
+            scope: "user",
+            enabled: true,
+          },
+          {
+            name: "declared-plugin",
+            path: "/extensions/review/SKILL.md",
+            scope: "plugin",
+            enabled: true,
+          },
+        ]),
+      ],
+      null,
+    );
+    expect(Object.fromEntries(rows.map((row) => [row.name, row.group]))).toEqual({
+      "repo-plugin": "project",
+      "installed-plugin": "plugin",
+      "declared-plugin": "plugin",
+    });
+  });
+
   it("merges one skill across providers and folders, grouped by its most specific location", () => {
     const rows = collectSkillRows(
       [
