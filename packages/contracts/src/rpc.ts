@@ -1,4 +1,12 @@
 import {
+  McpOAuthTarget,
+  McpOAuthBeginInput,
+  McpOAuthBeginResult,
+  McpOAuthStatus,
+  McpOAuthCancelInput,
+  McpOAuthError,
+} from "./mcpOAuth.ts";
+import {
   BotTaskCancelInput,
   BotDeleteInput,
   BotSendInput,
@@ -401,6 +409,12 @@ export const WS_METHODS = {
   assetsPersistChatAttachments: "assets.persistChatAttachments",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
   attachmentsDelete: "attachments.delete",
+
+  // Shared outbound MCP OAuth
+  mcpOAuthBegin: "mcpOAuth.begin",
+  mcpOAuthStatus: "mcpOAuth.status",
+  mcpOAuthCancel: "mcpOAuth.cancel",
+  mcpOAuthDisconnect: "mcpOAuth.disconnect",
 
   // MCP Apps methods
   mcpAppsCallTool: "mcpApps.callTool",
@@ -1289,6 +1303,26 @@ const WsAttachmentsDeleteRpc = Rpc.make(WS_METHODS.attachmentsDelete, {
   error: EnvironmentAuthorizationError,
 });
 
+const McpOAuthRpcError = Schema.Union([McpOAuthError, EnvironmentAuthorizationError]);
+const WsMcpOAuthBeginRpc = Rpc.make(WS_METHODS.mcpOAuthBegin, {
+  payload: McpOAuthBeginInput,
+  success: McpOAuthBeginResult,
+  error: McpOAuthRpcError,
+});
+const WsMcpOAuthStatusRpc = Rpc.make(WS_METHODS.mcpOAuthStatus, {
+  payload: McpOAuthTarget,
+  success: McpOAuthStatus,
+  error: McpOAuthRpcError,
+});
+const WsMcpOAuthCancelRpc = Rpc.make(WS_METHODS.mcpOAuthCancel, {
+  payload: McpOAuthCancelInput,
+  error: McpOAuthRpcError,
+});
+const WsMcpOAuthDisconnectRpc = Rpc.make(WS_METHODS.mcpOAuthDisconnect, {
+  payload: McpOAuthTarget,
+  error: McpOAuthRpcError,
+});
+
 const WsMcpAppsCallToolRpc = Rpc.make(WS_METHODS.mcpAppsCallTool, {
   payload: McpAppCallToolInput,
   success: McpAppCallToolResult,
@@ -2016,6 +2050,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsAssetsPersistChatAttachmentsRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,
+  WsMcpOAuthBeginRpc,
+  WsMcpOAuthStatusRpc,
+  WsMcpOAuthCancelRpc,
+  WsMcpOAuthDisconnectRpc,
   WsMcpAppsCallToolRpc,
   WsMcpAppsToolInfoRpc,
   WsMcpAppsReadResourceRpc,

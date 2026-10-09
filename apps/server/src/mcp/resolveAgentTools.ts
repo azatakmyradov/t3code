@@ -1,7 +1,7 @@
 import type { ProjectId, ResolvedMcpServer, ServerSettings } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
-import type { McpProviderSessionTools } from "./McpProviderSession.ts";
+import type { McpProviderSessionConfig, McpProviderSessionTools } from "./McpProviderSession.ts";
 
 /**
  * A thread's tools from settings whose secrets are already materialized:
@@ -24,4 +24,31 @@ export function resolveAgentTools(
       ? ""
       : JSON.stringify({ servers, disabledSkills });
   return { servers, disabledSkills, fingerprint };
+}
+
+/** Providers receive a session-scoped T3 credential, never an OAuth access/refresh token. */
+export function proxyAgentTools(
+  tools: McpProviderSessionTools,
+  credential: Pick<McpProviderSessionConfig, "endpoint" | "authorizationHeader">,
+): McpProviderSessionTools {
+  return {
+    ...tools,
+    servers: tools.servers.map((server) =>
+      server.transport.type === "http" && server.transport.authentication === "oauth"
+        ? {
+            name: server.name,
+            transport: {
+              type: "http" as const,
+              url: new URL(
+                `/api/mcp-oauth/proxy/${encodeURIComponent(server.name)}`,
+                credential.endpoint,
+              ).href,
+              headers: [
+                { name: "Authorization", value: credential.authorizationHeader, sensitive: true },
+              ],
+            },
+          }
+        : server,
+    ),
+  };
 }

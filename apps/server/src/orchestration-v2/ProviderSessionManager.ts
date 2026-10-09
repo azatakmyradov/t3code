@@ -41,7 +41,7 @@ import {
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSession from "../mcp/McpProviderSession.ts";
-import { resolveAgentTools } from "../mcp/resolveAgentTools.ts";
+import { proxyAgentTools, resolveAgentTools } from "../mcp/resolveAgentTools.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as EventSink from "./EventSink.ts";
@@ -534,7 +534,10 @@ export const layerWithOptions = (
                   ) {
                     // The credential stays; the user's tools are re-read on
                     // every prepare so a reopened process picks up an edit.
-                    McpProviderSession.setMcpProviderSession({ ...existing, tools });
+                    McpProviderSession.setMcpProviderSession({
+                      ...existing,
+                      tools: proxyAgentTools(tools, existing),
+                    });
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
                   dropMcpCredentialReservation(threadId, existing.providerSessionId);
@@ -546,7 +549,10 @@ export const layerWithOptions = (
                   browserToolsAvailable,
                   capabilities,
                 });
-                McpProviderSession.setMcpProviderSession({ ...credential.config, tools });
+                McpProviderSession.setMcpProviderSession({
+                  ...credential.config,
+                  tools: proxyAgentTools(tools, credential.config),
+                });
                 reserveMcpCredential(threadId, credential.config.providerSessionId);
                 return { mcpCredentialId: credential.config.providerSessionId, issued: true };
               }),

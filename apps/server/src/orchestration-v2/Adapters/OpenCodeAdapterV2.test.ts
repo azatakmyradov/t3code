@@ -36,6 +36,7 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { proxyAgentTools } from "../../mcp/resolveAgentTools.ts";
 import * as ServerConfig from "../../config.ts";
 import type { EventNdjsonLogger } from "../../provider/EventNdjsonLogger.ts";
 import type { OpenCodeRuntimeShape } from "../../provider/opencodeRuntime.ts";
@@ -377,6 +378,72 @@ describe("OpenCodeAdapterV2", () => {
         { permission: "t3u-*", pattern: "*", action: "deny" },
         { permission: `${registrations[0]!.name}_*`, pattern: "*", action: "allow" },
       ]);
+    }).pipe(Effect.provide(IdAllocator.layer), Effect.scoped),
+  );
+
+  it.effect("routes shared OAuth servers through the bridge in OpenCode registrations", () =>
+    Effect.gen(function* () {
+      const suffix = "shared-oauth";
+      const threadId = ThreadId.make(`thread-opencode-${suffix}`);
+      const credential = {
+        environmentId: EnvironmentId.make("environment:opencode-test"),
+        threadId,
+        providerSessionId: "mcp:shared-oauth",
+        providerInstanceId: ProviderInstanceId.make(`opencode-${suffix}`),
+        endpoint: "http://127.0.0.1:43123/mcp",
+        authorizationHeader: "Bearer thread-bridge-credential",
+        browserToolsAvailable: false,
+      };
+      McpProviderSession.setMcpProviderSession({
+        ...credential,
+        tools: proxyAgentTools(
+          {
+            servers: [
+              {
+                name: McpServerName.make("linear"),
+                transport: {
+                  type: "http",
+                  url: "https://mcp.linear.app/mcp",
+                  authentication: "oauth",
+                  headers: [{ name: "X-Workspace", value: "upstream-only", sensitive: true }],
+                },
+              },
+            ],
+            disabledSkills: [],
+            fingerprint: "shared-oauth-config",
+          },
+          credential,
+        ),
+      });
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
+      );
+      const registrations: Array<{ name: string; config: unknown }> = [];
+      const nativeEvents = asyncEventStream();
+      yield* makeOpenCodeRuntimeHarness(suffix, "root", {
+        event: { subscribe: async () => ({ stream: nativeEvents.stream }) },
+        mcp: {
+          add: async (input: { name: string; config: unknown }) => {
+            registrations.push(input);
+            return { data: {} };
+          },
+          disconnect: async () => ({ data: true }),
+        },
+        session: {
+          create: async () => ({ data: { id: "root", time: { created: 1, updated: 1 } } }),
+          abort: async () => ({ data: true }),
+          children: async () => ({ data: [] }),
+        },
+      }).pipe(Effect.scoped);
+      assert.equal(registrations.length, 1);
+      assert.match(registrations[0]!.name, /^t3u-[a-f0-9]{8}-linear$/);
+      assert.deepEqual(registrations[0]!.config, {
+        type: "remote",
+        url: "http://127.0.0.1:43123/api/mcp-oauth/proxy/linear",
+        headers: { Authorization: "Bearer thread-bridge-credential" },
+      });
+      assert.notInclude(JSON.stringify(registrations), "https://mcp.linear.app/mcp");
+      assert.notInclude(JSON.stringify(registrations), "upstream-only");
     }).pipe(Effect.provide(IdAllocator.layer), Effect.scoped),
   );
 

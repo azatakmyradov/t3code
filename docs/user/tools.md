@@ -34,9 +34,26 @@ Renaming a server or a stored secret, or making a stored secret plain text, requ
 value again. When editing across environments, supply replacement credentials if any destination
 does not already have its own saved value.
 
+For a URL server that uses OAuth, choose **Browser sign-in**, save it, then **Connect**.
+Sign in once for the selected environment. Claude, Codex and OpenCode use that connection, and
+T3 refreshes it while agents work. Tokens stay in the environment's protected secret store.
+Check its connection status or disconnect in the same row. If an agent started before you connected,
+restart its session to retry loading the server. Disconnect removes T3's saved credentials; revoke
+access at the provider too if you want to end its authorization grant.
+
+Browser sign-in currently requires a public HTTPS MCP server with OAuth discovery, dynamic public
+client registration, and PKCE S256. If the authorization service cannot identify itself on return,
+T3 asks you to review its exact issuer, endpoints and requested scopes before opening sign-in.
+Only continue if you independently trust that service: this compatibility option cannot prevent a
+malicious or compromised service from misdirecting sign-in. The approved endpoints are pinned to
+this connection; changed details require another review. Reconnecting asks for trust again.
+For remote environments, use an HTTPS address
+that your sign-in browser can reach; local loopback addresses work when signing in on the host.
+Sign-in is per environment, so select one environment or checkout when editing a bulk scope.
+
 With a project selected, servers you add belong to that project. Giving one the same name as an
 environment server replaces it for the project, which is how to point a project at a different
-account. Inherited servers can be switched off for the project without removing them elsewhere.
+account, including a separate browser sign-in. Inherited servers can be switched off for the project without removing them elsewhere.
 
 Claude, Codex, Cursor, OpenCode, Grok and other ACP agents get these servers. ACP agents that don't
 support URL servers only get command servers. Pi isn't supported yet.

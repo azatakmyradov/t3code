@@ -297,6 +297,14 @@ describe("searchSettings", () => {
     });
   });
 
+  it("finds shared MCP browser sign-in from OAuth search", () => {
+    expect(searchSettings("mcp oauth")[0]).toMatchObject({
+      to: "/settings/tools",
+      id: "tools-mcp-servers",
+      search: { tab: "mcp" },
+    });
+  });
+
   it("keeps catalog result ids unique", () => {
     const ids = SETTINGS_SEARCH_ITEMS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);

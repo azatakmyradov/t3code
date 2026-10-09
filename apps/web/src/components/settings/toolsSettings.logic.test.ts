@@ -22,6 +22,7 @@ import {
   parseMcpServerJson,
   formatArgs,
   takenMcpServerNames,
+  resolveMcpOAuthTarget,
   withSkillDisabled,
 } from "./toolsSettings.logic";
 
@@ -506,5 +507,87 @@ describe("Tools writes", () => {
     source = saved = { ...saved, disabledSkills: ["external"] };
     await persist(environmentId, disable("next"));
     expect(saved.disabledSkills).toEqual(["external", "next"]);
+  });
+});
+
+describe("MCP OAuth ownership and drafts", () => {
+  const environmentId = EnvironmentId.make("environment-a");
+  const projectId = ProjectId.make("project-a");
+  const config: McpServerConfig = {
+    enabled: true,
+    transport: {
+      type: "http",
+      url: "https://example.com/mcp",
+      authentication: "oauth",
+      headers: [],
+    },
+  };
+  it("retains OAuth only when selected and preserves static-header compatibility", () => {
+    const draft = mcpServerDraftFrom("tools", config);
+    expect(draft.authentication).toBe("oauth");
+    expect(mcpServerFromDraft(draft, new Set())).toEqual({
+      ok: true,
+      name: "tools",
+      transport: config.transport,
+    });
+    expect(mcpServerFromDraft({ ...draft, authentication: "headers" }, new Set())).toEqual({
+      ok: true,
+      name: "tools",
+      transport: { type: "http", url: "https://example.com/mcp", headers: [] },
+    });
+  });
+  it("requires removing an explicit Authorization header before browser sign-in", () => {
+    const draft = mcpServerDraftFrom("tools", {
+      ...config,
+      transport: {
+        ...config.transport,
+        type: "http",
+        url: "https://example.com/mcp",
+        headers: [{ name: "aUtHoRiZaTiOn", value: "Bearer secret", sensitive: true }],
+      },
+    });
+    expect(mcpServerFromDraft(draft, new Set())).toMatchObject({ ok: false, field: "variables" });
+  });
+  it("uses environment credentials for inheritance and project credentials for replacements", () => {
+    const inherited = listMcpServerRows({ environment: { tools: config }, project: {} })[0]!;
+    const switched = listMcpServerRows({
+      environment: { tools: config },
+      project: { tools: { enabled: false } },
+    })[0]!;
+    const overridden = listMcpServerRows({
+      environment: { tools: config },
+      project: { tools: config },
+    })[0]!;
+    const targets = [{ environmentId, projectId }];
+    expect(resolveMcpOAuthTarget(inherited, targets)).toEqual({
+      environmentId,
+      input: { name: "tools" },
+    });
+    expect(resolveMcpOAuthTarget(switched, targets)).toEqual({
+      environmentId,
+      input: { name: "tools" },
+    });
+    expect(resolveMcpOAuthTarget(overridden, targets)).toEqual({
+      environmentId,
+      input: { name: "tools", projectId },
+    });
+  });
+  it("does not guess which environment or checkout to sign in to", () => {
+    const row = listMcpServerRows({ environment: { tools: config }, project: null })[0]!;
+    expect(resolveMcpOAuthTarget(row, [])).toBeNull();
+    // One online destination does not make a bulk selection unambiguous.
+    expect(resolveMcpOAuthTarget(row, [{ environmentId, projectId: null }], 2)).toBeNull();
+    expect(
+      resolveMcpOAuthTarget(row, [
+        { environmentId, projectId: null },
+        { environmentId: EnvironmentId.make("environment-b"), projectId: null },
+      ]),
+    ).toBeNull();
+    expect(
+      resolveMcpOAuthTarget(row, [
+        { environmentId, projectId },
+        { environmentId, projectId: ProjectId.make("project-b") },
+      ]),
+    ).toBeNull();
   });
 });

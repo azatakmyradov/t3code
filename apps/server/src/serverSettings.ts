@@ -31,6 +31,8 @@ import {
   ServerSettingsError,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
+import * as OutboundMcpOAuth from "./mcp/OutboundMcpOAuth.ts";
+import { savedOAuthBindings, sameOAuthBinding } from "./mcp/outboundMcpBindings.ts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -653,6 +655,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
+  const outboundOAuth = yield* Effect.serviceOption(OutboundMcpOAuth.OutboundMcpOAuth);
   const sql = yield* SqlClient.SqlClient;
   const writeSemaphore = yield* Semaphore.make(1);
   const cacheKey = "settings" as const;
@@ -1269,6 +1272,23 @@ const make = Effect.gen(function* () {
     );
   };
 
+  const removeChangedOAuthBindings = (current: ServerSettings, next: ServerSettings) =>
+    Effect.gen(function* () {
+      if (Option.isNone(outboundOAuth)) return;
+      const nextBindings = savedOAuthBindings(next);
+      for (const binding of savedOAuthBindings(current)) {
+        if (nextBindings.some((candidate) => sameOAuthBinding(binding, candidate))) continue;
+        yield* outboundOAuth.value
+          .disconnect(binding)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ServerSettingsError({ settingsPath, operation: "remove-secret", cause }),
+            ),
+          );
+      }
+    });
+
   const updateAndPersistSettings = <E>(
     update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError | E>,
     authorize?: (current: ServerSettings) => Effect.Effect<void, E>,
@@ -1279,6 +1299,9 @@ const make = Effect.gen(function* () {
         // Authorize against the exact snapshot being changed, while writes are locked.
         if (authorize) yield* authorize(current);
         const updated = yield* update(current);
+        // Invalidate pending callbacks and refreshes before a removed/replaced config can be reused.
+        // A later settings write failure leaves the connection signed out, which is fail-closed.
+        yield* removeChangedOAuthBindings(current, updated);
         const persisted = yield* persistProviderEnvironmentSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>
@@ -1318,8 +1341,10 @@ const make = Effect.gen(function* () {
 
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
+      const previous = yield* getSettingsFromCache;
       yield* Cache.invalidate(settingsCache, cacheKey);
       const settings = yield* getSettingsFromCache;
+      yield* removeChangedOAuthBindings(previous, settings);
       yield* emitChange(settings);
     }),
   );

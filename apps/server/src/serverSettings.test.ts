@@ -26,6 +26,8 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import * as OutboundMcpOAuth from "./mcp/OutboundMcpOAuth.ts";
+import * as OutboundMcpOAuthHttp from "./mcp/OutboundMcpOAuthHttp.ts";
 import * as ServerConfig from "./config.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import { writeFileStringAtomically } from "./atomicWrite.ts";
@@ -1780,6 +1782,177 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         assert.isUndefined(removed.mcpServers.supabase);
         assert.equal(envVars(removed, "project")[0]?.value, "project-token");
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
+  it.effect(
+    "disconnects OAuth grants for removed, replaced and static transports by their saved owner",
+    () => {
+      const disconnected: OutboundMcpOAuth.McpOAuthBinding[] = [];
+      const layer = layerServerSettingsWithSecrets().pipe(
+        Layer.provide(
+          Layer.mock(OutboundMcpOAuth.OutboundMcpOAuth)({
+            disconnect: (binding) =>
+              Effect.sync(() => {
+                disconnected.push(binding);
+              }),
+          }),
+        ),
+      );
+      return Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const transport = {
+          type: "http" as const,
+          url: "https://mcp.example.com/mcp",
+          authentication: "oauth" as const,
+          headers: [],
+        };
+        const projectId = ProjectId.make("oauth-owner-project");
+        yield* service.updateSettings({
+          mcpServers: { docs: { enabled: true, transport } },
+          projectSettingsOverrides: {
+            [projectId]: { mcpServers: { docs: { enabled: true, transport } } },
+          },
+        });
+        assert.deepEqual(disconnected, []);
+        yield* service.updateSettings({ mcpServers: { docs: null } });
+        assert.deepEqual(disconnected, [
+          { owner: "environment", name: "docs", url: transport.url },
+        ]);
+        yield* service.updateSettings({ mcpServers: { docs: { enabled: true, transport } } });
+        const replacement = { ...transport, url: "https://replacement.example.com/mcp" };
+        yield* service.updateSettings({
+          mcpServers: { docs: { enabled: true, transport: replacement } },
+        });
+        assert.deepEqual(disconnected.at(-1), {
+          owner: "environment",
+          name: "docs",
+          url: transport.url,
+        });
+        yield* service.updateSettings({
+          mcpServers: {
+            docs: {
+              enabled: true,
+              transport: { type: "http", url: replacement.url, headers: [] },
+            },
+          },
+        });
+        assert.deepEqual(disconnected.at(-1), {
+          owner: "environment",
+          name: "docs",
+          url: replacement.url,
+        });
+        yield* service.updateSettings({ projectSettingsOverrides: { [projectId]: null } });
+        assert.deepEqual(disconnected.at(-1), {
+          owner: `project:${projectId}`,
+          name: "docs",
+          url: transport.url,
+        });
+        assert.lengthOf(disconnected, 4);
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.effect("retains OAuth grants across enable switches and inherited project overrides", () => {
+    const disconnected: OutboundMcpOAuth.McpOAuthBinding[] = [];
+    const layer = layerServerSettingsWithSecrets().pipe(
+      Layer.provide(
+        Layer.mock(OutboundMcpOAuth.OutboundMcpOAuth)({
+          disconnect: (binding) =>
+            Effect.sync(() => {
+              disconnected.push(binding);
+            }),
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const transport = {
+        type: "http" as const,
+        url: "https://mcp.example.com/mcp",
+        authentication: "oauth" as const,
+        headers: [],
+      };
+      const projectId = ProjectId.make("oauth-inherited-project");
+      yield* service.updateSettings({ mcpServers: { docs: { enabled: true, transport } } });
+      yield* service.updateSettings({ mcpServers: { docs: { enabled: false, transport } } });
+      yield* service.updateSettings({ mcpServers: { docs: { enabled: true, transport } } });
+      yield* service.updateSettings({
+        projectSettingsOverrides: {
+          [projectId]: { mcpServers: { docs: { enabled: false } } },
+        },
+      });
+      yield* service.updateSettings({ projectSettingsOverrides: { [projectId]: null } });
+      assert.deepEqual(disconnected, []);
+      assert.deepEqual((yield* service.getSettings).mcpServers.docs, { enabled: true, transport });
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("does not persist an OAuth removal when revoking the old grant fails", () => {
+    const layer = layerServerSettingsWithSecrets().pipe(
+      Layer.provide(
+        Layer.mock(OutboundMcpOAuth.OutboundMcpOAuth)({
+          disconnect: () =>
+            Effect.fail(new OutboundMcpOAuth.OutboundMcpOAuthError({ code: "storage" })),
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const transport = {
+        type: "http" as const,
+        url: "https://mcp.example.com/mcp",
+        authentication: "oauth" as const,
+        headers: [],
+      };
+      yield* service.updateSettings({ mcpServers: { docs: { enabled: true, transport } } });
+      const persistedBefore = yield* fs.readFileString(config.settingsPath);
+      const error = yield* service.updateSettings({ mcpServers: { docs: null } }).pipe(Effect.flip);
+      assert.equal(error.operation, "remove-secret");
+      assert.equal(yield* fs.readFileString(config.settingsPath), persistedBefore);
+      assert.deepEqual((yield* service.getSettings).mcpServers.docs, { enabled: true, transport });
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect.each(["http://public.example/mcp", "https://localhost/mcp", "not-a-url"])(
+    "can remove an OAuth transport with a disallowed saved URL %s without networking",
+    (url) => {
+      const layer = ServerSettingsModule.layer.pipe(
+        Layer.provide(
+          OutboundMcpOAuth.layer.pipe(
+            Layer.provide(
+              Layer.mock(OutboundMcpOAuthHttp.OutboundMcpOAuthHttp)({
+                fetch: () =>
+                  Effect.die("Removing an OAuth connection must not contact the network."),
+              }),
+            ),
+          ),
+        ),
+        Layer.provideMerge(ServerSecretStore.layer),
+        Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
+        Layer.provideMerge(
+          Layer.fresh(
+            ServerConfig.layerTest(process.cwd(), {
+              prefix: "t3code-settings-invalid-oauth-test-",
+            }),
+          ),
+        ),
+      );
+      return Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        yield* service.updateSettings({
+          mcpServers: {
+            docs: {
+              enabled: true,
+              transport: { type: "http", url, authentication: "oauth", headers: [] },
+            },
+          },
+        });
+        yield* service.updateSettings({ mcpServers: { docs: null } });
+        assert.isUndefined((yield* service.getSettings).mcpServers.docs);
+      }).pipe(Effect.provide(layer));
+    },
   );
 
   it.effect("rejects missing MCP credential placeholders before changing settings or secrets", () =>
