@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
-  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
-  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
@@ -322,64 +320,5 @@ describe("workspace command discovery retry", () => {
     await act(() => vi.advanceTimersByTimeAsync(20_000));
     expect(refreshProviders).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("updates both skill menus when Tools settings or the selected project change", async () => {
-    const projectId = ProjectId.make("project-tools");
-    const settings = {
-      ...DEFAULT_SERVER_SETTINGS,
-      disabledSkills: ["review"],
-      projectSettingsOverrides: {
-        [projectId]: { disabledSkills: { review: false } },
-      },
-    };
-    const withSkill = {
-      ...provider,
-      skills: [{ name: "review", path: "/review/SKILL.md", enabled: true }],
-      slashCommands: [{ name: "review" }],
-      workspaceSnapshots: [],
-    };
-    let items: ReturnType<typeof useComposerCommandMenu>["items"] = [];
-    function ToolsProbe({
-      prompt,
-      selectedProjectId = null,
-      serverSettings = settings,
-    }: {
-      prompt: string;
-      selectedProjectId?: ProjectId | null;
-      serverSettings?: typeof settings;
-    }) {
-      items = useComposerCommandMenu({
-        draftMessage: prompt,
-        ownerKey: null,
-        environmentId,
-        projectCwd: null,
-        skillsProjectId: selectedProjectId,
-        serverSettings,
-        selectedProviderStatus: withSkill,
-        hasThread: false,
-        hasCompactableConversation: false,
-        onChangeDraftMessage: () => {},
-      }).items;
-      return null;
-    }
-
-    for (const prompt of ["$review", "/review"]) {
-      await act(async () => root.render(createElement(ToolsProbe, { prompt })));
-      expect(items).toEqual([]);
-      await act(async () =>
-        root.render(createElement(ToolsProbe, { prompt, selectedProjectId: projectId })),
-      );
-      expect(items.map((item) => item.id)).toEqual(["skill:review"]);
-    }
-    await act(async () =>
-      root.render(
-        createElement(ToolsProbe, {
-          prompt: "/review",
-          serverSettings: { ...settings, disabledSkills: [] },
-        }),
-      ),
-    );
-    expect(items.map((item) => item.id)).toEqual(["skill:review"]);
   });
 });

@@ -35,7 +35,7 @@ export function CustomSnoozeSheet(props: {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
-          className="max-h-[80%] w-full max-w-md grow-0 rounded-xl bg-screen"
+          className="max-h-[80%] w-full max-w-md grow-0 rounded-3xl bg-screen"
           keyboardShouldPersistTaps="handled"
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={{ padding: 24, paddingBottom: 24, gap: 20 }}

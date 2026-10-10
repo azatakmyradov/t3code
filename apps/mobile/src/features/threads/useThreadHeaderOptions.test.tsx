@@ -32,7 +32,6 @@ vi.mock("@react-navigation/native", () => {
   };
 });
 vi.mock("../../state/session", () => ({ useEnvironmentScope: () => true }));
-vi.mock("../../state/bots", () => ({ useBotForThread: () => null }));
 vi.mock("react-native", () => ({ Alert: { alert: () => {} }, Linking: {}, Platform: {} }));
 vi.mock("../layout/AdaptiveWorkspaceLayout", () => ({
   useAdaptiveWorkspaceLayout: () => ({

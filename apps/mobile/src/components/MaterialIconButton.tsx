@@ -5,9 +5,9 @@ import { SymbolView, type AppSymbolName } from "./AppSymbol";
 
 const VARIANT_CLASS_NAMES = {
   standard: ["", "accent-foreground"],
-  primary: ["rounded-lg bg-primary", "accent-primary-foreground"],
-  danger: ["rounded-lg bg-danger", "accent-danger-foreground"],
-  tonal: ["rounded-lg bg-secondary", "accent-secondary-foreground"],
+  primary: ["rounded-full bg-primary", "accent-primary-foreground"],
+  danger: ["rounded-full bg-danger", "accent-danger-foreground"],
+  tonal: ["rounded-full bg-secondary", "accent-secondary-foreground"],
 } as const;
 
 export function MaterialIconButton(props: {
@@ -31,7 +31,7 @@ export function MaterialIconButton(props: {
       className={cn(
         "size-12 items-center justify-center",
         props.disabled && variant !== "standard"
-          ? "rounded-lg bg-subtle-strong"
+          ? "rounded-full bg-subtle-strong"
           : containerClassName,
       )}
     >

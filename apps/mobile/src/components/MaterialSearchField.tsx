@@ -11,7 +11,6 @@ export function MaterialSearchField({
   placeholder,
   value,
   onChangeText,
-  autoFocus = true,
 }: {
   readonly inputRef: RefObject<TextInputInstance | null>;
   readonly accessibilityLabel: string;
@@ -19,12 +18,11 @@ export function MaterialSearchField({
   readonly placeholder: string;
   readonly value: string;
   readonly onChangeText: (value: string) => void;
-  readonly autoFocus?: boolean;
 }) {
   const { scale, mediumIconSize } = useAndroidControlSizing();
   return (
     <View
-      className="min-w-0 flex-1 flex-row items-center rounded-lg border border-input-border bg-input"
+      className="min-w-0 flex-1 flex-row items-center rounded-full border border-input-border bg-input"
       style={{
         minHeight: Math.max(48, 42 * scale),
         gap: 7 * scale,
@@ -39,7 +37,7 @@ export function MaterialSearchField({
       <TextInput
         ref={inputRef}
         accessibilityLabel={accessibilityLabel}
-        autoFocus={autoFocus}
+        autoFocus
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="search"

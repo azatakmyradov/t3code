@@ -23,7 +23,6 @@ import {
   PaletteIcon,
   SearchIcon,
   Settings2Icon,
-  WrenchIcon,
   XIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -84,7 +83,6 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,
-  "/settings/tools": WrenchIcon,
   "/settings/integrations": BlocksIcon,
   "/settings/scheduled-tasks": CalendarClockIcon,
   "/settings/source-control": GitBranchIcon,
@@ -194,17 +192,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         setOpenMobile(false);
       }
       const targetId = item.targetId ?? item.id;
-      if (
-        item.search === undefined &&
-        pathname === item.to &&
-        currentHash.replace(/^#/, "") === targetId
-      ) {
+      if (pathname === item.to && currentHash.replace(/^#/, "") === targetId) {
         scrollToSettingsTarget(targetId);
         return;
       }
       void navigate({
         to: item.to,
-        search: item.search ?? {},
         hash: targetId,
         replace: true,
         hashScrollIntoView: false,

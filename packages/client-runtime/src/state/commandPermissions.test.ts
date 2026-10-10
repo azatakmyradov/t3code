@@ -8,8 +8,6 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   AuthOrchestrationOperateScope,
-  AuthProvidersManageScope,
-  AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
   ThreadId,
   EnvironmentId,
@@ -262,86 +260,4 @@ it.effect("rejects protected unary and streamed RPCs outside a guarded command",
     expect(streamed._tag).toBe("EnvironmentAuthorizationError");
     expect(writes).toBe(0);
   }),
-);
-
-it.effect("checks bot mutations against the destination environment's current grant", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const registry = yield* setup;
-      registry.set(sessions(env), AsyncResult.success(grant(true)));
-      registry.set(sessions(other), AsyncResult.success(grant(false)));
-      for (const tag of [
-        WS_METHODS.botsCreate,
-        WS_METHODS.botsUpdate,
-        WS_METHODS.botsWriteContext,
-        WS_METHODS.botsStartTask,
-        WS_METHODS.botsCancelTask,
-        WS_METHODS.botsDelete,
-        WS_METHODS.botsSendMessage,
-        WS_METHODS.botsRequest,
-        WS_METHODS.botsReply,
-        WS_METHODS.botsConnect,
-        WS_METHODS.botsDisconnect,
-      ]) {
-        const command = createCommandPermissions(runtime, tag);
-        expect(registry.get(command.permissionAtom(env))).toBe(true);
-        expect(registry.get(command.permissionAtom(other))).toBe(false);
-        yield* command.authorize(registry, env);
-        const denied = yield* command.authorize(registry, other).pipe(Effect.flip);
-        expect(denied._tag).toBe("EnvironmentAuthorizationError");
-        registry.set(sessions(env), AsyncResult.success(grant(false)));
-        expect(registry.get(command.permissionAtom(env))).toBe(false);
-        yield* command.authorize(registry, env).pipe(Effect.flip);
-        registry.set(sessions(env), AsyncResult.success(grant(true)));
-      }
-    }),
-  ),
-);
-
-it.effect(
-  "requires provider management to inspect MCP sign-in and settings write to change it",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const registry = yield* setup;
-        registry.set(sessions(other), AsyncResult.success(grant(false)));
-        const status = createCommandPermissions(runtime, WS_METHODS.mcpOAuthStatus);
-        const mutations = [
-          WS_METHODS.mcpOAuthBegin,
-          WS_METHODS.mcpOAuthCancel,
-          WS_METHODS.mcpOAuthDisconnect,
-        ].map((method) => createCommandPermissions(runtime, method));
-        registry.set(
-          sessions(env),
-          AsyncResult.success({
-            ...grant(false),
-            scopes: [AuthProvidersManageScope],
-            permissions: [AuthProvidersManageScope],
-          }),
-        );
-        expect(registry.get(status.permissionAtom(env))).toBe(true);
-        yield* status.authorize(registry, env);
-        for (const command of mutations) {
-          expect(registry.get(command.permissionAtom(env))).toBe(false);
-          expect(
-            (yield* command.authorize(registry, env).pipe(Effect.flip)).requiredPermission,
-          ).toBe(AuthSettingsWriteScope);
-        }
-        registry.set(
-          sessions(env),
-          AsyncResult.success({
-            ...grant(false),
-            scopes: [AuthProvidersManageScope, AuthSettingsWriteScope],
-            permissions: [AuthProvidersManageScope, AuthSettingsWriteScope],
-          }),
-        );
-        for (const command of mutations) {
-          expect(registry.get(command.permissionAtom(env))).toBe(true);
-          yield* command.authorize(registry, env);
-          expect((yield* command.authorize(registry, other).pipe(Effect.flip))._tag).toBe(
-            "EnvironmentAuthorizationError",
-          );
-        }
-      }),
-    ),
 );

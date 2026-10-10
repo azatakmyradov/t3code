@@ -56,7 +56,6 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import packageJson from "../../../package.json" with { type: "json" };
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
-import { proxyAgentTools } from "../../mcp/resolveAgentTools.ts";
 import type { EventNdjsonLogger } from "../../provider/EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "../../provider/ProviderEventLoggers.ts";
 import * as IdAllocator from "../IdAllocator.ts";
@@ -691,101 +690,6 @@ describe("CodexAdapterV2 process spawning", () => {
     }
   });
 
-  it("adds the user's servers and disabled skills to thread config", () => {
-    const threadId = ThreadId.make("thread-codex-user-tools");
-    McpProviderSession.setMcpProviderSession({
-      environmentId: EnvironmentId.make("environment-codex-user-tools"),
-      threadId,
-      providerSessionId: "mcp-session-codex-user-tools",
-      providerInstanceId: ProviderInstanceId.make("codex"),
-      endpoint: "http://127.0.0.1:43123/mcp",
-      authorizationHeader: "Bearer secret-codex-token",
-      browserToolsAvailable: true,
-      tools: {
-        servers: [
-          {
-            name: "linear",
-            transport: {
-              type: "http",
-              url: "https://mcp.linear.app/mcp",
-              headers: [{ name: "Authorization", value: "Bearer lin", sensitive: true }],
-            },
-          },
-        ],
-        disabledSkills: ["grill-me"],
-        fingerprint: "a",
-      },
-    });
-
-    try {
-      const { config } = CodexAdapterV2.codexThreadRuntimeParams({ threadId });
-      assert.deepEqual(config.mcp_servers, {
-        linear: {
-          url: "https://mcp.linear.app/mcp",
-          http_headers: { Authorization: "Bearer lin" },
-        },
-        "t3-code": {
-          url: "http://127.0.0.1:43123/mcp",
-          http_headers: { Authorization: "Bearer secret-codex-token" },
-        },
-      });
-      assert.deepEqual(config.skills, { config: [{ name: "grill-me", enabled: false }] });
-    } finally {
-      McpProviderSession.clearMcpProviderSession(threadId);
-    }
-  });
-
-  it("routes shared OAuth servers through the environment bridge in Codex config", () => {
-    const threadId = ThreadId.make("thread-codex-shared-oauth");
-    const credential = {
-      environmentId: EnvironmentId.make("environment-codex-shared-oauth"),
-      threadId,
-      providerSessionId: "mcp-session-codex-shared-oauth",
-      providerInstanceId: ProviderInstanceId.make("codex"),
-      endpoint: "http://127.0.0.1:43123/mcp",
-      authorizationHeader: "Bearer thread-bridge-credential",
-      browserToolsAvailable: false,
-    };
-    McpProviderSession.setMcpProviderSession({
-      ...credential,
-      tools: proxyAgentTools(
-        {
-          servers: [
-            {
-              name: "linear",
-              transport: {
-                type: "http",
-                url: "https://mcp.linear.app/mcp",
-                authentication: "oauth",
-                headers: [{ name: "X-Workspace", value: "upstream-only", sensitive: true }],
-              },
-            },
-          ],
-          disabledSkills: [],
-          fingerprint: "shared-oauth-config",
-        },
-        credential,
-      ),
-    });
-    try {
-      const { config } = CodexAdapterV2.codexThreadRuntimeParams({ threadId });
-      assert.deepEqual(config.mcp_servers, {
-        linear: {
-          url: "http://127.0.0.1:43123/api/mcp-oauth/proxy/linear",
-          http_headers: { Authorization: "Bearer thread-bridge-credential" },
-        },
-        "t3-code": {
-          url: credential.endpoint,
-          http_headers: { Authorization: credential.authorizationHeader },
-        },
-      });
-      assert.notInclude(JSON.stringify(config), "https://mcp.linear.app/mcp");
-      assert.notInclude(JSON.stringify(config), "upstream-only");
-    } finally {
-      McpProviderSession.clearMcpProviderSession(threadId);
-    }
-  });
-
   it.effect("resolves Windows command shims through the shared spawn policy", () =>
     Effect.gen(function* () {
       const command = yield* CodexAdapterV2.makeCodexAppServerSpawnCommand({
@@ -1192,51 +1096,6 @@ describe("CodexAdapterV2 native protocol logging", () => {
           },
         },
       });
-    }),
-  );
-
-  it.effect("keeps arbitrary user MCP credentials out of outgoing protocol logs", () =>
-    Effect.gen(function* () {
-      const writes: Array<unknown> = [];
-      const protocolLogger = CodexAdapterV2.makeCodexAppServerProtocolLogger({
-        nativeEventLogger: {
-          filePath: "/tmp/events.log",
-          write: (event) =>
-            Effect.sync(() => {
-              writes.push(event);
-            }),
-          close: () => Effect.void,
-        },
-        threadId: ThreadId.make("thread-mcp-redaction"),
-        providerSessionId: ProviderSessionId.make("session-mcp-redaction"),
-      });
-      assert.exists(protocolLogger);
-      if (protocolLogger === undefined) return;
-      yield* protocolLogger({
-        direction: "outgoing",
-        stage: "decoded",
-        payload: {
-          method: "thread/start",
-          params: {
-            cwd: "/workspace",
-            config: {
-              mcp_servers: {
-                remote: {
-                  url: "https://example.com/mcp",
-                  http_headers: { Cookie: "private-session-cookie" },
-                },
-                local: { command: "npx", env: { DATABASE_URL: "private-database-url" } },
-              },
-            },
-          },
-        },
-      });
-      const serialized = encodeUnknownJson(writes);
-      assert.equal(writes.length, 1);
-      assert.notInclude(serialized, "private-session-cookie");
-      assert.notInclude(serialized, "private-database-url");
-      assert.nestedPropertyVal(writes[0], "event.payload.params.config.mcp_servers", "[REDACTED]");
-      assert.nestedPropertyVal(writes[0], "event.payload.params.cwd", "/workspace");
     }),
   );
 

@@ -281,8 +281,8 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
       }
     >
       <View
-        className={`overflow-hidden rounded-xl bg-card ios:border ios:border-border ${
-          isInspector ? "ios:px-3 ios:py-1" : "ios:px-4 ios:py-1"
+        className={`overflow-hidden bg-card android:rounded-[20px] ios:border ios:border-border ${
+          isInspector ? "ios:rounded-2xl ios:px-3 ios:py-1" : "ios:rounded-[22px] ios:px-4 ios:py-1"
         }`}
       >
         {sheetMenuItems.map(({ item, disabledReason }, index) => (
@@ -357,7 +357,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
           {linkedPrChains.map((chain) => (
             <View
               key={threadPullRequestKeyOf(chain.layers[0]!)}
-              className="overflow-hidden rounded-xl bg-card ios:border ios:border-border ios:px-3 ios:py-1"
+              className="overflow-hidden bg-card android:rounded-[20px] ios:rounded-2xl ios:border ios:border-border ios:px-3 ios:py-1"
             >
               {chain.layers.length > 1 ? (
                 <View className="flex-row items-center gap-2 px-1 pt-2 pb-1">
@@ -523,8 +523,8 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
             <Pressable
               className={
                 busy
-                  ? "absolute right-3 top-4 z-[1] h-9 w-9 items-center justify-center rounded-lg bg-subtle opacity-[0.45]"
-                  : "absolute right-3 top-4 z-[1] h-9 w-9 items-center justify-center rounded-lg bg-subtle"
+                  ? "absolute right-3 top-4 z-[1] h-9 w-9 items-center justify-center rounded-full bg-subtle opacity-[0.45]"
+                  : "absolute right-3 top-4 z-[1] h-9 w-9 items-center justify-center rounded-full bg-subtle"
               }
               disabled={busy}
               onPress={() => void gitActions.refreshSelectedThreadGitStatus()}

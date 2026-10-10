@@ -273,9 +273,6 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
-import { SidebarBotsSection } from "./bots/SidebarBotsSection";
-import { botIdsAtom } from "../state/bots";
-import { isBotThread } from "@t3tools/client-runtime/state/bots";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -2388,7 +2385,6 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
-  const botIds = useAtomValue(botIdsAtom);
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2784,9 +2780,7 @@ export default function Sidebar() {
     const preciseNow = new Date().toISOString();
     // Subagent child threads live in the parent's Agents surface, not the
     // sidebar roster (v2 models them as real threads with lineage).
-    const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys).filter(
-      (thread) => !isBotThread(botIds, thread.id),
-    );
+    const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys);
     inboxReturns.observe(workingShelfEnabled ? threads : null);
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
@@ -2888,7 +2882,6 @@ export default function Sidebar() {
     };
   }, [
     nowMinute,
-    botIds,
     optimisticDrop,
     scopedProjectKeys,
     serverConfigs,
@@ -5147,7 +5140,6 @@ export default function Sidebar() {
           </SidebarGroup>
         }
       >
-        {!isSearchingThreads && <SidebarBotsSection />}
         <SidebarGroup className="flex-1" role="presentation">
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (

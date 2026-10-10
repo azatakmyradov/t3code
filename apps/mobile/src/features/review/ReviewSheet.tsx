@@ -164,7 +164,7 @@ const ReviewNotice = memo(function ReviewNotice(props: { readonly notice: string
     <View
       className={cn(
         "bg-warning px-4 py-3",
-        Platform.OS === "android" ? "m-2 rounded-xl" : "border-b border-warning-border",
+        Platform.OS === "android" ? "m-2 rounded-[20px]" : "border-b border-warning-border",
       )}
     >
       <Text className="text-xs font-t3-bold uppercase text-warning-foreground">Partial diff</Text>
@@ -191,7 +191,7 @@ function ReviewSelectionActionBar(props: {
         tintColorClassName="accent-primary-foreground"
         type="monochrome"
       />
-      <Text className="text-base font-t3-medium text-primary-foreground">{props.title}</Text>
+      <Text className="text-base font-t3-bold text-primary-foreground">{props.title}</Text>
     </>
   );
 
@@ -210,22 +210,19 @@ function ReviewSelectionActionBar(props: {
     >
       {props.onOpenComment ? (
         <Pressable
-          accessibilityRole="button"
-          className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-lg bg-primary px-5"
+          className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-primary px-5"
           onPress={props.onOpenComment}
         >
           {content}
         </Pressable>
       ) : (
-        <View className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-lg bg-primary px-5">
+        <View className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-primary px-5">
           {content}
         </View>
       )}
 
       <Pressable
-        accessibilityLabel="Clear selection"
-        accessibilityRole="button"
-        className="h-12 w-12 items-center justify-center rounded-lg bg-primary"
+        className="h-12 w-12 items-center justify-center rounded-full bg-primary"
         onPress={props.onClear}
       >
         <SymbolView
@@ -264,7 +261,7 @@ const ReviewFileNavigatorRow = memo(function ReviewFileNavigatorRow(props: {
       className={
         Platform.OS === "android"
           ? cn(
-              "mt-1 min-h-12 justify-center rounded-xl px-3 py-2 active:bg-subtle",
+              "mt-1 min-h-12 justify-center rounded-[20px] px-3 py-2 active:bg-subtle",
               selected && "bg-subtle-strong",
             )
           : selected
@@ -689,7 +686,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
           key="review-error"
           className={cn(
             "bg-card px-4 py-3",
-            Platform.OS === "android" ? "m-2 rounded-xl" : "border-b border-border",
+            Platform.OS === "android" ? "m-2 rounded-[20px]" : "border-b border-border",
           )}
         >
           <Text className="text-sm font-t3-bold text-foreground">Review unavailable</Text>
@@ -880,7 +877,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
                 <View
                   className={cn(
                     "gap-3 bg-card px-4 py-4",
-                    Platform.OS === "android" ? "m-2 rounded-xl" : "border-b border-border",
+                    Platform.OS === "android" ? "m-2 rounded-[20px]" : "border-b border-border",
                   )}
                 >
                   <Text className="text-xs leading-normal text-foreground-muted">
@@ -898,7 +895,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
                 <View
                   className={cn(
                     "gap-3 bg-card px-4 py-4",
-                    Platform.OS === "android" ? "m-2 rounded-xl" : "border-b border-border",
+                    Platform.OS === "android" ? "m-2 rounded-[20px]" : "border-b border-border",
                   )}
                 >
                   <Text className="text-xs leading-normal text-foreground-muted">

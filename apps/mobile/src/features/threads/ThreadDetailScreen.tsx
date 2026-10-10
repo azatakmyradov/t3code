@@ -1,6 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useThreadReportedModelSelection } from "../../state/entities";
-import { useBotForThread } from "../../state/bots";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { useNavigation } from "@react-navigation/native";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
@@ -222,7 +221,6 @@ export interface ThreadDetailScreenProps {
   readonly canSwitchThreadProvider: boolean;
   readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => void;
-  readonly canUpdateThreadRuntimeMode?: boolean;
   readonly onUpdateThreadInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   readonly onRespondToApproval: (
     requestId: RuntimeRequestId,
@@ -320,7 +318,6 @@ const USER_INPUT_TOGGLE_TIMING = {
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
   const navigation = useNavigation();
-  const botEntry = useBotForThread(props.selectedThread.id);
   const { session: voiceInputSession } = useGlobalVoiceInput();
   const reportedModelSelection = useThreadReportedModelSelection({
     environmentId: props.environmentId,
@@ -1381,11 +1378,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         editorRef={composerEditorRef}
                         draftMessage={props.draftMessage}
                         draftAttachments={props.draftAttachments}
-                        placeholder={
-                          botEntry
-                            ? `Message ${botEntry.bot.name}…`
-                            : "Ask the repo agent, or run a command…"
-                        }
+                        placeholder="Ask the repo agent, or run a command…"
                         contentMaxWidth={contentMaxWidth}
                         connectionState={props.connectionStateLabel}
                         environmentLabel={props.environmentLabel}
@@ -1430,7 +1423,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         canSwitchProvider={props.canSwitchThreadProvider}
                         onUpdateModelSelection={props.onUpdateThreadModelSelection}
                         onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
-                        canUpdateRuntimeMode={props.canUpdateThreadRuntimeMode}
                         onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
                         onExpandedChange={setComposerExpanded}
                         onEditorFocusChange={handleComposerFocusChange}

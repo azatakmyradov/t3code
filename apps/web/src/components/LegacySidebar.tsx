@@ -207,9 +207,6 @@ import {
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
-import { SidebarBotsSection } from "./bots/SidebarBotsSection";
-import { botIdsAtom } from "../state/bots";
-import { isBotThread } from "@t3tools/client-runtime/state/bots";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
@@ -1284,7 +1281,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   });
   const openPrLink = useOpenPrLink();
   const sidebarThreads = useThreadShellsForProjectRefs(project.memberProjectRefs);
-  const botIds = useAtomValue(botIdsAtom);
   const sidebarThreadByKey = useMemo(
     () =>
       new Map(
@@ -1300,10 +1296,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   // thread-list change).
   const sidebarThreadByKeyRef = useRef(sidebarThreadByKey);
   sidebarThreadByKeyRef.current = sidebarThreadByKey;
-  const projectThreads = useMemo(
-    () => sidebarThreads.filter((thread) => !isBotThread(botIds, thread.id)),
-    [sidebarThreads, botIds],
-  );
+  const projectThreads = sidebarThreads;
   const projectPreferenceKeys = useMemo(() => projectExpansionPreferenceKeys(project), [project]);
   const projectExpanded = useUiStateStore((state) =>
     resolveProjectExpanded(state.projectExpandedById, projectPreferenceKeys),
@@ -3096,7 +3089,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         </SidebarGroup>
       }
     >
-      <SidebarBotsSection />
       {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
         <SidebarGroup>
           <Alert variant="warning">
@@ -3239,12 +3231,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
 export default function LegacySidebar() {
   const projects = useProjects();
-  const allSidebarThreads = useThreadShells();
-  const botIds = useAtomValue(botIdsAtom);
-  const sidebarThreads = useMemo(
-    () => allSidebarThreads.filter((thread) => !isBotThread(botIds, thread.id)),
-    [allSidebarThreads, botIds],
-  );
+  const sidebarThreads = useThreadShells();
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);

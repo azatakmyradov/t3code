@@ -95,7 +95,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               : undefined
           }
         >
-          <View className="rounded-xl bg-card android:gap-3 android:p-4 ios:gap-2 ios:border ios:border-border ios:px-4 ios:py-4">
+          <View className="bg-card android:gap-3 android:rounded-[20px] android:p-4 ios:gap-2 ios:rounded-[18px] ios:border ios:border-border ios:px-4 ios:py-4">
             <Text className="android:text-foreground android:text-base android:font-t3-medium ios:text-foreground-secondary ios:text-2xs ios:font-t3-bold ios:tracking-[1px] ios:uppercase">
               New branch
             </Text>
@@ -104,7 +104,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               onChangeText={setNewBranchName}
               placeholder="feature/mobile-polish"
               accessibilityLabel="New branch name"
-              className="rounded-lg android:bg-sheet-solid"
+              className="android:rounded-xl android:bg-sheet-solid ios:rounded-[18px]"
             />
             <SheetActionButton
               icon="plus"
@@ -123,7 +123,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
             />
           </View>
 
-          <View className="rounded-xl bg-card android:gap-3 android:p-4 ios:gap-2 ios:border ios:border-border ios:px-4 ios:py-4">
+          <View className="bg-card android:gap-3 android:rounded-[20px] android:p-4 ios:gap-2 ios:rounded-[18px] ios:border ios:border-border ios:px-4 ios:py-4">
             <Text className="android:text-foreground android:text-base android:font-t3-medium ios:text-foreground-secondary ios:text-2xs ios:font-t3-bold ios:tracking-[1px] ios:uppercase">
               New worktree
             </Text>
@@ -135,7 +135,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               onChangeText={setWorktreeBaseBranch}
               placeholder="main"
               accessibilityLabel="Worktree base branch"
-              className="rounded-lg android:bg-sheet-solid"
+              className="android:rounded-xl android:bg-sheet-solid ios:rounded-[18px]"
             />
             {Platform.OS === "android" ? (
               <Text className="text-foreground-secondary text-sm">New branch</Text>
@@ -145,7 +145,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               onChangeText={setWorktreeBranchName}
               placeholder="feature/mobile-thread"
               accessibilityLabel="Worktree branch name"
-              className="rounded-lg android:bg-sheet-solid"
+              className="android:rounded-xl android:bg-sheet-solid ios:rounded-[18px]"
             />
             <SheetActionButton
               icon="square.split.2x1"
@@ -200,7 +200,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
                 <Pressable
                   key={branch.name}
                   className={cn(
-                    "gap-1 rounded-xl px-4 py-3 disabled:opacity-[0.45] android:active:bg-subtle ios:border",
+                    "gap-1 px-4 py-3 disabled:opacity-[0.45] android:rounded-[20px] android:active:bg-subtle ios:rounded-[18px] ios:border",
                     branch.current
                       ? "android:bg-secondary ios:border-subtle-strong"
                       : "android:bg-card ios:border-border",
@@ -216,9 +216,11 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
                   }}
                 >
                   {Platform.OS !== "android" ? (
-                    <View className="absolute inset-0 rounded-xl bg-card" />
+                    <View className="absolute inset-0 rounded-[18px] bg-card" />
                   ) : null}
-                  <Text className="text-foreground text-base font-t3-medium">{branch.name}</Text>
+                  <Text className="text-foreground text-base android:font-t3-medium ios:font-t3-bold">
+                    {branch.name}
+                  </Text>
                   <Text className="text-foreground-secondary text-xs font-medium">{subtitle}</Text>
                 </Pressable>
               );

@@ -71,7 +71,7 @@ interface ComposerCommandPopoverProps {
 
 function PopoverSurface(props: { readonly children: React.ReactNode; readonly style?: ViewStyle }) {
   const baseStyle: ViewStyle = {
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: "hidden",
     ...props.style,
   };

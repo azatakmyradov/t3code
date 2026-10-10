@@ -41,7 +41,6 @@ import {
   type ChatAttachment,
   ClaudeSettings,
   defaultInstanceIdForDriver,
-  mcpServerVariableRecord,
   type ModelSelection,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2ExecutionNode,
@@ -66,7 +65,6 @@ import {
   type ProviderRequestKind,
   type ProviderUserInputAnswers,
   type ProviderThreadId,
-  type ResolvedMcpServer,
   type ThreadId,
 } from "@t3tools/contracts";
 
@@ -907,7 +905,7 @@ export function makeClaudeQueryOptions(input: {
       preset: "claude_code" as const,
       append:
         buildRuntimeInstructions({ harness: "Claude Code" }) +
-        (input.mcpServers?.["t3-code"] === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+        (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
     },
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
@@ -959,105 +957,34 @@ export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 // not pre-approved), but read-only sandboxes pre-approve only the annotated
 // read-only orchestrator tools so a read-only session cannot silently spawn
 // threads or scheduled tasks.
-// The SDK serializes MCP config into CLI arguments. Credentials travel only
-// in the child environment; Claude expands these references before connecting.
-const CLAUDE_T3_MCP_AUTHORIZATION_ENV = "T3_CODE_MCP_AUTHORIZATION";
-
 export function claudeMcpQueryOverrides(input: {
   readonly threadId: ThreadId;
   readonly readOnlySandbox: boolean;
-  readonly permissionMode?: PermissionMode;
   readonly allowedTools?: ReadonlyArray<string>;
 }): {
   readonly allowedTools?: ReadonlyArray<string>;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
-  readonly mcpEnvironment?: Readonly<Record<string, string>>;
-  readonly sdkSettings?: ClaudeSdkSettings;
 } {
   const session = McpProviderSession.readMcpProviderSession(input.threadId);
   if (session === undefined) {
     return input.allowedTools === undefined ? {} : { allowedTools: input.allowedTools };
   }
-  const tools = session.tools ?? McpProviderSession.EMPTY_MCP_PROVIDER_SESSION_TOOLS;
   const mcpAllowedTools = input.readOnlySandbox
     ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
     : [CLAUDE_T3_MCP_TOOL_WILDCARD];
-  // Adding a server does not grant blanket permission to run its tools.
-  // Only an explicit bypass policy may skip their approval callbacks.
-  const userAllowedTools =
-    !input.readOnlySandbox && input.permissionMode === "bypassPermissions"
-      ? tools.servers.map((server) => `mcp__${server.name}__*`)
-      : [];
-  const userMcp = claudeUserMcpServers(tools.servers);
   return {
-    allowedTools: Array.from(
-      new Set([...(input.allowedTools ?? []), ...mcpAllowedTools, ...userAllowedTools]),
-    ),
+    allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
     mcpServers: {
-      ...userMcp.mcpServers,
       "t3-code": {
         type: "http",
         url: session.endpoint,
         headers: {
-          Authorization: `\${${CLAUDE_T3_MCP_AUTHORIZATION_ENV}}`,
+          Authorization: session.authorizationHeader,
         },
         timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
       },
     },
-    mcpEnvironment: {
-      ...userMcp.mcpEnvironment,
-      [CLAUDE_T3_MCP_AUTHORIZATION_ENV]: session.authorizationHeader,
-    },
-    ...(tools.disabledSkills.length === 0
-      ? {}
-      : {
-          // The flag-settings layer outranks the user's and project's
-          // settings files, so an "off" here hides the skill from both the
-          // model and the slash menu whatever those files say.
-          sdkSettings: {
-            skillOverrides: Object.fromEntries(
-              tools.disabledSkills.map((name) => [name, "off" as const]),
-            ),
-          },
-        }),
   };
-}
-
-function claudeUserMcpServers(servers: ReadonlyArray<ResolvedMcpServer>): {
-  readonly mcpServers: NonNullable<ClaudeQueryOptions["mcpServers"]>;
-  readonly mcpEnvironment: Readonly<Record<string, string>>;
-} {
-  const mcpEnvironment: Record<string, string> = {};
-  const mcpServers = Object.fromEntries(
-    servers.map((server, serverIndex) => {
-      const variables = mcpServerVariableRecord(
-        server.transport.type === "stdio" ? server.transport.env : server.transport.headers,
-      );
-      const references = Object.fromEntries(
-        Object.entries(variables).map(([name, value], variableIndex) => {
-          const environmentName = `T3_CODE_MCP_${serverIndex}_${variableIndex}`;
-          mcpEnvironment[environmentName] = value;
-          return [name, `\${${environmentName}}`];
-        }),
-      );
-      return [
-        server.name,
-        server.transport.type === "stdio"
-          ? {
-              type: "stdio" as const,
-              command: server.transport.command,
-              args: [...server.transport.args],
-              env: references,
-            }
-          : {
-              type: "http" as const,
-              url: server.transport.url,
-              headers: references,
-            },
-      ];
-    }),
-  );
-  return { mcpServers, mcpEnvironment };
 }
 
 function providerSession(input: {
@@ -1686,8 +1613,6 @@ export function claudeEffectiveQueryPolicyKey(
   mcpOverrides: {
     readonly allowedTools?: ReadonlyArray<string>;
     readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
-    readonly mcpEnvironment?: Readonly<Record<string, string>>;
-    readonly sdkSettings?: ClaudeSdkSettings;
   },
 ): string {
   return JSON.stringify({
@@ -1698,9 +1623,6 @@ export function claudeEffectiveQueryPolicyKey(
         : { allowedTools: mcpOverrides.allowedTools }),
     }),
     mcpServers: mcpOverrides.mcpServers,
-    mcpEnvironment: mcpOverrides.mcpEnvironment,
-    // Skill switches load at process start, so a change reopens the query.
-    sdkSettings: mcpOverrides.sdkSettings,
   });
 }
 
@@ -7323,7 +7245,6 @@ export function makeClaudeAdapterV2(
           const queryPolicy = claudeRuntimeQueryPolicyForRuntimePolicy(turnInput.runtimePolicy);
           const mcpOverrides = claudeMcpQueryOverrides({
             threadId: turnInput.threadId,
-            permissionMode: queryPolicy.permissionMode,
             readOnlySandbox:
               sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
             ...(queryPolicy.allowedTools === undefined
@@ -7407,7 +7328,7 @@ export function makeClaudeAdapterV2(
             cwd: turnInput.runtimePolicy.cwd,
             attachmentsDir,
             settings: adapterOptions.settings,
-            environment: { ...adapterOptions.environment, ...mcpOverrides.mcpEnvironment },
+            environment: adapterOptions.environment,
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...mcpOverrides,
             permissionMode: queryPolicy.permissionMode,

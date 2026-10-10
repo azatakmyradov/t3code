@@ -1,5 +1,3 @@
-import { createMcpOAuthEnvironmentAtoms } from "./mcpOAuth.ts";
-import { createBotEnvironmentAtoms } from "./bots.ts";
 import {
   type EnvironmentId,
   type ServerConfig,
@@ -289,10 +287,7 @@ export function serverUpdateStateForProgressEvent(
   fromVersion: string,
   targetVersion: string,
   event: ServerSelfUpdateProgressEvent,
-): ServerUpdateState {
-  if (event.type === "complete" && event.result.upToDate === true) {
-    return IDLE_SERVER_UPDATE_STATE;
-  }
+): Extract<ServerUpdateState, { status: "running" }> {
   return {
     status: "running",
     stage: event.type === "complete" ? "resuming" : event.stage,
@@ -799,11 +794,6 @@ export function createServerEnvironmentAtoms<R, E>(
                   return yield* Effect.failCause(exit.cause);
                 });
 
-            targetVersion = updateResult.targetVersion;
-            if (updateResult.upToDate === true) {
-              return updateResult;
-            }
-
             if (
               updateResult.method === "desktop-app" &&
               updateResult.desktopUpdateToken !== undefined
@@ -824,6 +814,8 @@ export function createServerEnvironmentAtoms<R, E>(
               desktopCommitLostTransport = Exit.isFailure(commitExit);
             }
 
+            targetVersion = updateResult.targetVersion;
+
             currentStage = "resuming";
             atomRegistry.set(stateAtom, {
               status: "running",
@@ -834,11 +826,6 @@ export function createServerEnvironmentAtoms<R, E>(
             return updateResult;
           }),
         );
-
-        if (result.upToDate === true) {
-          atomRegistry.set(stateAtom, IDLE_SERVER_UPDATE_STATE);
-          return result;
-        }
 
         // The update restart is intentional and the server stays unreachable
         // for the whole restart, so hold the retry cadence flat instead of
@@ -995,8 +982,6 @@ export function createServerEnvironmentAtoms<R, E>(
   });
 
   return {
-    bots: createBotEnvironmentAtoms(runtime),
-    mcpOAuth: createMcpOAuthEnvironmentAtoms(runtime),
     configValueAtom,
     updateStateAtom,
     settingsValueAtom,

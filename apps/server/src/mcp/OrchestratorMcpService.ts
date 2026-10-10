@@ -1,5 +1,4 @@
 import {
-  type BotProfile,
   CommandId,
   type RunId,
   isProviderAvailable,
@@ -72,7 +71,6 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import * as BotRuntime from "../bots/BotRuntime.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import {
   subagentResultForRun,
@@ -194,22 +192,6 @@ export class OrchestratorMcpService extends Context.Service<
 >()("t3/mcp/OrchestratorMcpService") {}
 
 const isThreadManagementError = Schema.is(ThreadManagementService.ThreadManagementError);
-
-/** The bot a thread caller works for, after checking it may use the tool on the target. */
-const authorizeBot = (
-  callerThreadId: ThreadId,
-  tool: string,
-  projectId?: ProjectId,
-  targetThreadId?: ThreadId,
-) =>
-  BotRuntime.BotRuntime.pipe(
-    Effect.flatMap((runtime) => runtime.authorize(callerThreadId, tool, projectId, targetThreadId)),
-    Effect.mapError((error) => failure("capability_denied", error.message)),
-  );
-
-/** A bot thread acts within its bot's authority, even when the thread was started wider. */
-const botCappedMode = (bot: BotProfile | null, mode: RuntimeMode) =>
-  bot === null ? mode : BotRuntime.cappedBotMode(mode, bot.permissions.runtimeMode);
 
 function failure(code: OrchestratorMcpFailure["code"], message: string): OrchestratorMcpFailure {
   return new OrchestratorMcpFailure({ code, message });
@@ -957,11 +939,10 @@ const make = Effect.gen(function* () {
         } as const;
       }
       const parent = yield* loadProjection(scope.thread.threadId);
-      const bot = yield* authorizeBot(parent.thread.id, "mcp");
       return {
         parent,
         limits: {
-          runtimeMode: botCappedMode(bot, parent.thread.runtimeMode),
+          runtimeMode: parent.thread.runtimeMode,
           interactionMode: parent.thread.interactionMode,
         },
       } as const;
@@ -973,20 +954,7 @@ const make = Effect.gen(function* () {
       yield* requireCapability(scope);
       const threadScope = yield* requireThreadScope(scope, operation);
       const parent = yield* loadProjection(threadScope.thread.threadId);
-      const bot = yield* authorizeBot(parent.thread.id, operation);
-      return {
-        scope: threadScope,
-        parent:
-          bot === null
-            ? parent
-            : {
-                ...parent,
-                thread: {
-                  ...parent.thread,
-                  runtimeMode: botCappedMode(bot, parent.thread.runtimeMode),
-                },
-              },
-      } as const;
+      return { scope: threadScope, parent } as const;
     });
 
   /** A target project: the one passed, else the calling thread's. */
@@ -1024,13 +992,6 @@ const make = Effect.gen(function* () {
         caller.parent !== undefined && threadId === caller.parent.thread.id
           ? caller.parent
           : yield* loadTargetThread(threadId);
-      if (caller.parent !== undefined)
-        yield* authorizeBot(
-          caller.parent.thread.id,
-          "thread",
-          target.thread.projectId,
-          target.thread.id,
-        );
       return { ...caller, target } as const;
     });
 
@@ -1080,8 +1041,6 @@ const make = Effect.gen(function* () {
       if (shell === null || shell.deletedAt !== null) {
         return yield* failure("thread_not_found", `Thread ${threadId} is no longer available.`);
       }
-      if (parent !== undefined)
-        yield* authorizeBot(parent.thread.id, "thread", shell.projectId, threadId);
       const target = yield* threadManagement
         .getProjectThreadRecords({ projectId: shell.projectId, threadId }, [
           "runs",
@@ -1528,35 +1487,17 @@ const make = Effect.gen(function* () {
       return task;
     });
 
-  /** Holds a bot thread caller to its bot's projects and its own routines. */
-  const authorizeScheduledTask = (
-    parent: Pick<OrchestrationV2ThreadProjection, "thread"> | undefined,
-    task: ScheduledTask,
-  ) =>
-    parent === undefined
-      ? Effect.void
-      : Effect.asVoid(
-          authorizeBot(parent.thread.id, "schedule", task.projectId, task.threadId ?? undefined),
-        );
-
   return OrchestratorMcpService.of({
     scheduleTask: (scope, input) =>
       Effect.gen(function* () {
         const { parent, limits } = yield* loadCaller(scope);
         const projectId = yield* resolveProjectTarget(parent, input.projectId);
+        yield* assertLiveCallerForOtherProject(scope, parent, projectId);
+        const project = yield* requireProject(projectId);
         // Binding means "wake this thread", which only a thread caller in that project has.
         const bindToCurrentThread =
           input.bindToCurrentThread ??
           (parent !== undefined && parent.thread.projectId === projectId);
-        if (parent !== undefined)
-          yield* authorizeBot(
-            parent.thread.id,
-            "schedule",
-            projectId,
-            bindToCurrentThread ? parent.thread.id : undefined,
-          );
-        yield* assertLiveCallerForOtherProject(scope, parent, projectId);
-        const project = yield* requireProject(projectId);
         if (
           bindToCurrentThread &&
           (parent === undefined || parent.thread.projectId !== projectId)
@@ -1618,17 +1559,10 @@ const make = Effect.gen(function* () {
               failure("orchestration_error", `Could not list scheduled tasks: ${error.message}`),
             ),
           );
-        const visible = yield* Effect.filter(
-          tasks.filter((task) => projectId === undefined || task.projectId === projectId),
-          (task) =>
-            authorizeScheduledTask(parent, task).pipe(
-              Effect.as(true),
-              Effect.catchTags({ OrchestratorMcpFailure: () => Effect.succeed(false) }),
-            ),
-        );
         return {
-          tasks: yield* Effect.forEach(visible, (task) =>
-            summarizeScheduledTask(scope, { parent, limits }, task),
+          tasks: yield* Effect.forEach(
+            tasks.filter((task) => projectId === undefined || task.projectId === projectId),
+            (task) => summarizeScheduledTask(scope, { parent, limits }, task),
           ),
         };
       }),
@@ -1636,7 +1570,6 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const { parent, limits } = yield* loadCaller(scope);
         const existing = yield* loadScheduledTask(input.scheduledTaskId, limits);
-        yield* authorizeScheduledTask(parent, existing);
         yield* assertLiveCallerForOtherProject(scope, parent, existing.projectId);
         if (
           input.bindToCurrentThread === true &&
@@ -1662,14 +1595,6 @@ const make = Effect.gen(function* () {
           input.bindToCurrentThread === undefined
             ? existing.workspaceStrategy
             : scheduledTaskWorkspaceStrategy(input.bindToCurrentThread);
-        // Unbinding would move a bot's routine out of its control.
-        if (parent !== undefined && threadId !== existing.threadId)
-          yield* authorizeBot(
-            parent.thread.id,
-            "schedule",
-            existing.projectId,
-            threadId ?? undefined,
-          );
         const upsertInput: ScheduledTaskUpsertInput = {
           id: existing.id,
           title: input.title ?? existing.title,
@@ -1698,7 +1623,6 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const { parent, limits } = yield* loadCaller(scope);
         const existing = yield* loadScheduledTask(input.scheduledTaskId, limits);
-        yield* authorizeScheduledTask(parent, existing);
         yield* assertLiveCallerForOtherProject(scope, parent, existing.projectId);
         yield* scheduledTasks
           .delete({ id: existing.id })
@@ -2316,7 +2240,6 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const { parent } = yield* loadCaller(scope);
         const projectId = yield* resolveProjectTarget(parent, input.projectId);
-        if (parent !== undefined) yield* authorizeBot(parent.thread.id, "thread-list", projectId);
         const projectThreads = yield* threadManagement
           .listProjectThreads({
             projectId,
@@ -2330,16 +2253,7 @@ const make = Effect.gen(function* () {
         const nowMs = yield* Clock.currentTimeMillis;
         const statuses = input.statuses === undefined ? null : new Set(input.statuses);
         const titleContains = input.titleContains?.toLocaleLowerCase();
-        const accessibleThreads =
-          parent === undefined
-            ? projectThreads
-            : yield* Effect.filter(projectThreads, (thread) =>
-                authorizeBot(parent.thread.id, "thread-list", projectId, thread.id).pipe(
-                  Effect.as(true),
-                  Effect.catchTags({ OrchestratorMcpFailure: () => Effect.succeed(false) }),
-                ),
-              );
-        const filtered = accessibleThreads
+        const filtered = projectThreads
           .filter(
             (thread) =>
               statuses === null || statuses.has(thread.activityRunStatus ?? thread.status),

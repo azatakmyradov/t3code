@@ -91,10 +91,9 @@ function useServerUpdate() {
       }
       toastManager.add({
         type: "success",
-        title: result.value.upToDate ? `${serverLabel} is up to date` : `${serverLabel} updated`,
-        description: result.value.upToDate
-          ? `Desktop app is already on the latest available version, ${result.value.targetVersion}.`
-          : selfUpdate === "desktop-managed"
+        title: `${serverLabel} updated`,
+        description:
+          selfUpdate === "desktop-managed"
             ? `Desktop app relaunched on ${result.value.targetVersion}.`
             : `Reconnected on t3@${result.value.targetVersion}.`,
       });

@@ -194,7 +194,7 @@ export function QuestionAttachments(props: {
           onFocus={() => props.onInputFocusChange?.(true)}
           onBlur={() => props.onInputFocusChange?.(false)}
           placeholder="Or type a custom answer"
-          className="min-h-[54px] rounded-lg border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground"
+          className="min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground"
         />
       </TextInputWrapper>
     </View>

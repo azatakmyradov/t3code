@@ -109,7 +109,7 @@ function OverlayContent(props: { readonly progress: GitActionProgress }) {
         layout={OVERLAY_LAYOUT_TRANSITION}
         style={{
           borderCurve: "continuous",
-          borderRadius: 12,
+          borderRadius: 26,
           elevation: 12,
           shadowColor,
           shadowOffset: { width: 0, height: 8 },
@@ -126,7 +126,7 @@ function OverlayContent(props: { readonly progress: GitActionProgress }) {
           style={{
             borderColor: glassBorder,
             borderCurve: "continuous",
-            borderRadius: 12,
+            borderRadius: 26,
             borderWidth: StyleSheet.hairlineWidth,
             overflow: "hidden",
           }}
@@ -148,7 +148,7 @@ function OverlayContent(props: { readonly progress: GitActionProgress }) {
   return (
     <Animated.View
       layout={OVERLAY_LAYOUT_TRANSITION}
-      className={`flex-row items-center gap-2.5 rounded-xl border border-continuous px-3.5 py-3 shadow-lg shadow-black/10 ${bgClass}`}
+      className={`flex-row items-center gap-2.5 rounded-[26px] border border-continuous px-3.5 py-3 shadow-lg shadow-black/10 ${bgClass}`}
     >
       {content}
     </Animated.View>

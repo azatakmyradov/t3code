@@ -18,14 +18,14 @@ export function StatusPill(
   return (
     <View
       className={cn(
-        "rounded-md",
-        size === "compact" ? "px-2 py-0.5" : "px-2.5 py-1",
+        "rounded-full",
+        size === "compact" ? "px-2.5 py-1" : "px-3 py-1.5",
         props.pillClassName,
       )}
     >
       <Text
         className={cn(
-          "font-t3-medium",
+          "font-t3-bold",
           size === "compact" ? "text-2xs" : "text-xs",
           props.textClassName,
         )}

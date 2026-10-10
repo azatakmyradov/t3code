@@ -96,42 +96,12 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
     return TurnItemPositionStoreV2.of({
       allocate,
       normalize: (item, runOrdinal) =>
-        Effect.gen(function* () {
-          let positionRunOrdinal = runOrdinal;
-          // App-authored messages follow the latest run without joining its
-          // activity fold. Native runless items keep their existing ordering.
-          if (
-            positionRunOrdinal === undefined &&
-            item.type === "assistant_message" &&
-            item.runId === null &&
-            item.nodeId === null &&
-            item.providerThreadId === null &&
-            item.nativeItemRef === null
-          ) {
-            const rows = yield* sql<{ ordinal: number | null }>`
-              SELECT MAX(ordinal) AS ordinal FROM orchestration_v2_projection_runs
-              WHERE thread_id = ${item.threadId}
-            `;
-            positionRunOrdinal = rows[0]?.ordinal ?? undefined;
-          }
-          const ordinal = yield* allocate({
-            threadId: item.threadId,
-            turnItemId: item.id,
-            runId: item.runId,
-            ...(positionRunOrdinal === undefined ? {} : { runOrdinal: positionRunOrdinal }),
-          });
-          return item.ordinal === ordinal ? item : { ...item, ordinal };
-        }).pipe(
-          Effect.mapError((cause) =>
-            isTurnItemPositionStoreError(cause)
-              ? cause
-              : new TurnItemPositionStoreError({
-                  threadId: item.threadId,
-                  turnItemId: item.id,
-                  cause,
-                }),
-          ),
-        ),
+        allocate({
+          threadId: item.threadId,
+          turnItemId: item.id,
+          runId: item.runId,
+          ...(runOrdinal === undefined ? {} : { runOrdinal }),
+        }).pipe(Effect.map((ordinal) => (item.ordinal === ordinal ? item : { ...item, ordinal }))),
     });
   }),
 );

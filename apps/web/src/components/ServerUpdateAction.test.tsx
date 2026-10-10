@@ -296,27 +296,6 @@ describe("ServerUpdateAction", () => {
     });
   });
 
-  it("reports an already current desktop without claiming it relaunched", async () => {
-    testState.updateServer.mockResolvedValue(
-      AsyncResult.success({ targetVersion: "0.0.34", method: "desktop-app", upToDate: true }),
-    );
-    const action = ServerUpdateAction({
-      environmentId: "env-test" as EnvironmentId,
-      serverLabel: "Test server",
-      selfUpdate: "desktop-managed",
-      desktopAppUpdate: true,
-      targetVersion: "0.0.35",
-    }) as ActionElement;
-    action.props.onClick?.();
-    await flushPromises();
-
-    expect(testState.toast).toHaveBeenCalledWith({
-      type: "success",
-      title: "Test server is up to date",
-      description: "Desktop app is already on the latest available version, 0.0.34.",
-    });
-  });
-
   it("leaves thread continuation off by default", async () => {
     testState.updateServer.mockResolvedValue(
       AsyncResult.success({ targetVersion: "0.0.31", method: "boot-service" as const }),

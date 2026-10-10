@@ -6,7 +6,6 @@ import {
   AssetCreateUrlInput,
   AuthAccessReadScope,
   ServerSettingsPatch,
-  type ServerSettings,
   ProviderInstanceMutation,
   requiredScopesForServerSettingsPatch,
   AuthSettingsWriteScope,
@@ -43,11 +42,6 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  */
 export const RPC_REQUIRED_SCOPES = {
   ...CLIENT_GUARDED_RPC_SCOPES,
-  [WS_METHODS.botsList]: AuthOrchestrationReadScope,
-  [WS_METHODS.botsSubscribe]: AuthOrchestrationReadScope,
-  [WS_METHODS.botsGet]: AuthOrchestrationReadScope,
-  [WS_METHODS.botsConnections]: AuthOrchestrationReadScope,
-
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.getTurnDiff]: AuthOrchestrationReadScope,
@@ -87,10 +81,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverCommitDesktopUpdate]: AuthEnvironmentMaintainScope,
   [WS_METHODS.serverUpsertKeybinding]: AuthSettingsWriteScope,
   [WS_METHODS.serverRemoveKeybinding]: AuthSettingsWriteScope,
-  [WS_METHODS.mcpOAuthBegin]: AuthProvidersManageScope,
-  [WS_METHODS.mcpOAuthStatus]: AuthProvidersManageScope,
-  [WS_METHODS.mcpOAuthCancel]: AuthProvidersManageScope,
-  [WS_METHODS.mcpOAuthDisconnect]: AuthProvidersManageScope,
   [WS_METHODS.serverGetSettings]: AuthOrchestrationReadScope,
   [WS_METHODS.serverUpdateSettings]: AuthSettingsWriteScope,
   [WS_METHODS.serverSearchAcpRegistry]: AuthOrchestrationReadScope,
@@ -239,25 +229,9 @@ const SettingsUpdate = Schema.Struct({
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
 });
 
-const decodeSettingsUpdate = Schema.decodeUnknownSync(SettingsUpdate);
-const decodeAssetCreateUrlInput = Schema.decodeUnknownSync(AssetCreateUrlInput);
-
-const requiredScopesForSettingsUpdate = (
-  input: typeof SettingsUpdate.Type,
-  current?: ServerSettings,
-) => {
-  // Project entries include unchanged transports. The service checks those
-  // against its latest snapshot under the write lock, before any mutation.
-  const { projectSettingsOverrides, ...otherPatch } = input.patch;
-  const scopes =
-    current === undefined
-      ? [
-          ...new Set([
-            ...requiredScopesForServerSettingsPatch(otherPatch),
-            ...(projectSettingsOverrides === undefined ? [] : [AuthSettingsWriteScope]),
-          ]),
-        ]
-      : requiredScopesForServerSettingsPatch(input.patch, current);
+const requiredScopesForSettingsUpdate = (payload: unknown) => {
+  const input = Schema.decodeUnknownSync(SettingsUpdate)(payload);
+  const scopes = requiredScopesForServerSettingsPatch(input.patch);
   if (input.providerInstanceMutation === undefined) return scopes;
   // An atomic provider mutation carries an empty patch unless it also changes settings.
   return Object.values(input.patch).every((value) => value === undefined)
@@ -273,7 +247,7 @@ const requiredScopesForRpcCall = (
     return [AuthEnvironmentMaintainScope, AuthDiagnosticsReadScope];
   }
   if (method === WS_METHODS.assetsCreateUrl) {
-    const { resource } = decodeAssetCreateUrlInput(payload);
+    const { resource } = Schema.decodeUnknownSync(AssetCreateUrlInput)(payload);
     return [
       resource._tag === "workspace-file" ||
       resource._tag === "media-file" ||
@@ -282,23 +256,11 @@ const requiredScopesForRpcCall = (
         : AuthOrchestrationReadScope,
     ];
   }
-  if (method === WS_METHODS.serverUpdateSettings) {
-    return requiredScopesForSettingsUpdate(decodeSettingsUpdate(payload));
-  }
+  if (method === WS_METHODS.serverUpdateSettings) return requiredScopesForSettingsUpdate(payload);
   const guarded = clientRpcRequiredScopes(method, payload);
   if (guarded.length > 0) return guarded;
   return [requiredScopeForRpcMethod(method)];
 };
-
-/** Passed into the settings service so state-dependent grants are checked under its write lock. */
-export const authorizeSettingsUpdate =
-  (scopes: ReadonlyArray<AuthEnvironmentScope>, input: typeof SettingsUpdate.Type) =>
-  (current: ServerSettings): Effect.Effect<void, EnvironmentAuthorizationError> => {
-    const missing = requiredScopesForSettingsUpdate(input, current).find(
-      (scope) => !scopes.includes(scope),
-    );
-    return missing === undefined ? Effect.void : Effect.fail(rpcAuthorizationError(missing));
-  };
 
 /** Authorizes every RPC on one connection against that connection's session scopes. */
 export const layer = (scopes: ReadonlyArray<AuthEnvironmentScope>) =>

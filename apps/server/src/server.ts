@@ -22,7 +22,6 @@ import * as Schedule from "effect/Schedule";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
-import * as BotHttp from "./bots/http.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
@@ -57,10 +56,6 @@ import * as ForgejoCli from "./sourceControl/ForgejoCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
-import * as OutboundMcpOAuth from "./mcp/OutboundMcpOAuth.ts";
-import * as OutboundMcpOAuthHttp from "./mcp/OutboundMcpOAuthHttp.ts";
-import * as OutboundMcpConnections from "./mcp/OutboundMcpConnections.ts";
-import * as OutboundMcpHttp from "./mcp/outboundMcpHttp.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -199,13 +194,7 @@ const layerApplicationObservability = EventLoopMonitor.layer.pipe(
 
 const layerPtyAdapter = NodePtyAdapter.layer;
 
-const layerOutboundMcpOAuth = OutboundMcpOAuth.layer.pipe(
-  Layer.provide(OutboundMcpOAuthHttp.layer),
-  Layer.provide(ServerSecretStore.layer),
-);
-
 const layerServerSettings = ServerSettings.layer.pipe(
-  Layer.provide(layerOutboundMcpOAuth),
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),
 );
@@ -574,12 +563,6 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ReplayMarkers.layer,
 ).pipe(
   // Core Services
-  Layer.provideMerge(
-    OutboundMcpConnections.layer.pipe(
-      Layer.provide(ProjectionStoreV2.layer),
-      Layer.provide(layerOutboundMcpOAuth),
-    ),
-  ),
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
@@ -680,7 +663,6 @@ const layerMakeRoutes = Layer.mergeAll(
       Layer.provide(McpOAuthHttp.layer.pipe(Layer.provide(McpOAuth.layer))),
       Layer.provide(CloudHttp.layer),
       Layer.provide(OrchestrationHttp.layer),
-      Layer.provide(BotHttp.layer),
       Layer.provide(PullRequestHttp.layer),
       Layer.provide(ProjectHttp.layer),
       Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
@@ -691,7 +673,6 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAssetRoute,
     ServerHttp.layerAttachmentUploadRoute,
     DeviceHubProxy.layer,
-    OutboundMcpHttp.layer,
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,

@@ -23,7 +23,7 @@ export function SettingsSwitchRow(
           accessibilityLabel={`Set ${props.label} on for selected environments`}
           accessibilityRole="button"
           disabled={props.disabled}
-          className="min-h-11 justify-center rounded-lg border border-border bg-subtle px-3 py-2 active:opacity-70"
+          className="rounded-full bg-subtle px-3 py-2 active:opacity-70"
           onPress={() => props.onValueChange(true)}
         >
           <Text className="text-sm font-t3-medium text-foreground">Mixed · Set on</Text>

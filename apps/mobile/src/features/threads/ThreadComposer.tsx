@@ -23,7 +23,16 @@ import {
 } from "@t3tools/shared/usageLimits";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { ReactNode } from "react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { Alert, Keyboard, Platform, Pressable, View, type ViewStyle } from "react-native";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import {
@@ -36,6 +45,8 @@ import Animated, {
   FadeOut,
   type LayoutAnimationFunction,
   ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
   withTiming,
 } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -189,7 +200,6 @@ export interface ThreadComposerProps {
   readonly canSwitchProvider: boolean;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
-  readonly canUpdateRuntimeMode?: boolean;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
   /** Fires on editor focus/blur; hosts use it to vet stale keyboard state. */
@@ -300,8 +310,6 @@ function SendActionButton(props: {
   );
 }
 
-const COMPOSER_SHAPE_STYLE: ViewStyle = { borderRadius: 12, overflow: "hidden" };
-
 export function ComposerSurface(props: {
   readonly children: ReactNode;
   readonly style: ViewStyle;
@@ -309,7 +317,21 @@ export function ComposerSurface(props: {
   readonly animateLayout?: boolean;
 }) {
   const colors = useUniwindTheme();
+  const targetBorderRadius =
+    typeof props.style.borderRadius === "number" ? props.style.borderRadius : 0;
+  const animatedBorderRadius = useSharedValue(targetBorderRadius);
   const shouldAnimate = props.animateLayout !== false && Platform.OS !== "android";
+  useLayoutEffect(() => {
+    animatedBorderRadius.value = shouldAnimate
+      ? withTiming(targetBorderRadius, {
+          duration: COMPOSER_TRANSITION_DURATION_MS,
+          reduceMotion: ReduceMotion.System,
+        })
+      : targetBorderRadius;
+  }, [animatedBorderRadius, shouldAnimate, targetBorderRadius]);
+  const animatedShapeStyle = useAnimatedStyle(() => ({
+    borderRadius: animatedBorderRadius.value,
+  }));
   const layoutTransition = shouldAnimate ? COMPOSER_LAYOUT_TRANSITION : undefined;
 
   // Each native frame follows the same transition. Animating only the outer
@@ -317,10 +339,15 @@ export function ComposerSurface(props: {
   return (
     <Animated.View
       className={
-        Platform.OS === "android" ? undefined : "shadow-[0_2px_8px] shadow-adaptive-black-a15-a35"
+        Platform.OS === "android" ? undefined : "shadow-[0_6px_28px] shadow-adaptive-black-a15-a35"
       }
       layout={layoutTransition}
-      style={COMPOSER_SHAPE_STYLE}
+      style={[
+        animatedShapeStyle,
+        {
+          overflow: "hidden",
+        },
+      ]}
     >
       <AnimatedGlassSurface
         chrome="none"
@@ -332,14 +359,14 @@ export function ComposerSurface(props: {
         pointerEvents="none"
         tintColor="transparent"
         layout={layoutTransition}
-        style={[{ position: "absolute", inset: 0 }, COMPOSER_SHAPE_STYLE]}
+        style={[{ position: "absolute", inset: 0 }, animatedShapeStyle]}
       >
         {null}
       </AnimatedGlassSurface>
       <Animated.View
         collapsable={false}
         layout={layoutTransition}
-        style={[props.style, COMPOSER_SHAPE_STYLE]}
+        style={[props.style, animatedShapeStyle]}
       >
         {props.children}
       </Animated.View>
@@ -465,8 +492,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     threadShells: useThreadShells(),
     currentThreadId: props.selectedThread.id,
     projectCwd: props.projectCwd,
-    skillsProjectId: props.selectedThread.projectId,
-    serverSettings: props.serverConfig?.settings,
     pullRequestProjectId: props.serverConfig?.environment.capabilities.pullRequests
       ? (project?.id ?? null)
       : null,
@@ -666,7 +691,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       },
       runtimeMode: currentRuntimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
-      runtimeModeDisabled: props.canUpdateRuntimeMode === false,
     }),
     [
       currentModelSelection,
@@ -674,7 +698,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       currentRuntimeMode,
       props.onUpdateModelSelection,
       props.onUpdateRuntimeMode,
-      props.canUpdateRuntimeMode,
       providerOptionDescriptors,
       settingsOwnerId,
       threadProviderGroups,
@@ -792,8 +815,20 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         <ComposerSurface
           style={
             isExpanded
-              ? { minHeight: 140, paddingBottom: 6, paddingTop: 14 }
-              : { paddingVertical: 2 }
+              ? {
+                  borderRadius: 26,
+                  minHeight: 140,
+                  overflow: "hidden" as const,
+                  paddingBottom: 6,
+                  paddingTop: 14,
+                }
+              : {
+                  // Keep the numeric radius close to the expanded card so the
+                  // shape morph stays bounded while rendering as a capsule.
+                  borderRadius: 27,
+                  overflow: "hidden" as const,
+                  paddingVertical: 2,
+                }
           }
         >
           <ComposerDictationDraftContent

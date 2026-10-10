@@ -496,8 +496,6 @@ export function NewTaskDraftScreen(props: {
       : null,
     pullRequestRepository: selectedProject?.repositoryIdentity?.displayName ?? null,
     projectCwd: composerWorkspaceCwd,
-    skillsProjectId: selectedProject?.id ?? null,
-    serverSettings: selectedEnvironmentServerConfig?.settings,
     selectedProviderStatus: flow.selectedProviderStatus,
     hasThread: false,
     hasCompactableConversation: false,
@@ -1700,7 +1698,15 @@ export function NewTaskDraftScreen(props: {
         </Pressable>
       ) : null}
 
-      <ComposerSurface style={{ minHeight: 140, paddingBottom: 6, paddingTop: 14 }}>
+      <ComposerSurface
+        style={{
+          borderRadius: 26,
+          minHeight: 140,
+          overflow: "hidden",
+          paddingBottom: 6,
+          paddingTop: 14,
+        }}
+      >
         {stripAttachments.length > 0 ? (
           <View className="px-[14px] pb-2.5">
             <ComposerAttachmentStrip

@@ -25,7 +25,6 @@ import {
   loadCaller,
   readCaller,
   unavailable,
-  authorizeBotTarget,
 } from "./threadAccess.ts";
 
 // Only the classes below assign these, from their static blocks, so nothing
@@ -172,7 +171,6 @@ export const writesThreads = <P, A, E, R>(
     Effect.gen(function* () {
       const caller = yield* writingCaller;
       for (const threadId of threads(params)) {
-        yield* authorizeBotTarget(caller, "thread", undefined, threadId);
         if (threadId === undefined || threadId === caller.scope.thread?.threadId) continue;
         const target = yield* caller.threads
           .getThreadShell(threadId)

@@ -355,6 +355,25 @@ it.effect.each(["sqlite", "memory"] as const)(
       assert.deepEqual((yield* store.getTurnStartContext(other, runId)).messages, []);
       assert.deepEqual(yield* store.getTurnStartHistory(other, [oldRunId]), []);
       assert.isFalse((yield* store.getTurnStartContext(other, runId)).hasConversation);
+      if (storage === "sqlite") {
+        const sql = yield* SqlClient.SqlClient;
+        assert.isUndefined((yield* store.getTurnStartContext(threadId, runId)).retiredBot);
+        yield* sql`INSERT INTO bots (id, thread_id, revision, body)
+          VALUES ('retired-bot', ${threadId}, 1, '{}')`;
+        assert.isTrue((yield* store.getTurnStartContext(threadId, runId)).retiredBot);
+        const descendant = ThreadId.make("retired-bot-descendant");
+        yield* putThread({
+          ...thread,
+          id: descendant,
+          lineage: {
+            parentThreadId: threadId,
+            relationshipToParent: "subagent",
+            rootThreadId: threadId,
+          },
+        });
+        assert.isTrue((yield* store.getTurnStartContext(descendant, runId)).retiredBot);
+        assert.isUndefined((yield* store.getTurnStartContext(other, runId)).retiredBot);
+      }
       assert.instanceOf(
         yield* store.getTurnStartContext(ThreadId.make("missing"), runId).pipe(Effect.flip),
         ProjectionStore.ProjectionStoreThreadNotFoundError,

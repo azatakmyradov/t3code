@@ -171,7 +171,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
       pointerEvents={props.collapsed ? "auto" : "none"}
       accessibilityElementsHidden={!props.collapsed}
       importantForAccessibility={props.collapsed ? "auto" : "no-hide-descendants"}
-      className="flex-row items-center gap-2 rounded-xl border border-border bg-card-alt py-1.5 pl-4 pr-1.5"
+      className="flex-row items-center gap-2 rounded-full border border-border bg-card-alt py-1.5 pl-4 pr-1.5"
     >
       <Pressable
         accessibilityRole="button"
@@ -227,7 +227,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
           : FadeOutDown.duration(USER_INPUT_TOGGLE_DURATION_MS).easing(Easing.out(Easing.cubic))
       }
       layout={CARD_LAYOUT_TRANSITION}
-      className="overflow-hidden gap-2.5 rounded-xl border border-border bg-card-alt p-4"
+      className="overflow-hidden gap-2.5 rounded-[20px] border border-border bg-card-alt p-4"
       style={
         EXPANDED_CARD_IS_OVERLAY
           ? [{ maxHeight: props.maxHeight }, cardAnimatedStyle]
@@ -293,7 +293,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                       accessibilityState={{ checked: selected, disabled: responseDisabled }}
                       disabled={responseDisabled}
                       className={cn(
-                        "min-h-12 w-full rounded-lg border px-3.5 py-3",
+                        "min-h-12 w-full rounded-2xl border px-3.5 py-3",
                         selected ? "border-primary bg-primary/10" : "border-border bg-input",
                       )}
                       onPress={() =>
@@ -350,11 +350,11 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
       {props.pendingUserInput.dismissible ? (
         <Pressable
           accessibilityRole="button"
-          className="items-center justify-center rounded-lg px-4 py-2.5 active:opacity-70"
+          className="items-center justify-center rounded-2xl px-4 py-2.5 active:opacity-70"
           disabled={isResponding}
           onPress={() => void props.onDismiss()}
         >
-          <Text className="font-t3-medium text-sm text-foreground-muted">
+          <Text className="font-t3-bold text-sm text-foreground-muted">
             Dismiss without answering
           </Text>
         </Pressable>
