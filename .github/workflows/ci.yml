@@ -62,7 +62,7 @@ jobs:
                 comparison="$BASE_REF...$HEAD_REF"
               fi
               if paths=$(git diff --name-only --no-renames "$comparison"); then
-                if grep -Eq '^(apps/server/|packages/(contracts|shared|effect-acp|effect-codex-app-server|ssh|tailscale)/|native/|package\.json$|pnpm-(lock\.yaml|workspace\.yaml)$|vite\.config\.ts$|\.npmrc$|\.node-version$)' <<< "$paths"; then
+                if grep -Eq '^(apps/server/|packages/(contracts|shared|effect-acp|effect-codex-app-server|ssh|tailscale|provider-[^/]+|source-control-[^/]+)/|native/|package\.json$|pnpm-(lock\.yaml|workspace\.yaml)$|vite\.config\.ts$|\.npmrc$|\.node-version$)' <<< "$paths"; then
                   server=true
                 fi
                 if grep -Eq '^native/|(^|/)(Cargo\.(toml|lock)|rust-toolchain(\.toml)?)$' <<< "$paths"; then
@@ -203,6 +203,31 @@ jobs:
       - name: Test shared client packages
         run: vp run --parallel --concurrency-limit 2 --filter @t3tools/client-runtime --filter @t3tools/shared --filter @t3tools/contracts test
 
+  # Upstream extracted provider and source-control suites from apps/server.
+  # Keep that coverage on backend changes without enabling unrelated deploy jobs.
+  test_backend_packages:
+    needs: lint
+    if: needs.lint.outputs.server == 'true'
+    name: Test Backend Packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+      - name: Test providers and source control
+        run: vp run --parallel --concurrency-limit 2 --filter './packages/provider-*' --filter './packages/source-control-*' test
+
   # Two shards retain every server test and the one-file-at-a-time isolation
   # configured by apps/server, using fewer runners than upstream's six shards.
   test_server:
@@ -270,7 +295,7 @@ jobs:
   check:
     name: Check
     if: ${{ always() }}
-    needs: [lint, typecheck, build, test, test_web, test_server, rust]
+    needs: [lint, typecheck, build, test, test_web, test_backend_packages, test_server, rust]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -287,7 +312,7 @@ jobs:
             'all(to_entries[];
               .value.result == "success"
               or (.value.result == "skipped" and (
-                (.key == "test_server" and $server == "false")
+                ((.key == "test_server" or .key == "test_backend_packages") and $server == "false")
                 or (.key == "rust" and $rust == "false")
                 or (.key == "test" and $full == "false")
               )))' > /dev/null
