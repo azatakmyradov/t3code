@@ -1,4 +1,4 @@
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -104,6 +104,34 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
     }),
   );
 
+  it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
+    "executes the generated npm bin directly on Unix",
+    () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const fixture = yield* makeFakeArchives();
+        yield* buildNpmPlatformPackages({ ...fixture, version: VERSION, allowMissing: true });
+        const launcherDir = path.join(fixture.outputDir, "@azatakmyradov/t3-fork");
+
+        // npm's Unix bin link executes this file directly. Passing it to Node
+        // would conceal a missing shebang, even when its executable bit is set.
+        const result = yield* run(path.join(launcherDir, "bin/t3-fork.js"), ["--version"], {
+          cwd: launcherDir,
+          env: { ...process.env, NODE_PATH: path.join(fixture.root, "nowhere") } as Record<
+            string,
+            string
+          >,
+        });
+        assert.equal(result.exitCode, 1, result.stderr);
+        assert.include(
+          result.stderr,
+          "t3-fork: no T3 Fork CLI build is available for this platform",
+        );
+        assert.include(result.stderr, "reinstall @azatakmyradov/t3-fork");
+        assert.equal(result.stdout, "");
+      }),
+  );
+
   it.effect("builds platform packages and a launcher that execs the installed one", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -207,8 +235,8 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
 
       // NODE_PATH stands in for node_modules: require.resolve finds the
       // platform package there exactly as it would after `npm install`.
-      const hostPlatform = yield* HostProcessPlatform;
-      const hostArch = yield* HostProcessArchitecture;
+      const hostPlatform = yield* HostProcess.Platform;
+      const hostArch = yield* HostProcess.Architecture;
       const env = { ...process.env, NODE_PATH: fixture.outputDir } as Record<string, string>;
       if (KEYS.some((key) => key === `${hostPlatform}-${hostArch}`)) {
         const passthrough = yield* run(

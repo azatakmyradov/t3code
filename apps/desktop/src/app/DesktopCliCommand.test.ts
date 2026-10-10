@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it } from "@effect/vitest";
+import { afterEach, beforeEach, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -85,6 +85,15 @@ const fakePowerShell = (initial: string) => {
   return { registry, spawner };
 };
 
+// The machine's own PATH may already hold t3-fork; each test sets the PATH it means.
+const machinePath = process.env.PATH;
+beforeEach(() => {
+  process.env.PATH = "";
+});
+afterEach(() => {
+  process.env.PATH = machinePath;
+});
+
 it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
   it.effect("links the launcher onto PATH and removes only that link", () =>
     Effect.gen(function* () {
@@ -165,7 +174,30 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("reports when another t3 earlier on PATH would run instead", () =>
+  it.effect("installs alongside the upstream t3 command without changing it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped();
+      const upstreamBin = path.join(home, "upstream", "bin");
+      const upstreamCommand = path.join(upstreamBin, "t3");
+      yield* fs.makeDirectory(upstreamBin, { recursive: true });
+      yield* fs.writeFileString(upstreamCommand, "#!/bin/sh\n", { mode: 0o755 });
+      process.env.PATH = [upstreamBin, path.join(home, ".local", "bin")].join(":");
+
+      const command = yield* commandIn({ home });
+      const installed = yield* command.install;
+      expect(installed).toMatchObject({
+        onPath: true,
+        installedPath: path.join(home, ".local", "bin", "t3-fork"),
+      });
+      expect(installed.shadowedBy).toBeUndefined();
+      yield* command.uninstall;
+      expect(yield* fs.readFileString(upstreamCommand)).toBe("#!/bin/sh\n");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("refuses to install behind another t3-fork that runs first", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -173,16 +205,23 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       const shadow = path.join(home, "shadow");
       yield* fs.makeDirectory(shadow);
       yield* fs.writeFileString(path.join(shadow, "t3-fork"), "#!/bin/sh\n", { mode: 0o755 });
-      const previous = process.env.PATH;
       process.env.PATH = [shadow, path.join(home, ".local", "bin")].join(":");
-      yield* Effect.addFinalizer(() => Effect.sync(() => (process.env.PATH = previous)));
 
       const command = yield* commandIn({ home });
+      const theirs = path.join(shadow, "t3-fork");
+      expect((yield* command.state).shadowedBy).toBe(theirs);
+      // A link behind it would never run, so nothing is created.
+      const error = yield* Effect.flip(command.install);
+      expect(error.message).toContain(theirs);
+      expect(yield* fs.exists(path.join(home, ".local", "bin", "t3-fork"))).toBe(false);
+
+      yield* fs.remove(theirs);
       const installed = yield* command.install;
-      expect(installed.installedPath).toBe(path.join(home, ".local", "bin", "t3-fork"));
-      expect(installed.onPath).toBe(false);
-      yield* fs.remove(path.join(shadow, "t3-fork"));
-      expect((yield* command.state).onPath).toBe(true);
+      expect(installed).toMatchObject({
+        onPath: true,
+        installedPath: path.join(home, ".local", "bin", "t3-fork"),
+      });
+      expect(installed.shadowedBy).toBeUndefined();
     }).pipe(Effect.scoped),
   );
 

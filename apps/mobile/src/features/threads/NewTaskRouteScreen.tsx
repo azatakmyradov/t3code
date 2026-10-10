@@ -34,9 +34,11 @@ import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { useNewTaskFlow } from "./new-task-flow-provider";
 import { filterProjectScopes, getProjectScopeSelectionTarget } from "./new-task-project-selection";
 import { buildProjectFolderChoices } from "@t3tools/client-runtime/state/project-grouping";
+import { openProjectFolderPicker, returnToProjectPickerDraft } from "./new-task-project-navigation";
 
 type NewTaskRouteParams = {
   readonly incomingShareId?: string | string[];
+  readonly folderScopeKey?: string;
 };
 
 function deriveProjectEmptyState(catalogState: WorkspaceState): {
@@ -100,7 +102,6 @@ function NewTaskHeader(props: {
   readonly canAddProject: boolean;
   readonly searchText: string;
   readonly onSearchTextChange: (text: string) => void;
-  readonly onBack?: () => void;
 }) {
   const navigation = useNavigation();
   const { layout } = useAdaptiveWorkspaceLayout();
@@ -115,7 +116,7 @@ function NewTaskHeader(props: {
       }}
       options={{ headerBackVisible: !layout.usesSplitView }}
       hideBottomBorder
-      onBack={props.onBack ?? (() => navigation.goBack())}
+      onBack={() => navigation.goBack()}
       actions={
         props.canAddProject
           ? [
@@ -140,7 +141,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   const projects = useProjects();
   const [searchText, setSearchText] = useState("");
   const { projectScopes, selectedEnvironmentId, selectedProject, setProject } = useNewTaskFlow();
-  const [folderScopeKey, setFolderScopeKey] = useState<string | null>(null);
+  const folderScopeKey = route.params?.folderScopeKey ?? null;
   const { state: catalogState } = useWorkspaceState();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
@@ -220,8 +221,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           selected: false,
           onPress: () => {
             if (scope.projects.length > 1) {
-              setFolderScopeKey(scope.key);
-              setSearchText("");
+              navigation.dispatch(openProjectFolderPicker(scope.key, incomingShare?.id));
             } else {
               void selectProject(target);
             }
@@ -265,11 +265,10 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         return;
       }
     }
-    const state = navigation.getState();
-    const previousRoute = state?.routes[state.index - 1];
-    if (previousRoute?.name === "NewTaskDraft") {
+    const returnToDraft = returnToProjectPickerDraft(navigation.getState());
+    if (returnToDraft) {
       setProject(project);
-      navigation.goBack();
+      navigation.dispatch(returnToDraft);
       return;
     }
 
@@ -345,14 +344,6 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         canAddProject={catalogState.hasReadyEnvironment}
         searchText={searchText}
         onSearchTextChange={setSearchText}
-        onBack={
-          folderScopeKey
-            ? () => {
-                setFolderScopeKey(null);
-                setSearchText("");
-              }
-            : undefined
-        }
       />
 
       <MaterialScreenContent>
