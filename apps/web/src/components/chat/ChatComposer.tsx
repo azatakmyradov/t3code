@@ -297,6 +297,8 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
+import { ComposerStatusRow } from "./ComposerStatusRow";
+import type { TurnThroughput } from "../../lib/turnThroughput";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -1610,6 +1612,7 @@ export interface ChatComposerProps {
 
   // Context window
   activeContextWindow: ContextWindowSnapshot | null;
+  activeTurnThroughput: TurnThroughput | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -7730,6 +7733,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           </div>
         </ComposerSurface.Main>
       </div>
+      {!isComposerCollapsedMobile &&
+      !isComposerApprovalState &&
+      multipleModelSelections === null ? (
+        <ComposerStatusRow
+          provider={selectedProviderStatus}
+          context={
+            activeThreadModelSelection?.instanceId === selectedInstanceId
+              ? activeContextWindow
+              : null
+          }
+          showContext={settings.contextWindowMeterEnabled}
+          turnTokensPerSecond={
+            props.activeTurnThroughput?.providerInstanceId === selectedInstanceId
+              ? props.activeTurnThroughput.tokensPerSecond
+              : null
+          }
+          disconnected={environmentUnavailable !== null}
+        />
+      ) : null}
     </form>
   );
 });

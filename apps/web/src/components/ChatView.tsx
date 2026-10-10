@@ -498,6 +498,8 @@ import {
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
+import { deriveLatestTurnThroughput } from "../lib/turnThroughput";
+import { selectActiveProviderThreadUsage } from "../lib/providerTurnUsage";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_EASING,
@@ -1718,17 +1720,38 @@ export default function ChatView(props: ChatViewProps) {
     status: threadStatus,
   });
   const threadDetailLoading = threadSyncPhase === "loading";
-  // Latest provider-reported context usage (#8144): the newest turn that has
-  // a report wins; stale turns keep the meter alive between turns.
-  const activeThreadLiveTokenUsage = useMemo(() => {
-    const turns = serverProjection?.providerTurns;
-    if (!turns || turns.length === 0) return null;
-    for (let index = turns.length - 1; index >= 0; index -= 1) {
-      const usage = turns[index]?.tokenUsage;
-      if (usage !== undefined) return usage;
-    }
-    return null;
-  }, [serverProjection?.providerTurns]);
+  const activeProviderThreadId = serverProjection?.thread.activeProviderThreadId ?? null;
+  const projectionProviderThreads = serverProjection?.providerThreads;
+  const projectionProviderTurns = serverProjection?.providerTurns;
+  const projectionAttempts = serverProjection?.attempts;
+  const projectionRuns = serverProjection?.runs;
+  const providerUsageProjection = useMemo(
+    () =>
+      projectionProviderThreads && projectionProviderTurns && projectionAttempts && projectionRuns
+        ? {
+            thread: { activeProviderThreadId },
+            providerThreads: projectionProviderThreads,
+            providerTurns: projectionProviderTurns,
+            attempts: projectionAttempts,
+            runs: projectionRuns,
+          }
+        : null,
+    [
+      activeProviderThreadId,
+      projectionProviderThreads,
+      projectionProviderTurns,
+      projectionAttempts,
+      projectionRuns,
+    ],
+  );
+  const activeThreadUsageSelection = useMemo(
+    () => selectActiveProviderThreadUsage(providerUsageProjection),
+    [providerUsageProjection],
+  );
+  const activeUsageProviderThread = useMemo(
+    () => projectionProviderThreads?.find((thread) => thread.id === activeProviderThreadId) ?? null,
+    [projectionProviderThreads, activeProviderThreadId],
+  );
   const serverVisibleTurnItems = useThreadVisibleTurnItems(routeThreadDetailRef);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = useMemo<MessagesTimelineHistoryControls | undefined>(() => {
@@ -3630,14 +3653,28 @@ export default function ChatView(props: ChatViewProps) {
     runlessWorkStartedAt !== null;
   const activeContextWindow = useMemo(
     () =>
-      deriveLatestContextWindowSnapshot(
-        serverVisibleTurnItems ?? [],
-        activeThreadLiveTokenUsage,
-        serverProjection?.providerThreads.find(
-          (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
-        ),
-      ),
-    [activeThreadLiveTokenUsage, serverVisibleTurnItems, serverProjection],
+      activeThreadUsageSelection.allowFallback
+        ? deriveLatestContextWindowSnapshot(
+            activeThreadUsageSelection.usage !== null ||
+              activeUsageProviderThread?.contextUsage != null
+              ? []
+              : (serverVisibleTurnItems ?? []).filter(
+                  ({ item }) => item.providerThreadId === activeProviderThreadId,
+                ),
+            activeThreadUsageSelection.usage,
+            activeUsageProviderThread,
+          )
+        : null,
+    [
+      activeThreadUsageSelection,
+      serverVisibleTurnItems,
+      activeUsageProviderThread,
+      activeProviderThreadId,
+    ],
+  );
+  const activeTurnThroughput = useMemo(
+    () => deriveLatestTurnThroughput(providerUsageProjection),
+    [providerUsageProjection],
   );
   const pendingBackgroundTasks = useMemo(() => {
     if (serverProjection === null || serverProjection === undefined) {
@@ -11740,6 +11777,7 @@ export default function ChatView(props: ChatViewProps) {
                               }
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeContextWindow={activeContextWindow}
+                              activeTurnThroughput={activeTurnThroughput}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}
