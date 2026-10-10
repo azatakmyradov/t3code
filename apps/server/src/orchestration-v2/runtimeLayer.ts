@@ -51,11 +51,6 @@ import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
-import * as BotRemote from "../bots/BotRemote.ts";
-import * as BotRuntime from "../bots/BotRuntime.ts";
-import * as BotService from "../bots/BotService.ts";
-import * as BotStore from "../bots/BotStore.ts";
-import * as BotWorker from "../bots/BotWorker.ts";
 
 /** The shared application event log and its command receipts. */
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -157,12 +152,7 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
   ),
 );
 
-const layerBotRuntime = BotRuntime.layer.pipe(
-  Layer.provide(Layer.merge(BotStore.layer, ProjectionStore.layer)),
-);
-
 const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
-  Layer.provide(layerBotRuntime),
   Layer.provide(
     Layer.mergeAll(
       layerContextHandoffServiceProvided,
@@ -277,7 +267,6 @@ const layerSecretRequestsProvided = SecretRequests.layer.pipe(
   Layer.provide(layerThreadManagementProvided),
 );
 const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
-  Layer.provide(layerBotRuntime),
   Layer.provide(
     Layer.mergeAll(
       layerThreadLaunchProvided,
@@ -352,23 +341,7 @@ export const layer = Layer.mergeAll(
   layerLegacyV1ThreadImporterProvided,
 );
 
-const layerBots = BotService.layer.pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      BotStore.layer,
-      BotRemote.layer.pipe(Layer.provide(BotStore.layer)),
-      layerThreadLaunchProvided,
-      layerThreadManagementProvided,
-      layerManagedProjectFoldersProvided,
-      layerScheduledTaskProvided,
-    ),
-  ),
-);
-
 export const layerProduction = Layer.mergeAll(
-  layerBotRuntime,
-  layerBots,
-  BotWorker.layer.pipe(Layer.provide(layerBots)),
   layer.pipe(Layer.provide(layerProjectService)),
   layerProjectService,
   layerManagedProjectFoldersProvided,

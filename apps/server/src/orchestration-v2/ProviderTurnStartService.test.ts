@@ -155,6 +155,7 @@ it("does not commit running state when inherited background routing cannot be re
 
 function makeLocalCommandHarness(input: {
   readonly text: string;
+  readonly retiredBot?: true;
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
   readonly logoutFailure?: string;
@@ -498,6 +499,7 @@ function makeLocalCommandHarness(input: {
           getTurnStartContext: () =>
             Effect.succeed({
               ...projection,
+              ...(input.retiredBot ? { retiredBot: true as const } : {}),
               hasConversation: projection.messages.some(
                 (m) =>
                   m.role === "user" &&
@@ -552,6 +554,22 @@ function makeLocalCommandHarness(input: {
     }).pipe(Effect.provide(layer)),
   };
 }
+
+effectIt.effect("does not reopen a retained bot conversation or resume its queued work", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({ text: "Continue", retiredBot: true });
+
+    yield* harness.startWithRetry;
+
+    expect(harness.open).not.toHaveBeenCalled();
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+    expect(harness.tryHandlePromptCommand).not.toHaveBeenCalled();
+    expect(harness.projection().runs.at(-1)).toMatchObject({ status: "failed", startedAt: null });
+    expect(harness.projection().turnItems).toMatchObject([
+      { type: "error", title: "Bots are no longer supported", status: "failed" },
+    ]);
+  }),
+);
 
 effectIt.effect("terminalizes a starting run when its provider session cannot open", () =>
   Effect.gen(function* () {

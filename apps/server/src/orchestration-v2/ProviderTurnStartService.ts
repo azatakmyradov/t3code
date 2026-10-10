@@ -22,7 +22,6 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
-import * as BotRuntime from "../bots/BotRuntime.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
@@ -376,6 +375,27 @@ export const layer: Layer.Layer<
           });
         },
       );
+      // Restart continuations and queued effects can outlive the removed bot workers.
+      // Keep their transcripts, but never resume them without the original authority checks.
+      if (projection.retiredBot) {
+        yield* settleRunBeforeStart({
+          signal: "retired-bot",
+          status: "failed",
+          now: yield* DateTime.now,
+          providerInstanceId: run.providerInstanceId,
+          itemProviderThreadId: providerThread.id,
+          item: {
+            type: "error",
+            title: "Bots are no longer supported",
+            failure: makeProviderFailure({
+              class: "permission_error",
+              message:
+                "This conversation belongs to a retired bot. Start a new thread to continue working.",
+            }),
+          },
+        });
+        return;
+      }
       if (message.attachments.length === 0 && message.text.trimStart().startsWith("/")) {
         const isEmptyCompaction =
           message.text.trim().toLowerCase() === "/compact" && !projection.hasConversation;
@@ -523,23 +543,8 @@ export const layer: Layer.Layer<
       });
       const { isCurrentAttemptInStatus } = runControls;
 
-      const botRuntime = yield* BotRuntime.BotRuntime;
-      // A bot thread runs only while its bot is live and may still reach the thread's project.
-      const bot = yield* botRuntime.authorize(
-        projection.thread.id,
-        "run",
-        projection.thread.projectId,
-        projection.thread.id,
-      );
-      const remoteBotTask = bot !== null && (yield* botRuntime.isRemoteTask(projection.thread.id));
       const resolvedRuntimePolicy = yield* runtimePolicy.resolve({
-        thread:
-          bot === null
-            ? projection.thread
-            : {
-                ...projection.thread,
-                runtimeMode: BotRuntime.botRuntimeMode(bot, projection.thread),
-              },
+        thread: projection.thread,
         modelSelection: run.modelSelection,
       });
       const existingSessionProjection = projection.providerSessions.find(
@@ -966,18 +971,10 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
-      const messageText = projectComposerContextForProvider({
+      const userText = projectComposerContextForProvider({
         text: message.text,
         records: message.context?.records ?? [],
       });
-      const userText =
-        bot === null
-          ? messageText
-          : `${BotRuntime.botTurnInstructions(
-              bot,
-              projection.thread.id,
-              remoteBotTask,
-            )}\n\n${messageText}`;
       // Delivered once: this run's provider turn marks the work as told. A
       // restart continuation is prompted by its own text or resumes natively.
       const noteContinuation = isRestartNoteContinuation(

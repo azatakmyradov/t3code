@@ -284,25 +284,12 @@ describe("searchSettings", () => {
     expect(searchSettings("sidebar.toggle")[0]?.targetId).toBeUndefined();
   });
 
-  it("opens each Tools search result on the panel containing its anchor", () => {
-    expect(searchSettings("MCP servers")[0]).toMatchObject({
-      to: "/settings/tools",
-      id: "tools-mcp-servers",
-      search: { tab: "mcp" },
-    });
+  it("opens Skills settings without advertising removed MCP configuration", () => {
     expect(searchSettings("Skills")[0]).toMatchObject({
       to: "/settings/tools",
       id: "tools-skills",
-      search: { tab: "skills" },
     });
-  });
-
-  it("finds shared MCP browser sign-in from OAuth search", () => {
-    expect(searchSettings("mcp oauth")[0]).toMatchObject({
-      to: "/settings/tools",
-      id: "tools-mcp-servers",
-      search: { tab: "mcp" },
-    });
+    expect(searchSettings("MCP servers")).toEqual([]);
   });
 
   it("keeps catalog result ids unique", () => {

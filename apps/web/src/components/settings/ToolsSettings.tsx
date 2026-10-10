@@ -1,41 +1,22 @@
 import {
-  AuthProvidersManageScope,
   type EnvironmentId,
-  mcpServerTransportSummary,
-  type McpServerConfig,
-  type McpServerProjectOverride,
-  type McpServerTransport,
   type ProjectId,
   type ServerProvider,
   type ServerSettings,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { MoreHorizontalIcon, PlusIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { RefreshCwIcon, SearchIcon } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
-import { useEnvironmentsWithScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogPopup,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Switch } from "../ui/switch";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { McpServerDialog } from "./McpServerDialog";
-import { McpOAuthControls } from "./McpOAuthControls";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
@@ -45,14 +26,9 @@ import {
   filterSkillRows,
   groupSkillRows,
   isSkillDisabled,
-  listMcpServerRows,
-  resolveMcpOAuthTarget,
-  type McpServerRow,
   SKILL_GROUP_LABELS,
   skillReachesSomeProviders,
   type SkillRow,
-  type ToolsTab,
-  takenMcpServerNames,
   withSkillDisabled,
 } from "./toolsSettings.logic";
 import { useScopedSettings, useScopedSettingsWriteAllowed } from "./useScopedSettings";
@@ -143,12 +119,12 @@ function usePersistToolsPatch() {
 type PersistToolsPatch = ReturnType<typeof usePersistToolsPatch>;
 
 /** Replace one key of a project's override entry, dropping the key (or the entry) when empty. */
-function projectOverridePatch<K extends "mcpServers" | "disabledSkills">(
+function projectOverridePatch(
   settings: {
     readonly projectSettingsOverrides: Readonly<Record<string, Record<string, unknown>>>;
   },
   projectId: ProjectId,
-  key: K,
+  key: "disabledSkills",
   value: Readonly<Record<string, unknown>>,
 ): ServerSettingsPatch {
   const { [key]: _previous, ...rest } = settings.projectSettingsOverrides[projectId] ?? {};
@@ -160,32 +136,11 @@ function projectOverridePatch<K extends "mcpServers" | "disabledSkills">(
   } as ServerSettingsPatch;
 }
 
-export function ToolsSettings({
-  tab = "skills",
-  onTabChange,
-}: {
-  readonly tab?: ToolsTab;
-  readonly onTabChange: (tab: ToolsTab) => void;
-}) {
-  const selectTab = onTabChange;
+export function ToolsSettings() {
   const persist = usePersistToolsPatch();
   return (
     <SettingsPageContainer>
-      <div className="px-3 sm:px-4">
-        <ToggleGroup
-          aria-label="Tools"
-          variant="segmented"
-          value={[tab]}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (value === "skills" || value === "mcp") selectTab(value);
-          }}
-        >
-          <Toggle value="skills">Skills</Toggle>
-          <Toggle value="mcp">MCP servers</Toggle>
-        </ToggleGroup>
-      </div>
-      {tab === "mcp" ? <McpServersPanel persist={persist} /> : <SkillsPanel persist={persist} />}
+      <SkillsPanel persist={persist} />
     </SettingsPageContainer>
   );
 }
@@ -420,339 +375,3 @@ function SkillSettingsRow({
     />
   );
 }
-
-// ── MCP servers ──────────────────────────────────────────────────────
-
-type ServerEditor =
-  | { readonly mode: "add" }
-  | { readonly mode: "edit"; readonly row: McpServerRow };
-
-function McpServersPanel({ persist }: { readonly persist: PersistToolsPatch }) {
-  const { scope, target, connectedEnvironments } = useSettingsScope();
-  const targets = useToolsTargets();
-  const canWriteSettings = useScopedSettingsWriteAllowed();
-  const managers = useEnvironmentsWithScope(connectedEnvironments, AuthProvidersManageScope);
-  const canManageServers =
-    connectedEnvironments.length > 0 &&
-    connectedEnvironments.every((environment) => managers.has(environment.environmentId));
-  const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
-  const projectId = isProjectScope ? (target?.projectId ?? null) : null;
-  const selectedTargetCount = isProjectScope ? scope.members.length : scope.environmentIds.length;
-  const environmentSettings = target
-    ? connectedEnvironments.find(
-        (environment) => environment.environmentId === target.environmentId,
-      )?.serverConfig?.settings
-    : undefined;
-  const rows = useMemo(
-    () =>
-      listMcpServerRows({
-        environment: environmentSettings?.mcpServers ?? {},
-        project:
-          projectId === null
-            ? null
-            : (environmentSettings?.projectSettingsOverrides[projectId]?.mcpServers ?? {}),
-      }),
-    [environmentSettings, projectId],
-  );
-  const targetServers = targets.map((candidate) => {
-    const settings = connectedEnvironments.find(
-      (environment) => environment.environmentId === candidate.environmentId,
-    )?.serverConfig?.settings;
-    return candidate.projectId === null
-      ? (settings?.mcpServers ?? {})
-      : (settings?.projectSettingsOverrides[candidate.projectId]?.mcpServers ?? {});
-  });
-  const [editor, setEditor] = useState<ServerEditor | null>(null);
-  const [removing, setRemoving] = useState<McpServerRow | null>(null);
-  const scopeLabel = isProjectScope
-    ? scope.kind === "project" || scope.kind === "checkout"
-      ? scope.group.displayName
-      : ""
-    : scope.kind === "environment"
-      ? scope.label
-      : "every environment";
-
-  const writeServer = (
-    name: string,
-    transport: McpServerTransport,
-    enabled: boolean,
-    previousName?: string,
-  ) =>
-    persist(({ settings, projectId: targetProject }) => {
-      if (targetProject === null) {
-        return {
-          mcpServers: {
-            ...(previousName !== undefined && previousName !== name
-              ? { [previousName]: null }
-              : {}),
-            [name]: { enabled, transport },
-          },
-        };
-      }
-      const entries: Record<string, McpServerProjectOverride> = {
-        ...settings.projectSettingsOverrides[targetProject]?.mcpServers,
-      };
-      if (previousName !== undefined && previousName !== name) delete entries[previousName];
-      entries[name] = { enabled, transport };
-      return projectOverridePatch(settings, targetProject, "mcpServers", entries);
-    });
-
-  const setEnabled = (row: McpServerRow, enabled: boolean) =>
-    persist(({ settings, projectId: targetProject }) => {
-      if (targetProject === null) {
-        const current = settings.mcpServers[row.name];
-        return current ? { mcpServers: { [row.name]: { ...current, enabled } } } : null;
-      }
-      const entries: Record<string, McpServerProjectOverride> = {
-        ...settings.projectSettingsOverrides[targetProject]?.mcpServers,
-      };
-      const own = entries[row.name];
-      const inherited = settings.mcpServers[row.name];
-      if (own?.transport !== undefined) {
-        entries[row.name] = { ...own, enabled };
-      } else if (inherited !== undefined && inherited.enabled === enabled) {
-        // Back to the environment's value: no override needed.
-        delete entries[row.name];
-      } else {
-        entries[row.name] = { enabled };
-      }
-      return projectOverridePatch(settings, targetProject, "mcpServers", entries);
-    });
-
-  const remove = (row: McpServerRow) =>
-    persist(({ settings, projectId: targetProject }) => {
-      if (targetProject === null) return { mcpServers: { [row.name]: null } };
-      const entries: Record<string, McpServerProjectOverride> = {
-        ...settings.projectSettingsOverrides[targetProject]?.mcpServers,
-      };
-      delete entries[row.name];
-      return projectOverridePatch(settings, targetProject, "mcpServers", entries);
-    });
-
-  const resetSwitch = (row: McpServerRow) =>
-    persist(({ settings, projectId: targetProject }) => {
-      if (targetProject === null) return null;
-      const entries: Record<string, McpServerProjectOverride> = {
-        ...settings.projectSettingsOverrides[targetProject]?.mcpServers,
-      };
-      delete entries[row.name];
-      return projectOverridePatch(settings, targetProject, "mcpServers", entries);
-    });
-
-  const ownRows = isProjectScope ? rows.filter((row) => row.origin === "project") : rows;
-  const inheritedRows = isProjectScope ? rows.filter((row) => row.origin !== "project") : [];
-  const canEditServers = canWriteSettings && canManageServers && targets.length > 0;
-
-  return (
-    <>
-      <SettingsSection
-        {...searchableSetting("tools-mcp-servers")}
-        title={isProjectScope ? "This project" : "MCP servers"}
-        headerAction={
-          canEditServers ? (
-            <Button size="xs" variant="outline" onClick={() => setEditor({ mode: "add" })}>
-              <PlusIcon className="size-3" aria-hidden />
-              Add server
-            </Button>
-          ) : null
-        }
-      >
-        {ownRows.length === 0 ? (
-          <SettingsRow
-            title={isProjectScope ? "No servers just for this project" : "No servers yet"}
-            description={
-              isProjectScope
-                ? "Add one here to give only this project's agents a server, or to point a shared server at a different account."
-                : "Servers added here reach every agent, next to the servers each agent already loads from its own config."
-            }
-          />
-        ) : (
-          ownRows.map((row) => (
-            <McpServerSettingsRow
-              key={row.name}
-              row={row}
-              oauthTarget={resolveMcpOAuthTarget(row, targets, selectedTargetCount)}
-              canSwitch={canWriteSettings && (isProjectScope || canManageServers)}
-              canEdit={canEditServers}
-              onEnabledChange={(enabled) => setEnabled(row, enabled)}
-              onEdit={() => setEditor({ mode: "edit", row })}
-              onRemove={() => setRemoving(row)}
-            />
-          ))
-        )}
-      </SettingsSection>
-      {isProjectScope && inheritedRows.length > 0 ? (
-        <SettingsSection title="Inherited">
-          {inheritedRows.map((row) => (
-            <McpServerSettingsRow
-              key={row.name}
-              row={row}
-              oauthTarget={resolveMcpOAuthTarget(row, targets, selectedTargetCount)}
-              canSwitch={canWriteSettings}
-              canEdit={false}
-              onEnabledChange={(enabled) => setEnabled(row, enabled)}
-              {...(row.origin === "project-switch" ? { onReset: () => resetSwitch(row) } : {})}
-            />
-          ))}
-        </SettingsSection>
-      ) : null}
-      {!canManageServers && connectedEnvironments.length > 0 ? (
-        <p className="px-3 text-xs text-muted-foreground sm:px-4">
-          Adding or editing servers needs permission to manage providers on this environment.
-        </p>
-      ) : (
-        <p className="px-3 text-xs text-muted-foreground sm:px-4">
-          Servers you add here are given to Claude, Codex, Cursor, OpenCode, Grok and other ACP
-          agents. Pi isn't supported yet. Changes apply to new sessions; use Restart agent session
-          to pick them up in an open thread.
-        </p>
-      )}
-      {editor ? (
-        <McpServerDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setEditor(null);
-          }}
-          scopeLabel={scopeLabel}
-          initial={
-            editor.mode === "edit" ? { name: editor.row.name, config: editor.row.config } : null
-          }
-          takenNames={takenMcpServerNames(
-            targetServers,
-            editor.mode === "edit" ? editor.row.name : undefined,
-          )}
-          storedTransports={targetServers.map((servers) =>
-            editor.mode === "edit" ? servers[editor.row.name]?.transport : undefined,
-          )}
-          onSave={({ name, transport }) => {
-            writeServer(
-              name,
-              transport,
-              editor.mode === "edit" ? editor.row.config.enabled : true,
-              editor.mode === "edit" ? editor.row.name : undefined,
-            );
-            setEditor(null);
-          }}
-        />
-      ) : null}
-      <AlertDialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
-        <AlertDialogPopup>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove {removing?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              New agent sessions stop getting this server, and its stored secrets are deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (removing) remove(removing);
-                setRemoving(null);
-              }}
-            >
-              Remove
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogPopup>
-      </AlertDialog>
-    </>
-  );
-}
-
-function McpServerSettingsRow({
-  row,
-  oauthTarget,
-  canSwitch,
-  canEdit,
-  onEnabledChange,
-  onEdit,
-  onRemove,
-  onReset,
-}: {
-  readonly row: McpServerRow;
-  readonly oauthTarget: ReturnType<typeof resolveMcpOAuthTarget>;
-  readonly canSwitch: boolean;
-  readonly canEdit: boolean;
-  readonly onEnabledChange: (enabled: boolean) => void;
-  readonly onEdit?: () => void;
-  readonly onRemove?: () => void;
-  readonly onReset?: () => void;
-}) {
-  const transport = row.config.transport;
-  return (
-    <SettingsRow
-      title={
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate">{row.name}</span>
-          <Badge variant="outline" size="sm">
-            {transport.type === "stdio" ? "Command" : "URL"}
-          </Badge>
-          {row.replacesEnvironment ? (
-            <Badge variant="info" size="sm">
-              Replaces environment's
-            </Badge>
-          ) : null}
-          {row.origin === "project-switch" ? (
-            <Badge variant="info" size="sm">
-              {row.config.enabled ? "On" : "Off"} for this project
-            </Badge>
-          ) : null}
-        </span>
-      }
-      description={
-        <span className="break-all font-mono">{mcpServerTransportSummary(transport)}</span>
-      }
-      className={row.config.enabled ? undefined : "[&_h3]:text-muted-foreground"}
-      control={
-        <>
-          {transport.type === "http" && transport.authentication === "oauth" ? (
-            oauthTarget ? (
-              <McpOAuthControls
-                key={JSON.stringify([oauthTarget.environmentId, oauthTarget.input, transport.url])}
-                environmentId={oauthTarget.environmentId}
-                input={oauthTarget.input}
-                inherited={oauthTarget.input.projectId === undefined}
-              />
-            ) : (
-              <span className="max-w-48 text-xs text-muted-foreground">
-                Select one environment or checkout to manage sign-in.
-              </span>
-            )
-          ) : null}
-          {onReset ? (
-            <Button size="xs" variant="ghost" onClick={onReset} disabled={!canSwitch}>
-              Reset
-            </Button>
-          ) : null}
-          {canEdit && onEdit && onRemove ? (
-            <Menu>
-              <MenuTrigger
-                render={
-                  <Button size="icon-sm" variant="ghost-muted" aria-label={`${row.name} options`} />
-                }
-              >
-                <MoreHorizontalIcon className="size-4" />
-              </MenuTrigger>
-              <MenuPopup align="end">
-                <MenuItem onClick={onEdit}>Edit</MenuItem>
-                <MenuItem variant="destructive" onClick={onRemove}>
-                  Remove
-                </MenuItem>
-              </MenuPopup>
-            </Menu>
-          ) : null}
-          <Switch
-            aria-label={`${row.name} server`}
-            checked={row.config.enabled}
-            disabled={!canSwitch}
-            onCheckedChange={onEnabledChange}
-          />
-        </>
-      }
-    />
-  );
-}
-
-export type { McpServerConfig };

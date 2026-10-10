@@ -22,8 +22,6 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
-import { useBotForThread } from "../../state/bots";
-import { BotDetailsPanel } from "../bots/BotDetailsPanel";
 import { ProjectFolderPicker } from "./ProjectFolderPicker";
 
 export interface ThreadDetailsPanelProps extends Pick<
@@ -69,15 +67,6 @@ export interface ThreadDetailsPanelProps extends Pick<
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
-  const bot = useBotForThread(props.threadId);
-  return bot ? (
-    <BotDetailsPanel key={`${bot.environmentId}:${bot.id}`} bot={bot} {...props} />
-  ) : (
-    <ProjectThreadDetailsPanel {...props} />
-  );
-}
-
-function ProjectThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
     props.activeProjectScripts ? props.gitCwd : null,

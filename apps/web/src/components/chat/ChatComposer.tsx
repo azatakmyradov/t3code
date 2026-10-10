@@ -1243,7 +1243,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
-  runtimeModeDisabled?: boolean;
   size?: "sm" | "xs";
   hidden?: boolean;
   onToggleInteractionMode: () => void;
@@ -1305,7 +1304,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 
       <Tooltip>
         <Select
-          disabled={props.runtimeModeDisabled}
           open={open}
           onOpenChange={setOpen}
           value={props.runtimeMode}
@@ -1696,7 +1694,6 @@ export interface ChatComposerProps {
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
-  runtimeModeDisabled?: boolean;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
 
   focusComposer: () => void;
@@ -1805,7 +1802,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     getModelDisabledReason,
     toggleInteractionMode,
     handleRuntimeModeChange,
-    runtimeModeDisabled,
     handleInteractionModeChange,
     focusComposer,
     scheduleComposerFocus,
@@ -5434,7 +5430,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           hidden={composerControlsHidden || restingHiddenBlockCount > 0}
           onToggleInteractionMode={toggleInteractionMode}
           onRuntimeModeChange={handleRuntimeModeChange}
-          runtimeModeDisabled={runtimeModeDisabled === true}
         />
       ),
     },
@@ -5601,7 +5596,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             }
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
-            runtimeModeDisabled={runtimeModeDisabled === true}
           />
         </div>
       </>

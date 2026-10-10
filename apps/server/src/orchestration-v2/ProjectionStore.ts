@@ -80,6 +80,7 @@ import type * as Statement from "effect/sql/Statement";
 
 import { MCP_APP_OUTPUT_KEY } from "@t3tools/shared/mcpApp";
 import { threadHtmlRenderAttachmentIds } from "../attachmentStore.ts";
+import { isRetiredBotThread } from "../persistence/retiredBotThreads.ts";
 import {
   isThreadHistoryUserTurn,
   isConversationHistoryItem,
@@ -425,7 +426,7 @@ export interface ProjectionStoreV2Shape {
       | "contextHandoffs"
       | "contextTransfers"
       | "turnItems"
-    > & { readonly hasConversation: boolean },
+    > & { readonly hasConversation: boolean; readonly retiredBot?: true },
     ProjectionStoreV2Error
   >;
   readonly getTurnStartHistory: (
@@ -3886,6 +3887,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             `;
             return {
               hasConversation: conversation[0]?.present === 1,
+              ...((yield* isRetiredBotThread(threadId).pipe(
+                Effect.provideService(SqlClient.SqlClient, sql),
+              ))
+                ? { retiredBot: true as const }
+                : {}),
               thread,
               runs,
               attempts,

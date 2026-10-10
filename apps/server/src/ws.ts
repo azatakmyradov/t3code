@@ -111,14 +111,12 @@ import {
 } from "effect/http";
 import { RpcSerialization, RpcServer } from "effect/rpc";
 
-import * as BotService from "./bots/BotService.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
-import * as OutboundMcpConnections from "./mcp/OutboundMcpConnections.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
@@ -1187,7 +1185,6 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
 
 const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
-  connectionOrigin: string,
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
@@ -1212,7 +1209,6 @@ const layerWsRpc = (
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
-      const outboundMcp = yield* OutboundMcpConnections.OutboundMcpConnections;
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Client-origin attribution (#7774): every thread/turn the connecting
       // client starts is credited to its surface + app version. Best-effort:
@@ -1229,7 +1225,6 @@ const layerWsRpc = (
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
-      const bots = yield* BotService.BotService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
@@ -2045,21 +2040,6 @@ const layerWsRpc = (
               Effect.andThen(subscribeOrchestrationV2Thread(input)),
             ),
           ),
-        [WS_METHODS.botsList]: () => bots.navigation(),
-        [WS_METHODS.botsSubscribe]: () => bots.subscribe(),
-        [WS_METHODS.botsGet]: (input) => bots.get(input.botId),
-        [WS_METHODS.botsSendMessage]: (input) => bots.sendMessage(input),
-        [WS_METHODS.botsCreate]: (input) => bots.create(input),
-        [WS_METHODS.botsUpdate]: (input) => bots.update(input),
-        [WS_METHODS.botsWriteContext]: (input) => bots.writeContext(input),
-        [WS_METHODS.botsCancelTask]: (input) => bots.cancelTask(input.botId, input.taskId),
-        [WS_METHODS.botsDelete]: (input) => bots.remove(input.botId, input.expectedRevision),
-        [WS_METHODS.botsStartTask]: (input) => bots.startTask(input),
-        [WS_METHODS.botsRequest]: (input) => bots.request(input),
-        [WS_METHODS.botsReply]: (input) => bots.reply(input.botId, input.requestId, input.text),
-        [WS_METHODS.botsConnections]: (input) => bots.connections(input.botId),
-        [WS_METHODS.botsConnect]: (input) => bots.connect(input),
-        [WS_METHODS.botsDisconnect]: (input) => bots.disconnect(input.botId, input.environmentId),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           scheduledTasks.list().pipe(Effect.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
@@ -2406,32 +2386,19 @@ const layerWsRpc = (
             const keybindingsConfig = yield* keybindings.removeKeybindingRule(rule);
             return { keybindings: keybindingsConfig, issues: [] };
           }),
-        [WS_METHODS.mcpOAuthBegin]: (input) => outboundMcp.begin(input, connectionOrigin),
-        [WS_METHODS.mcpOAuthStatus]: (input) => outboundMcp.status(input),
-        [WS_METHODS.mcpOAuthCancel]: (input) => outboundMcp.cancel(input),
-        [WS_METHODS.mcpOAuthDisconnect]: (input) => outboundMcp.disconnect(input),
         [WS_METHODS.serverGetSettings]: (_input) =>
           serverSettings.getSettings.pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
-        [WS_METHODS.serverUpdateSettings]: (input) =>
+        [WS_METHODS.serverUpdateSettings]: ({ patch, providerInstanceMutation }) =>
           Effect.gen(function* () {
-            const { patch, providerInstanceMutation } = input;
             const deviceHosts = patch.deviceHosts
               ? yield* remoteSshDeviceHosts(patch.deviceHosts).pipe(
                   Effect.provide(deviceHostContext),
                 )
               : undefined;
             const nextPatch = { ...patch, ...(deviceHosts ? { deviceHosts } : {}) };
-            const authorize = RpcAuthorization.authorizeSettingsUpdate(
-              currentSession.scopes,
-              input,
-            );
             const settings = yield* providerInstanceMutation === undefined
-              ? serverSettings.updateSettings(nextPatch, authorize)
-              : serverSettings.updateProviderInstance(
-                  providerInstanceMutation,
-                  nextPatch,
-                  authorize,
-                );
+              ? serverSettings.updateSettings(nextPatch)
+              : serverSettings.updateProviderInstance(providerInstanceMutation, nextPatch);
             return ServerSettings.redactServerSettingsForClient(settings);
           }),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) => sourceControlDiscovery.discover,
@@ -3214,7 +3181,6 @@ export const layer = Layer.unwrap(
           Effect.provide(
             layerWsRpc(
               session,
-              requestUrl.value.origin,
               clientOrigin,
               clientAnalyticsProps,
               previewAutomationBroker,

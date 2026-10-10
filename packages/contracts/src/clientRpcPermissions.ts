@@ -2,8 +2,6 @@ import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput } from "./git.ts";
 import {
   AuthOrchestrationOperateScope,
-  AuthProvidersManageScope,
-  AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
@@ -11,23 +9,6 @@ import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
-  [WS_METHODS.mcpOAuthBegin]: AuthProvidersManageScope,
-  [WS_METHODS.mcpOAuthStatus]: AuthProvidersManageScope,
-  [WS_METHODS.mcpOAuthCancel]: AuthProvidersManageScope,
-  [WS_METHODS.mcpOAuthDisconnect]: AuthProvidersManageScope,
-
-  [WS_METHODS.botsSendMessage]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsCreate]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsUpdate]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsWriteContext]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsCancelTask]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsDelete]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsStartTask]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsRequest]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsReply]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsConnect]: AuthOrchestrationOperateScope,
-  [WS_METHODS.botsDisconnect]: AuthOrchestrationOperateScope,
-
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsUpdate]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsComment]: AuthSourceControlWriteScope,
@@ -67,12 +48,6 @@ export function clientRpcRequiredScopes(
   method: string,
   input: unknown,
 ): readonly AuthEnvironmentScope[] {
-  if (
-    method === WS_METHODS.mcpOAuthBegin ||
-    method === WS_METHODS.mcpOAuthCancel ||
-    method === WS_METHODS.mcpOAuthDisconnect
-  )
-    return [AuthProvidersManageScope, AuthSettingsWriteScope];
   if (method === WS_METHODS.gitPreparePullRequestThread && input !== undefined) {
     const payload = decodePrepareThread(input);
     if (payload.mode === "worktree" && payload.threadId !== undefined)

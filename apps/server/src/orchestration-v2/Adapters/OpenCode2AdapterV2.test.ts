@@ -9,7 +9,6 @@ import {
   CheckpointId,
   EnvironmentId,
   MessageId,
-  McpServerName,
   NodeId,
   ProviderInstanceId,
   ProviderSessionId,
@@ -79,7 +78,6 @@ const durable = { durable: { aggregateID: SESSION, seq: 1, version: 1 } };
 const mcpRules = [
   { action: "t3-code-*", resource: "*", effect: "deny" },
   { action: "t3-code-thread_opencode2-adapter_*", resource: "*", effect: "allow" },
-  { action: "t3u-*", resource: "*", effect: "deny" },
 ];
 const t3Rules = [{ action: "*", resource: "*", effect: "allow" }, ...mcpRules];
 const sessionInfo = (overrides: Record<string, unknown> = {}) => ({
@@ -158,7 +156,7 @@ const withInstructions = (
       ].includes(String(entry.frame.type)),
   );
   // T3's MCP server is added before the entry that describes it.
-  const after = entries.findLastIndex(
+  const after = entries.findIndex(
     (entry, index) =>
       index < first &&
       entry.type === "emit_inbound" &&
@@ -2680,362 +2678,6 @@ describe("OpenCode2 adapter", () => {
     }).pipe(Effect.scoped),
   );
 
-  const userServerKeys: Record<string, string> = {
-    docs: "t3u-bf302a20ffce1f7c6795a3e5d3bc9deb",
-    issues: "t3u-a4f3926ea8b780085a410deb38d833e4",
-    docs_admin: "t3u-786b2ac65ce7457171f2883a3a8a1123",
-    "docs-admin": "t3u-175ec13152ae0416b704683ff32b9d7f",
-  };
-  const userTools = (names = ["docs"]): McpProviderSession.McpProviderSessionTools => ({
-    servers: names.map((name) => ({
-      name: McpServerName.make(name),
-      transport: { type: "http", url: `https://${name}.example/mcp`, headers: [] },
-    })),
-    disabledSkills: [],
-    fingerprint: names.join(","),
-  });
-  const configureUserTools = (tools = userTools()) => {
-    McpProviderSession.setMcpProviderSession({
-      environmentId: EnvironmentId.make("environment:opencode2-adapter"),
-      threadId,
-      providerSessionId: "mcp:opencode2-adapter",
-      providerInstanceId: instanceId,
-      endpoint: "http://127.0.0.1:3773/mcp",
-      authorizationHeader: "Bearer thread-credential",
-      browserToolsAvailable: false,
-      tools,
-    });
-  };
-  const userRules = (supervised = false, names = ["docs"]) => [
-    ...(supervised ? supervisedRules : t3Rules),
-    ...names.map((name) => ({
-      action: `${userServerKeys[name]}_*`,
-      resource: "*",
-      effect: supervised ? "ask" : "allow",
-    })),
-  ];
-  const addUserServer = (name = "docs", failure = false): ReadonlyArray<ProviderReplayEntry> => [
-    out("mcp.add", {
-      server: userServerKeys[name],
-      "location[directory]": WORK,
-      config: { type: "remote", url: `https://${name}.example/mcp`, headers: {} },
-    }),
-    reply("mcp.add", failure ? { status: 500, body: { error: "temporarily unavailable" } } : null),
-  ];
-  const removeUserServer = (name = "docs"): ReadonlyArray<ProviderReplayEntry> => [
-    out("mcp.remove", { server: userServerKeys[name], "location[directory]": WORK }),
-    reply("mcp.remove", null),
-  ];
-  const userTurn: ReadonlyArray<ProviderReplayEntry> = [
-    out("session.prompt", { sessionID: SESSION, text: "<any>" }),
-    promptAccepted,
-    event("session.execution.succeeded", { sessionID: SESSION }),
-  ];
-  const resumeWithUserTools = (
-    entries: ReadonlyArray<ProviderReplayEntry>,
-    supervised = false,
-    names = ["docs"],
-  ) =>
-    Effect.gen(function* () {
-      const runtime = yield* openCode2ReplayRuntimeWithInstructions(
-        [
-          ...opening,
-          out("session.get", { sessionID: SESSION }),
-          replyData("session.get", sessionInfo()),
-          ...noOpenRequests,
-          ...(supervised ? [out("agent.list", "<any>"), reply("agent.list", agentList)] : []),
-          out("session.update", { sessionID: SESSION, permissions: userRules(supervised, names) }),
-          reply("session.update", null),
-          ...entries,
-        ],
-        { external: true },
-      );
-      const thread = yield* runtime.resumeThread({
-        providerThread: providerThread(yield* DateTime.now),
-        threadId,
-        modelSelection: bigPickle,
-        runtimePolicy: policy(supervised ? "approval-required" : "full-access"),
-      });
-      return { runtime, thread };
-    });
-
-  it.effect.each([false, true])(
-    "registers remote user MCP tools with supervised=%s permissions",
-    (supervised) =>
-      Effect.gen(function* () {
-        configureUserTools();
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-        );
-        const { runtime, thread } = yield* resumeWithUserTools(
-          [...addUserServer(), ...userTurn, ...removeUserServer()],
-          supervised,
-        );
-        const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-        yield* runtime.startTurn(
-          turnInput(thread, bigPickle, supervised ? "approval-required" : "full-access"),
-        );
-        assert.equal((yield* Fiber.join(terminal))?.status, "completed");
-        yield* runtime.unloadThread!({ providerThread: thread });
-      }).pipe(Effect.scoped),
-  );
-
-  it.effect("keeps session approval grants for the thread's own MCP tools", () =>
-    Effect.gen(function* () {
-      configureUserTools();
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-      );
-      const action = `${userServerKeys.docs}_read`;
-      const grant = { action, resource: "*", effect: "allow" };
-      const { runtime, thread } = yield* resumeWithUserTools(
-        [
-          ...addUserServer(),
-          out("session.prompt", { sessionID: SESSION, text: "<any>" }),
-          promptAccepted,
-          event("permission.asked", { ...shellAsk.data, action, resources: ["*"], save: ["*"] }),
-          out("session.update", { sessionID: SESSION, permissions: [...userRules(true), grant] }),
-          reply("session.update", null),
-          out("permission.reply", {
-            sessionID: SESSION,
-            requestID: shellAsk.data.id,
-            decision: "once",
-          }),
-          reply("permission.reply", null),
-          event("session.execution.succeeded", { sessionID: SESSION }),
-          ...userTurn,
-          ...removeUserServer(),
-        ],
-        true,
-      );
-      const requested = yield* requestOf(runtime).pipe(Effect.forkScoped);
-      yield* runtime.startTurn(turnInput(thread, bigPickle, "approval-required"));
-      const request = yield* Fiber.join(requested);
-      const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-      yield* runtime.respondToRuntimeRequest({
-        requestId: request!.id,
-        decision: "acceptForSession",
-      });
-      assert.equal((yield* Fiber.join(terminal))?.status, "completed");
-      const next = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-      yield* runtime.startTurn(turnInput(thread, bigPickle, "approval-required"));
-      assert.equal((yield* Fiber.join(next))?.status, "completed");
-      yield* runtime.unloadThread!({ providerThread: thread });
-    }).pipe(Effect.scoped),
-  );
-
-  it.effect("retries partial user MCP registration and cleans up successful registrations", () =>
-    Effect.gen(function* () {
-      configureUserTools(userTools(["docs", "issues"]));
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-      );
-      const { runtime, thread } = yield* resumeWithUserTools(
-        [
-          ...addUserServer(),
-          ...addUserServer("issues", true),
-          ...userTurn,
-          ...removeUserServer(),
-          ...addUserServer(),
-          ...addUserServer("issues"),
-          ...userTurn,
-          out("mcp.remove", { server: userServerKeys.docs, "location[directory]": WORK }),
-          out("mcp.remove", { server: userServerKeys.issues, "location[directory]": WORK }),
-          reply("mcp.remove", null),
-          reply("mcp.remove", null),
-        ],
-        false,
-        ["docs", "issues"],
-      );
-      for (let turn = 0; turn < 2; turn++) {
-        const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-        yield* runtime.startTurn(turnInput(thread));
-        assert.equal((yield* Fiber.join(terminal))?.status, "completed");
-      }
-      yield* runtime.unloadThread!({ providerThread: thread });
-    }).pipe(Effect.scoped),
-  );
-
-  it.effect.each(["docs_admin", "docs-admin"])(
-    "keeps disabled sibling %s denied after removal fails and the remaining server retries",
-    (sibling) =>
-      Effect.gen(function* () {
-        configureUserTools(userTools(["docs", sibling]));
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-        );
-        const { runtime, thread } = yield* resumeWithUserTools(
-          [
-            ...addUserServer(),
-            ...addUserServer(sibling),
-            ...userTurn,
-            // Revoke the disabled server's permission before best-effort cleanup.
-            out("session.update", { sessionID: SESSION, permissions: userRules() }),
-            reply("session.update", null),
-            out("mcp.remove", { server: userServerKeys.docs, "location[directory]": WORK }),
-            out("mcp.remove", { server: userServerKeys[sibling], "location[directory]": WORK }),
-            reply("mcp.remove", null),
-            reply("mcp.remove", { status: 500, body: { error: "temporarily unavailable" } }),
-            ...addUserServer("docs", true),
-            ...userTurn,
-            // A partial registration retries only the current enabled settings.
-            ...addUserServer(),
-            ...userTurn,
-            ...removeUserServer(),
-          ],
-          false,
-          ["docs", sibling],
-        );
-        for (let turn = 0; turn < 3; turn++) {
-          if (turn === 1) configureUserTools(userTools());
-          const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-          yield* runtime.startTurn(turnInput(thread));
-          assert.equal((yield* Fiber.join(terminal))?.status, "completed");
-        }
-        yield* runtime.unloadThread!({ providerThread: thread });
-        // These are the exact rules checked at the HTTP boundary above. Even if
-        // the old tool remains in OpenCode's inventory, only the docs key matches.
-        const rules = userRules();
-        const decision = (action: string) =>
-          rules.findLast((entry) => action.startsWith(entry.action.replace(/\*$/, "")))?.effect;
-        assert.equal(decision(`${userServerKeys.docs}_read`), "allow");
-        assert.equal(decision(`${userServerKeys[sibling]}_read`), "deny");
-      }).pipe(Effect.scoped),
-  );
-
-  it.effect.each(["credentials", "url"] as const)(
-    "revokes the old MCP configuration when %s changes and both replacement operations fail",
-    (changed) =>
-      Effect.gen(function* () {
-        const oldTransport = {
-          type: "http" as const,
-          url: "https://docs.example/mcp",
-          headers: [{ name: "Authorization", value: "Bearer old", sensitive: true }],
-        };
-        const newTransport =
-          changed === "url"
-            ? { ...oldTransport, url: "https://other.example/mcp" }
-            : {
-                ...oldTransport,
-                headers: [{ name: "Authorization", value: "Bearer new", sensitive: true }],
-              };
-        const oldKey = "t3u-8bed4bf05c74c6ff4f62362fdd65dff3";
-        const newKey =
-          changed === "url"
-            ? "t3u-9b1836049062b4e0eafdfcfc3f52f6b3"
-            : "t3u-bfd9d11525633d3bf812dcd2688804ca";
-        const toolsWith = (transport: typeof oldTransport) => ({
-          servers: [{ name: McpServerName.make("docs"), transport }],
-          disabledSkills: [],
-          fingerprint: transport === oldTransport ? "old" : "new",
-        });
-        configureUserTools(toolsWith(oldTransport));
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-        );
-        const rulesForKey = (key: string) => [
-          ...t3Rules,
-          { action: `${key}_*`, resource: "*", effect: "allow" },
-        ];
-        const registration = (
-          server: string,
-          transport: typeof oldTransport,
-          failed = false,
-        ): ReadonlyArray<ProviderReplayEntry> => [
-          out("mcp.add", {
-            server,
-            "location[directory]": WORK,
-            config: {
-              type: "remote",
-              url: transport.url,
-              headers: { Authorization: transport.headers[0]!.value },
-            },
-          }),
-          reply(
-            "mcp.add",
-            failed ? { status: 500, body: { error: "temporarily unavailable" } } : null,
-          ),
-        ];
-        const { runtime, thread } = yield* resumed(
-          [
-            out("session.update", { sessionID: SESSION, permissions: rulesForKey(oldKey) }),
-            reply("session.update", null),
-            ...registration(oldKey, oldTransport),
-            ...userTurn,
-            // Permissions switch before the old registration can be removed or
-            // its replacement added, so the stale account can no longer be used.
-            out("session.update", { sessionID: SESSION, permissions: rulesForKey(newKey) }),
-            reply("session.update", null),
-            out("mcp.remove", { server: oldKey, "location[directory]": WORK }),
-            reply("mcp.remove", { status: 500, body: { error: "temporarily unavailable" } }),
-            ...registration(newKey, newTransport, true),
-            ...userTurn,
-            ...registration(newKey, newTransport),
-            ...userTurn,
-            out("mcp.remove", { server: newKey, "location[directory]": WORK }),
-            reply("mcp.remove", null),
-          ],
-          { external: true },
-        );
-        for (let turn = 0; turn < 3; turn++) {
-          if (turn === 1) configureUserTools(toolsWith(newTransport));
-          const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-          yield* runtime.startTurn(turnInput(thread));
-          assert.equal((yield* Fiber.join(terminal))?.status, "completed");
-        }
-        yield* runtime.unloadThread!({ providerThread: thread });
-        assert.notEqual(oldKey, newKey);
-        assert.notInclude(JSON.stringify(rulesForKey(newKey)), "Bearer");
-      }).pipe(Effect.scoped),
-  );
-
-  it.effect.each(["disable", "unload", "close"] as const)(
-    "retains user MCP cleanup after a stream reconnect followed by %s",
-    (after) =>
-      Effect.gen(function* () {
-        configureUserTools();
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-        );
-        const { runtime, thread } = yield* resumeWithUserTools([
-          ...addUserServer(),
-          out("session.prompt", { sessionID: SESSION, id: PROMPT_ID, text: "<any>" }),
-          promptAccepted,
-          ...reconnected({}, "succeeded"),
-          ...(after === "disable"
-            ? [
-                out("session.update", { sessionID: SESSION, permissions: t3Rules }),
-                reply("session.update", null),
-              ]
-            : []),
-          ...removeUserServer(),
-          ...(after === "disable" ? userTurn : []),
-        ]);
-        const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-        yield* runtime.startTurn(turnInput(thread));
-        assert.equal((yield* Fiber.join(terminal))?.status, "completed");
-        if (after === "disable") {
-          configureUserTools(userTools([]));
-          const next = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-          yield* runtime.startTurn(turnInput(thread));
-          assert.equal((yield* Fiber.join(next))?.status, "completed");
-        } else if (after === "unload") {
-          yield* runtime.unloadThread!({ providerThread: thread });
-        }
-      }).pipe(Effect.scoped),
-  );
-
-  it.effect("denies other threads' user MCP tools when this thread has none", () =>
-    Effect.gen(function* () {
-      const runtime = yield* openCode2ReplayRuntime([
-        ...opening,
-        out("session.create", { permissions: t3Rules }),
-        replyData("session.create", sessionInfo()),
-      ]);
-      yield* runtime.ensureThread({ threadId, modelSelection: bigPickle, runtimePolicy: policy() });
-    }).pipe(Effect.scoped),
-  );
-
   it.effect(
     "registers T3's MCP server for the thread alone and removes it when the thread unloads",
     () =>
@@ -3110,7 +2752,6 @@ describe("OpenCode2 adapter", () => {
               { action: "*", resource: "*", effect: "allow" },
               { action: "t3-code-*", resource: "*", effect: "deny" },
               { action: `${server}_*`, resource: "*", effect: "allow" },
-              { action: "t3u-*", resource: "*", effect: "deny" },
             ],
           }),
         ),
@@ -4060,7 +3701,6 @@ describe("OpenCode2 adapter", () => {
             { action: "*", resource: "*", effect: "allow" },
             { action: "t3-code-*", resource: "*", effect: "deny" },
             { action: "t3-code-thread_opencode2-adapter_fork_*", resource: "*", effect: "allow" },
-            { action: "t3u-*", resource: "*", effect: "deny" },
           ],
         }),
         reply("session.update", null),

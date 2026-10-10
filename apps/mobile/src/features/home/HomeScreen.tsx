@@ -73,8 +73,6 @@ import {
 import { createSwipeRowActivation } from "./swipe-row-activation";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
 import { useMaterialFabScroll } from "./MaterialFabScrollContext";
-import { HomeBotsSection } from "../bots/HomeBotsSection";
-import { ThreadListV2SectionDivider } from "../threads/thread-list-v2-items";
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -82,8 +80,6 @@ interface HomeScreenProps {
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
-  /** An environment supports bots, so the list leads with the Bots section. */
-  readonly showBots: boolean;
   readonly catalogState: WorkspaceState;
   readonly savedConnectionsById: Readonly<Record<string, SavedRemoteConnection>>;
   readonly environments: ReadonlyArray<
@@ -900,8 +896,7 @@ export function HomeScreen(props: HomeScreenProps) {
     projectCount: props.projects.length,
   });
 
-  // Bot conversations are left out of `threads`; the Bots section shows them.
-  if (!hasAnyThreads && (!props.showBots || !props.catalogState.hasLoadedShellSnapshot)) {
+  if (!hasAnyThreads) {
     return (
       <View className={containerClassName}>
         <View
@@ -949,18 +944,7 @@ export function HomeScreen(props: HomeScreenProps) {
 
   // Project scoping lives in the header filter menu (no inline chip row on
   // mobile — the menu is the one filter surface).
-  const v2ListHeader = props.showBots ? (
-    <>
-      {listHeader}
-      <HomeBotsSection
-        environmentId={props.selectedEnvironmentId}
-        searchQuery={props.searchQuery}
-      />
-      <ThreadListV2SectionDivider label="Threads" pane={primaryColumn ? "sidebar" : "screen"} />
-    </>
-  ) : (
-    listHeader
-  );
+  const v2ListHeader = listHeader;
 
   // Use the v2 project scope for its empty state. Snoozed threads need no
   // special empty state: their shelf header is a list row even while collapsed.
@@ -991,7 +975,7 @@ export function HomeScreen(props: HomeScreenProps) {
       />
     );
 
-  if (Platform.OS === "android" && threadListV2Items.length === 0 && !props.showBots) {
+  if (Platform.OS === "android" && threadListV2Items.length === 0) {
     return (
       <View className="flex-1 bg-header">
         <View

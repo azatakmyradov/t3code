@@ -1,12 +1,8 @@
 import {
-  AuthProvidersManageScope,
-  AuthSettingsWriteScope,
   DEFAULT_SERVER_SETTINGS,
   ProjectId,
-  requiredScopesForServerSettingsPatch,
-  mcpServerVariableRecord,
   ServerSettings,
-  type McpServerConfig,
+  ServerSettingsPatch,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
@@ -16,76 +12,7 @@ import { applyServerSettingsPatch } from "./serverSettings.ts";
 
 const projectId = ProjectId.make("project-a");
 
-const linear: McpServerConfig = {
-  enabled: true,
-  transport: { type: "http", url: "https://mcp.linear.app/mcp", headers: [] },
-};
-const supabase: McpServerConfig = {
-  enabled: true,
-  transport: {
-    type: "stdio",
-    command: "npx",
-    args: ["-y", "@supabase/mcp-server-supabase"],
-    env: [{ name: "SUPABASE_ACCESS_TOKEN", value: "env-token", sensitive: true }],
-  },
-};
-
-describe("project tools overrides", () => {
-  it("merges servers per name so environment servers still reach the project", () => {
-    const projectSupabase: McpServerConfig = {
-      enabled: true,
-      transport: { ...supabase.transport, args: ["--project-ref", "project-db"] } as never,
-    };
-    const settings = {
-      ...DEFAULT_SERVER_SETTINGS,
-      mcpServers: { linear, supabase, sentry: linear },
-      projectSettingsOverrides: {
-        [projectId]: {
-          mcpServers: {
-            // Replaces the environment's server of the same name.
-            supabase: projectSupabase,
-            // Switches an inherited server off without restating it.
-            sentry: { enabled: false },
-            // A switch for a server the environment no longer has is ignored.
-            removed: { enabled: true },
-            playwright: {
-              enabled: true,
-              transport: { type: "stdio", command: "npx", args: ["@playwright/mcp"], env: [] },
-            },
-          },
-        },
-      },
-    } satisfies ServerSettings;
-
-    const resolved = resolveProjectSettings(settings, projectId);
-
-    expect(resolved.sources.mcpServers).toBe("project");
-    expect(resolved.settings.mcpServers).toEqual({
-      linear,
-      supabase: projectSupabase,
-      sentry: { ...linear, enabled: false },
-      playwright: {
-        enabled: true,
-        transport: { type: "stdio", command: "npx", args: ["@playwright/mcp"], env: [] },
-      },
-    });
-  });
-
-  it("ignores an inherited switch named constructor after its server is removed", () => {
-    const settings = {
-      ...DEFAULT_SERVER_SETTINGS,
-      projectSettingsOverrides: {
-        [projectId]: { mcpServers: { constructor: { enabled: true } } },
-      },
-    } satisfies ServerSettings;
-
-    expect(resolveProjectSettings(settings, projectId).settings.mcpServers).toEqual({});
-    expect(
-      resolveProjectSettings({ ...settings, mcpServers: { constructor: linear } }, projectId)
-        .settings.mcpServers,
-    ).toEqual({ constructor: linear });
-  });
-
+describe("project skill overrides", () => {
   it("turns skills off and back on per project over the environment list", () => {
     const settings = {
       ...DEFAULT_SERVER_SETTINGS,
@@ -95,70 +22,68 @@ describe("project tools overrides", () => {
       },
     } satisfies ServerSettings;
 
-    expect(resolveProjectSettings(settings, projectId).settings.disabledSkills).toEqual([
-      "expo-deployment",
-      "grill-me",
-    ]);
+    const resolved = resolveProjectSettings(settings, projectId);
+    expect(resolved.sources.disabledSkills).toBe("project");
+    expect(resolved.settings.disabledSkills).toEqual(["expo-deployment", "grill-me"]);
     expect(resolveProjectSettings(settings, null).settings.disabledSkills).toEqual([
       "grill-me",
       "prepare-pr",
     ]);
   });
+
+  it("replaces the environment skill list and clears project switches", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      disabledSkills: ["old"],
+      projectSettingsOverrides: { [projectId]: { disabledSkills: { review: true } } },
+    };
+    const next = applyServerSettingsPatch(current, {
+      disabledSkills: ["new"],
+      projectSettingsOverrides: { [projectId]: null },
+    });
+    expect(resolveProjectSettings(next, projectId).settings.disabledSkills).toEqual(["new"]);
+    expect(next.projectSettingsOverrides).toEqual({});
+  });
 });
 
-describe("mcpServers patches", () => {
-  it("replaces one server at a time and removes it with null", () => {
-    const current = { ...DEFAULT_SERVER_SETTINGS, mcpServers: { linear, supabase } };
-    const switched: McpServerConfig = {
-      enabled: true,
-      transport: { type: "http", url: "https://example.com/mcp", headers: [] },
-    };
-
-    const next = applyServerSettingsPatch(current, {
-      mcpServers: { supabase: switched, linear: null },
+describe("removed custom MCP settings", () => {
+  it("ignores legacy server settings while retaining skills and unrelated settings", () => {
+    const settings = Schema.decodeUnknownSync(ServerSettings)({
+      enableAgentBrowserAccess: false,
+      disabledSkills: ["review"],
+      // Removed fields do not need to match any old MCP schema to decode safely.
+      mcpServers: { "t3-code": { transport: "invalid legacy config" } },
+      projectSettingsOverrides: {
+        [projectId]: {
+          mcpServers: { tools: { enabled: true, transport: { command: "legacy-command" } } },
+          disabledSkills: { review: false, deploy: true },
+        },
+      },
     });
 
-    // A stdio server edited into an http one keeps no stdio fields.
-    expect(next.mcpServers).toEqual({ supabase: switched });
+    expect(settings.enableAgentBrowserAccess).toBe(false);
+    expect(settings.disabledSkills).toEqual(["review"]);
+    expect(settings).not.toHaveProperty("mcpServers");
+    expect(settings.projectSettingsOverrides[projectId]).not.toHaveProperty("mcpServers");
+    const resolved = resolveProjectSettings(settings, projectId);
+    expect(resolved.settings.disabledSkills).toEqual(["deploy"]);
+    expect(resolved.settings).not.toHaveProperty("mcpServers");
   });
 
-  it("needs provider management to add a server, not to switch one for a project", () => {
-    expect(requiredScopesForServerSettingsPatch({ mcpServers: { linear } })).toEqual([
-      AuthProvidersManageScope,
-    ]);
-    expect(
-      requiredScopesForServerSettingsPatch({
-        projectSettingsOverrides: { [projectId]: { mcpServers: { linear } } },
-      }),
-    ).toEqual([AuthSettingsWriteScope, AuthProvidersManageScope]);
-    expect(
-      requiredScopesForServerSettingsPatch({
-        projectSettingsOverrides: { [projectId]: { mcpServers: { linear: { enabled: false } } } },
-      }),
-    ).toEqual([AuthSettingsWriteScope]);
-    expect(requiredScopesForServerSettingsPatch({ disabledSkills: ["grill-me"] })).toEqual([
-      AuthSettingsWriteScope,
-    ]);
-  });
-
-  it("rejects T3's own server name", () => {
-    const decode = Schema.decodeUnknownExit(ServerSettings);
-    expect(decode({ mcpServers: { "t3-code": linear } })._tag).toBe("Failure");
-    expect(decode({ mcpServers: { linear } })._tag).toBe("Success");
-  });
-});
-
-describe("MCP variable records", () => {
-  it("preserves special property names without prototype mutation", () => {
-    const record = mcpServerVariableRecord([
-      { name: "__proto__", value: "custom-header", sensitive: true },
-      { name: "constructor", value: "custom-env", sensitive: false },
-      { name: "missing", value: "", sensitive: true, valueRedacted: true },
-    ]);
-    expect(Object.hasOwn(record, "__proto__")).toBe(true);
-    expect(record["__proto__"]).toBe("custom-header");
-    expect(record["constructor"]).toBe("custom-env");
-    expect(Object.getPrototypeOf(record)).toBe(Object.prototype);
-    expect(Object.hasOwn(record, "missing")).toBe(false);
+  it("ignores legacy MCP patch fields instead of adding active settings", () => {
+    const patch = Schema.decodeUnknownSync(ServerSettingsPatch)({
+      mcpServers: { tools: { transport: { type: "stdio", command: "legacy-command" } } },
+      disabledSkills: ["review"],
+      projectSettingsOverrides: {
+        [projectId]: {
+          mcpServers: { tools: { enabled: false } },
+          disabledSkills: { deploy: true },
+        },
+      },
+    });
+    const next = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, patch);
+    expect(next.disabledSkills).toEqual(["review"]);
+    expect(next).not.toHaveProperty("mcpServers");
+    expect(next.projectSettingsOverrides[projectId]).toEqual({ disabledSkills: { deploy: true } });
   });
 });

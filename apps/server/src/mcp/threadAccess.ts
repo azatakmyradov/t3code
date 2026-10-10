@@ -11,7 +11,6 @@ import {
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 
-import * as BotRuntime from "../bots/BotRuntime.ts";
 import type { OrchestratorV2Error } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as OrchestrationMcp from "./OrchestratorMcpService.ts";
@@ -34,20 +33,6 @@ export const dispatchFailure = (error: OrchestratorV2Error) =>
         message: Array.from(error.cause).slice(0, 1000).join(""),
       })
     : unavailable();
-
-/** The bot a thread caller works for, after checking it may use the tool on the target. */
-const authorizeBot = (
-  callerThreadId: ThreadId,
-  tool: string,
-  projectId?: ProjectId,
-  targetThreadId?: ThreadId,
-) =>
-  BotRuntime.BotRuntime.pipe(
-    Effect.flatMap((runtime) => runtime.authorize(callerThreadId, tool, projectId, targetThreadId)),
-    Effect.mapError(
-      (error) => new OrchestratorMcpFailure({ code: "capability_denied", message: error.message }),
-    ),
-  );
 
 /**
  * The most a caller may hand to the threads it targets. A thread caller is
@@ -105,17 +90,11 @@ export const loadCaller = Effect.fn("mcp.loadCaller")(function* () {
       message: "The calling thread was not found.",
     });
   }
-  const bot = yield* authorizeBot(caller.id, "mcp");
-  // A bot thread acts within its bot's authority, even when the thread was started wider.
-  const runtimeMode =
-    bot === null
-      ? caller.runtimeMode
-      : BotRuntime.cappedBotMode(caller.runtimeMode, bot.permissions.runtimeMode);
   return {
     scope,
     threads,
-    caller: { ...caller, runtimeMode },
-    limits: { runtimeMode, interactionMode: caller.interactionMode },
+    caller,
+    limits: { runtimeMode: caller.runtimeMode, interactionMode: caller.interactionMode },
   } satisfies Caller;
 });
 
@@ -164,30 +143,17 @@ export const assertFullAccess = (context: Caller, message: string) =>
     : Effect.fail(new OrchestratorMcpFailure({ code: "capability_denied", message }));
 
 /** A target project: the one passed, else the calling thread's. */
-export const resolveProjectId = Effect.fn("mcp.resolveProjectId")(function* (
-  context: Caller,
-  projectId: ProjectId | undefined,
-) {
-  const id = projectId ?? context.caller?.projectId;
-  if (id === undefined)
-    return yield* new OrchestratorMcpFailure({
-      code: "target_required",
-      message: "Pass projectId: this MCP client is not running inside a T3 thread.",
-    });
-  yield* authorizeBotTarget(context, "project", id);
-  return id;
-});
-
-/** Holds a bot thread caller to its bot's projects and threads; other callers pass. */
-export const authorizeBotTarget = (
-  context: Caller,
-  tool: string,
-  projectId?: ProjectId,
-  threadId?: ThreadId,
-) =>
-  context.caller === undefined
-    ? Effect.void
-    : Effect.asVoid(authorizeBot(context.caller.id, tool, projectId, threadId));
+export const resolveProjectId = (context: Caller, projectId: ProjectId | undefined) =>
+  projectId !== undefined
+    ? Effect.succeed(projectId)
+    : context.caller !== undefined
+      ? Effect.succeed(context.caller.projectId)
+      : Effect.fail(
+          new OrchestratorMcpFailure({
+            code: "target_required",
+            message: "Pass projectId: this MCP client is not running inside a T3 thread.",
+          }),
+        );
 
 /** A target thread: the one passed, else the calling thread. */
 const resolveThreadId = (context: Caller, threadId: ThreadId | undefined) =>
@@ -208,7 +174,6 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
 >(threadId?: ThreadId, fields: ReadonlyArray<K> = []) {
   const context = yield* readCaller();
   const targetId = yield* resolveThreadId(context, threadId);
-  yield* authorizeBotTarget(context, "thread", undefined, targetId);
   const shell = yield* context.threads.getThreadShell(targetId).pipe(Effect.mapError(unavailable));
   if (shell === null || shell.deletedAt !== null) {
     return yield* new OrchestratorMcpFailure({

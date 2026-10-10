@@ -43,7 +43,6 @@ export interface SettingsSearchItem {
   readonly id: string;
   readonly title: string;
   readonly to: SettingsPath;
-  readonly search?: { readonly tab: "skills" | "mcp" };
   readonly targetId?: string;
   /** Descriptions, option labels, and aliases people may remember instead of the title. */
   readonly searchTerms?: ReadonlyArray<string>;
@@ -630,20 +629,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "tools-skills",
     title: "Skills",
     to: "/settings/tools",
-    search: { tab: "skills" },
     scope: "project-defaults",
     searchTerms: [
       "agent skills SKILL.md disable enable hide turn off slash commands .agents claude codex cursor",
-    ],
-  },
-  {
-    id: "tools-mcp-servers",
-    title: "MCP servers",
-    to: "/settings/tools",
-    search: { tab: "mcp" },
-    scope: "project-defaults",
-    searchTerms: [
-      "model context protocol mcp add server command url stdio http headers env tools agents oauth connect disconnect browser sign-in authentication",
     ],
   },
   {

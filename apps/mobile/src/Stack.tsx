@@ -1,4 +1,3 @@
-import { BotsRouteScreen } from "./features/bots/BotsRouteScreen";
 import {
   createV5StackNavigator as createNativeStackNavigator,
   createV5SheetStackNavigator,
@@ -690,11 +689,6 @@ const RootStackConfig = createWorkspaceStackNavigator({
         headerBackVisible: false,
         ...getCompactBrandHeaderOptions(),
       },
-    }),
-    Bots: createNativeStackScreen({
-      screen: BotsRouteScreen,
-      linking: "bots",
-      options: { ...GLASS_HEADER_OPTIONS, title: "Bots" },
     }),
     Thread: createNativeStackScreen({
       screen: ThreadRouteScreen,

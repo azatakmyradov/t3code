@@ -142,6 +142,24 @@ it.effect("dispatches exactly the rendered prompt and logs the delivery", () =>
   ),
 );
 
+it.effect("keeps retained bot webhooks saved but refuses to launch their threads", () =>
+  withService(({ service, launches }) =>
+    Effect.gen(function* () {
+      const { task } = yield* service.upsert(
+        yield* webhookTaskInput({ threadId: "bot:profile:saved:main" }),
+      );
+      const result = yield* service.triggerWebhook(requestFor(task));
+      assert.equal(result._tag, "disabled");
+      assert.equal(yield* Queue.size(launches), 0);
+      assert.deepEqual((yield* service.list()).tasks, [task]);
+      const { deliveries } = yield* service.listWebhookDeliveries({ id: task.id });
+      assert.equal(deliveries.length, 1);
+      assert.equal(deliveries[0]?.outcome, "disabled");
+      assert.include(deliveries[0]?.error ?? "", "removed Bots feature");
+    }),
+  ),
+);
+
 it("builds the relay hook URL from the managed tunnel's key, never the environment id", () => {
   const relayUrl = "https://relay.example.com/";
   assert.equal(

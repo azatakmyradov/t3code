@@ -6,10 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, useWindowDimensions } from "react-native";
 
-import { isBotThread } from "@t3tools/client-runtime/state/bots";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { botIdsAtom } from "../../state/bots";
-import { botsAvailableAtom } from "../bots/HomeBotsSection";
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { useProjects } from "../../state/entities";
@@ -45,15 +42,9 @@ export function HomeRouteScreen() {
   // Streaming turns rewrite thread shells many times a second. While a Thread
   // covers Home, rebuilding this list is invisible work.
   const visible = useHomeRouteVisible();
-  const allThreads = useAtomValueWhileVisible(
+  const threads = useAtomValueWhileVisible(
     environmentThreadShells.navigationThreadShellsAtom,
     visible,
-  );
-  const showBots = useAtomValueWhileVisible(botsAvailableAtom, visible);
-  const botIds = useAtomValueWhileVisible(botIdsAtom, visible);
-  const threads = useMemo(
-    () => allThreads.filter((thread) => !isBotThread(botIds, thread.id)),
-    [allThreads, botIds],
   );
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
@@ -277,7 +268,6 @@ export function HomeRouteScreen() {
           }}
           onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
           pendingTasks={pendingTasks}
-          showBots={showBots}
           projectGroupingMode={listOptions.projectGroupingMode}
           projects={projects}
           projectSortOrder={listOptions.projectSortOrder}

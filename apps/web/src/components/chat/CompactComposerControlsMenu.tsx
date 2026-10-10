@@ -16,7 +16,6 @@ import { useComposerMenuState } from "./useComposerMenuState";
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
-  runtimeModeDisabled?: boolean;
   runtimeModeOptions: ReadonlyArray<{
     readonly mode: RuntimeMode;
     readonly label: string;
@@ -85,11 +84,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           }}
         >
           {props.runtimeModeOptions.map((option) => (
-            <MenuRadioItem
-              key={option.mode}
-              value={option.mode}
-              disabled={props.runtimeModeDisabled}
-            >
+            <MenuRadioItem key={option.mode} value={option.mode}>
               {option.label}
             </MenuRadioItem>
           ))}

@@ -613,7 +613,7 @@ function runBrowserAccessScenario(input: {
   readonly deviceOverride?: boolean;
   readonly createThread?: boolean;
   readonly projectExists?: boolean;
-  readonly projectToolsDisabled?: boolean;
+  readonly projectSkillsDisabled?: boolean;
 }) {
   return Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
@@ -657,26 +657,11 @@ function runBrowserAccessScenario(input: {
           projectServiceLayer: layerProjectService,
           serverSettingsLayer: ServerSettings.layerTest({
             enableAgentBrowserAccess: input.enableAgentBrowserAccess,
-            ...(input.projectToolsDisabled
-              ? {
-                  mcpServers: {
-                    inherited: {
-                      enabled: true,
-                      transport: {
-                        type: "http" as const,
-                        url: "https://example.com/mcp",
-                        headers: [],
-                      },
-                    },
-                  },
-                }
-              : {}),
             projectSettingsOverrides: {
               [projectId]: {
                 enableAgentBrowserAccess: input.projectOverride,
-                ...(input.projectToolsDisabled
+                ...(input.projectSkillsDisabled
                   ? {
-                      mcpServers: { inherited: { enabled: false } },
                       disabledSkills: { "private-skill": true },
                     }
                   : {}),
@@ -1918,17 +1903,16 @@ it.effect("ProviderSessionManagerV2 fails browser access closed for a missing pr
 );
 
 it.effect(
-  "ProviderSessionManagerV2 preserves project tool restrictions when the project lookup fails",
+  "ProviderSessionManagerV2 preserves project skill restrictions when the project lookup fails",
   () =>
     Effect.gen(function* () {
       const captured = yield* runBrowserAccessScenario({
         enableAgentBrowserAccess: true,
         projectOverride: true,
         projectExists: false,
-        projectToolsDisabled: true,
+        projectSkillsDisabled: true,
       });
       assert.isDefined(captured);
-      assert.deepEqual(captured?.tools?.servers, []);
       assert.deepEqual(captured?.tools?.disabledSkills, ["private-skill"]);
     }),
 );

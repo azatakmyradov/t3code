@@ -61,7 +61,6 @@ export function useScopedSettingSource(keys: readonly (keyof ServerSettings)[]) 
 }
 
 function useRunScopedPlan() {
-  const context = useOptionalSettingsScope();
   const persistServer = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
   return useCallback(
     (plan: ReturnType<typeof planScopedSettingsPatch>) => {
@@ -76,10 +75,7 @@ function useRunScopedPlan() {
       void persistScopedSettingsPatch(
         plan,
         async (request) => {
-          const settings = context?.environments.find(
-            (environment) => environment.environmentId === request.environmentId,
-          )?.serverConfig?.settings;
-          const missing = requiredScopesForServerSettingsPatch(request.input.patch, settings).find(
+          const missing = requiredScopesForServerSettingsPatch(request.input.patch).find(
             (scope) => !readEnvironmentScope(request.environmentId, scope),
           );
           if (missing)
@@ -104,7 +100,7 @@ function useRunScopedPlan() {
         });
       });
     },
-    [context, persistServer],
+    [persistServer],
   );
 }
 

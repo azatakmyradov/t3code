@@ -1,5 +1,3 @@
-import { createMcpOAuthEnvironmentAtoms } from "./mcpOAuth.ts";
-import { createBotEnvironmentAtoms } from "./bots.ts";
 import {
   type EnvironmentId,
   type ServerConfig,
@@ -995,8 +993,6 @@ export function createServerEnvironmentAtoms<R, E>(
   });
 
   return {
-    bots: createBotEnvironmentAtoms(runtime),
-    mcpOAuth: createMcpOAuthEnvironmentAtoms(runtime),
     configValueAtom,
     updateStateAtom,
     settingsValueAtom,

@@ -40,10 +40,10 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import * as BotRuntime from "../bots/BotRuntime.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import { isRetiredBotThread } from "../persistence/retiredBotThreads.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import { isMissedFixedTimeRun, isSameSchedule, nextScheduledRunAt } from "./Schedule.ts";
@@ -352,6 +352,25 @@ const decodeRow = (row: ScheduledTaskRow, origin: WebhookOrigin | null = null) =
     }),
   );
 
+// The Bots tables remain for data compatibility. Their schedules must not resume
+// without the removed runtime's instructions and permission checks, including
+// schedules bound to a delegated descendant rather than the bot's main thread.
+const isLegacyBotTask = Effect.fn("ScheduledTaskService.isLegacyBotTask")(function* (
+  task: Pick<ScheduledTask, "id" | "threadId">,
+) {
+  if (task.id.startsWith("bot:check-in:") || task.id.startsWith("scheduled-task:bot:schedule:")) {
+    return true;
+  }
+  if (task.threadId === null) return false;
+  return yield* isRetiredBotThread(task.threadId).pipe(
+    Effect.mapError((cause) =>
+      taskError("Could not check legacy bot schedule ownership.", { taskId: task.id, cause }),
+    ),
+  );
+});
+
+const LEGACY_BOT_TASK_ERROR = "This schedule belongs to the removed Bots feature and cannot run.";
+
 /** Select poll candidates before decoding their schedules or other JSON payloads. */
 export const listDueTasks = Effect.fn("ScheduledTaskService.listDueTasks")(function* (
   now: DateTime.DateTime,
@@ -368,6 +387,7 @@ export const listDueTasks = Effect.fn("ScheduledTaskService.listDueTasks")(funct
     const decoded = yield* Effect.result(decodeRow(row));
     if (Result.isSuccess(decoded)) {
       const task = decoded.success;
+      if (yield* isLegacyBotTask(task)) continue;
       // next_run_at is a freeform string at the schema level; a stored value
       // that cannot parse as a DateTime would defect the poll below, so the
       // row is skipped here like any other corrupt row.
@@ -398,6 +418,8 @@ export const layer = Layer.effect(
     const secretRequests = yield* SecretRequests.SecretRequests;
     const scheduler = yield* Scheduler.Scheduler;
     const readWebhookOrigin = yield* ScheduledTaskWebhookOrigin;
+    const legacyBotTask = (task: Pick<ScheduledTask, "id" | "threadId">) =>
+      isLegacyBotTask(task).pipe(Effect.provideService(SqlClient.SqlClient, sql));
     // Webhook deliveries for one task dispatch in arrival order rather than
     // being dropped while an earlier delivery is still dispatching.
     const webhookPermits = yield* Ref.make<ReadonlyMap<ScheduledTaskId, Semaphore.Semaphore>>(
@@ -682,6 +704,7 @@ export const layer = Layer.effect(
     // advance and run_count must count the attempt.
     const releaseStuckRun = (task: ScheduledTask, message: string) =>
       Effect.gen(function* () {
+        if (yield* legacyBotTask(task)) return;
         const now = yield* localNow;
         // Compute the next occurrence from the current row so a schedule
         // edited while the run was in flight is honoured; fall back to the
@@ -774,43 +797,14 @@ export const layer = Layer.effect(
           if (reason !== null) return yield* new WebhookDeliverySkipped({ reason });
         }
 
-        if (active.threadId !== null) {
-          const runtime = yield* BotRuntime.BotRuntime;
-          const threadId = ThreadId.make(active.threadId);
-          // A bot thread runs only while its bot is live and may still reach the project.
-          const refusal = yield* runtime
-            .authorize(threadId, "run", active.projectId, threadId)
-            .pipe(
-              Effect.as(null),
-              Effect.catchTags({
-                BotError: (error) =>
-                  error.code === "paused" || error.code === "permission_denied"
-                    ? Effect.succeed(error.code)
-                    : Effect.fail(
-                        taskError("Could not check bot permissions.", {
-                          taskId: active.id,
-                          cause: error,
-                        }),
-                      ),
-              }),
-            );
-          if (refusal !== null) {
-            if (webhook !== undefined)
-              return yield* new WebhookDeliverySkipped({
-                reason:
-                  refusal === "paused"
-                    ? "The bot is paused."
-                    : "The bot can no longer access this project.",
-              });
-            if (trigger !== "scheduled")
-              return yield* taskError(
-                refusal === "paused"
-                  ? "Resume this bot before running its routines."
-                  : "Give this bot access to the project before running its routines.",
-                { taskId: active.id },
-              );
-            return active;
+        if (yield* legacyBotTask(active)) {
+          if (webhook !== undefined) {
+            return yield* new WebhookDeliverySkipped({ reason: LEGACY_BOT_TASK_ERROR });
           }
+          if (trigger !== "scheduled") {
+            return yield* taskError(LEGACY_BOT_TASK_ERROR, { taskId: active.id });
+          }
+          return active;
         }
 
         yield* markRunning(active.id, startedAtIso);
@@ -981,6 +975,7 @@ export const layer = Layer.effect(
           Effect.gen(function* () {
             const decoded = yield* Effect.result(decodeRow(row));
             if (Result.isSuccess(decoded)) {
+              if (yield* legacyBotTask(decoded.success)) return;
               yield* sql`
                 UPDATE scheduled_tasks
                 SET last_run_status = 'failed',
@@ -1575,8 +1570,9 @@ export const layer = Layer.effect(
                 outcome: "rate_limited" as const,
               });
             }
-            if (!task.enabled) {
-              yield* log("disabled");
+            const retiredBot = yield* legacyBotTask(task);
+            if (!task.enabled || retiredBot) {
+              yield* log("disabled", retiredBot ? { error: LEGACY_BOT_TASK_ERROR } : {});
               yield* observe("disabled");
               return { _tag: "disabled" as const };
             }

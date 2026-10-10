@@ -189,7 +189,6 @@ export interface ThreadComposerProps {
   readonly canSwitchProvider: boolean;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
-  readonly canUpdateRuntimeMode?: boolean;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
   /** Fires on editor focus/blur; hosts use it to vet stale keyboard state. */
@@ -666,7 +665,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       },
       runtimeMode: currentRuntimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
-      runtimeModeDisabled: props.canUpdateRuntimeMode === false,
     }),
     [
       currentModelSelection,
@@ -674,7 +672,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       currentRuntimeMode,
       props.onUpdateModelSelection,
       props.onUpdateRuntimeMode,
-      props.canUpdateRuntimeMode,
       providerOptionDescriptors,
       settingsOwnerId,
       threadProviderGroups,

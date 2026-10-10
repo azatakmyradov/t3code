@@ -149,6 +149,7 @@ export const migrationEntries = [
   [58, "WebhookRelayDeliveries", Migration0058],
   [59, "McpAppModelContext", Migration0059],
   [60, "ThreadSnapshotWindowIndexes", Migration0060],
+  // Bots are disabled, but this released migration and stored data must survive upgrades.
   [61, "Bots", Migration0061],
 ] as const;
 

@@ -1,9 +1,6 @@
 import {
   type DisabledSkills,
   type DisabledSkillsProjectOverride,
-  type McpServerConfig,
-  type McpServerProjectOverrides,
-  type McpServers,
   type ModelSelection,
   PROJECT_FILE_BACKED_SETTINGS,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
@@ -177,14 +174,7 @@ function resolveProjectOverrides(
     // A forward-compatible decode leaves an unknown value as a present
     // undefined; that is not an override.
     if (value === undefined) continue;
-    // Sparse per-name overrides: the project adds to and switches the
-    // environment's entries instead of replacing the whole value, so a server
-    // or skill added to the environment later still reaches the project.
-    if (key === "mcpServers") {
-      effective[key] = mergeProjectMcpServers(settings.mcpServers, overrides.mcpServers);
-      sources[key] = "project";
-      continue;
-    }
+    // Project switches override individual skills without replacing the environment list.
     if (key === "disabledSkills") {
       effective[key] = mergeProjectDisabledSkills(
         settings.disabledSkills,
@@ -207,29 +197,6 @@ function resolveProjectOverrides(
     sources[key] = "project";
   }
   return { settings: effective as ServerSettings, sources, overrides };
-}
-
-/**
- * The environment's servers with a project's entries applied by name: an
- * entry with a transport adds or replaces a server, one without only switches
- * the inherited server. A switch for a server the environment no longer has
- * is dropped.
- */
-function mergeProjectMcpServers(
-  environment: McpServers,
-  project: McpServerProjectOverrides | undefined,
-): McpServers {
-  if (project === undefined) return environment;
-  const merged: Record<string, McpServerConfig> = { ...environment };
-  for (const [name, entry] of Object.entries(project)) {
-    if (entry.transport !== undefined) {
-      merged[name] = { enabled: entry.enabled, transport: entry.transport };
-      continue;
-    }
-    const inherited = Object.hasOwn(environment, name) ? environment[name] : undefined;
-    if (inherited !== undefined) merged[name] = { ...inherited, enabled: entry.enabled };
-  }
-  return merged as McpServers;
 }
 
 /** The environment's disabled skills with a project's per-name switches applied. */

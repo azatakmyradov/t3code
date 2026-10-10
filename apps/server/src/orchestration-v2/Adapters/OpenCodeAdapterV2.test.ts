@@ -1,11 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import type { OpencodeClient, ToolPart } from "@opencode-ai/sdk/v2";
 import {
   CheckpointId,
   EnvironmentId,
-  McpServerName,
   NodeId,
   OpenCodeSettings,
   ProjectId,
@@ -21,7 +19,6 @@ import {
   type OrchestrationV2ProviderTurn,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Crypto from "effect/Crypto";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -36,7 +33,6 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
-import { proxyAgentTools } from "../../mcp/resolveAgentTools.ts";
 import * as ServerConfig from "../../config.ts";
 import type { EventNdjsonLogger } from "../../provider/EventNdjsonLogger.ts";
 import type { OpenCodeRuntimeShape } from "../../provider/opencodeRuntime.ts";
@@ -163,7 +159,6 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
   };
   const policy = runtimePolicy("full-access", { cwd: "/workspace" });
   const adapter = makeOpenCodeAdapterV2({
-    crypto: yield* Crypto.Crypto.pipe(Effect.provide(NodeCrypto.layer)),
     instanceId,
     settings: OPEN_CODE_TEST_SETTINGS,
     environment: {},
@@ -259,7 +254,7 @@ describe("OpenCodeAdapterV2", () => {
         endpoint: "http://127.0.0.1/mcp",
         authorizationHeader: "Bearer test",
         browserToolsAvailable: false,
-        tools: { servers: [], disabledSkills: ["deploy"], fingerprint: "disabled-deploy" },
+        tools: { disabledSkills: ["deploy"], fingerprint: "disabled-deploy" },
       });
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
@@ -312,138 +307,6 @@ describe("OpenCodeAdapterV2", () => {
           action: "deny",
         });
       }
-    }).pipe(Effect.provide(IdAllocator.layer), Effect.scoped),
-  );
-
-  it.effect("registers user HTTP MCP servers on an external OpenCode server", () =>
-    Effect.gen(function* () {
-      const suffix = "remote-mcp";
-      const threadId = ThreadId.make(`thread-opencode-${suffix}`);
-      McpProviderSession.setMcpProviderSession({
-        environmentId: EnvironmentId.make("environment:opencode-test"),
-        threadId,
-        providerSessionId: "mcp:remote",
-        providerInstanceId: ProviderInstanceId.make(`opencode-${suffix}`),
-        endpoint: "http://127.0.0.1/mcp",
-        authorizationHeader: "Bearer test",
-        browserToolsAvailable: false,
-        tools: {
-          servers: [
-            {
-              name: McpServerName.make("docs"),
-              transport: { type: "http", url: "https://docs.example/mcp", headers: [] },
-            },
-          ],
-          disabledSkills: [],
-          fingerprint: "docs",
-        },
-      });
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-      );
-      const registrations: Array<{ name: string; config: unknown }> = [];
-      const disconnected: string[] = [];
-      let permissions: ReturnType<typeof openCodePermissionRules> = [];
-      const nativeEvents = asyncEventStream();
-      yield* makeOpenCodeRuntimeHarness(suffix, "root", {
-        event: { subscribe: async () => ({ stream: nativeEvents.stream }) },
-        mcp: {
-          add: async (input: { name: string; config: unknown }) => {
-            registrations.push(input);
-            return { data: {} };
-          },
-          disconnect: async ({ name }: { name: string }) => {
-            disconnected.push(name);
-            return { data: true };
-          },
-        },
-        session: {
-          create: async (input: { permission: typeof permissions }) => {
-            permissions = input.permission;
-            return { data: { id: "root", time: { created: 1, updated: 1 } } };
-          },
-          abort: async () => ({ data: true }),
-          children: async () => ({ data: [] }),
-        },
-      }).pipe(Effect.scoped);
-      assert.equal(registrations.length, 1);
-      assert.deepEqual(disconnected, [registrations[0]!.name]);
-      assert.match(registrations[0]!.name, /^t3u-[a-f0-9]{8}-docs$/);
-      assert.deepEqual(registrations[0]!.config, {
-        type: "remote",
-        url: "https://docs.example/mcp",
-        headers: {},
-      });
-      assert.deepEqual(permissions.slice(-2), [
-        { permission: "t3u-*", pattern: "*", action: "deny" },
-        { permission: `${registrations[0]!.name}_*`, pattern: "*", action: "allow" },
-      ]);
-    }).pipe(Effect.provide(IdAllocator.layer), Effect.scoped),
-  );
-
-  it.effect("routes shared OAuth servers through the bridge in OpenCode registrations", () =>
-    Effect.gen(function* () {
-      const suffix = "shared-oauth";
-      const threadId = ThreadId.make(`thread-opencode-${suffix}`);
-      const credential = {
-        environmentId: EnvironmentId.make("environment:opencode-test"),
-        threadId,
-        providerSessionId: "mcp:shared-oauth",
-        providerInstanceId: ProviderInstanceId.make(`opencode-${suffix}`),
-        endpoint: "http://127.0.0.1:43123/mcp",
-        authorizationHeader: "Bearer thread-bridge-credential",
-        browserToolsAvailable: false,
-      };
-      McpProviderSession.setMcpProviderSession({
-        ...credential,
-        tools: proxyAgentTools(
-          {
-            servers: [
-              {
-                name: McpServerName.make("linear"),
-                transport: {
-                  type: "http",
-                  url: "https://mcp.linear.app/mcp",
-                  authentication: "oauth",
-                  headers: [{ name: "X-Workspace", value: "upstream-only", sensitive: true }],
-                },
-              },
-            ],
-            disabledSkills: [],
-            fingerprint: "shared-oauth-config",
-          },
-          credential,
-        ),
-      });
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-      );
-      const registrations: Array<{ name: string; config: unknown }> = [];
-      const nativeEvents = asyncEventStream();
-      yield* makeOpenCodeRuntimeHarness(suffix, "root", {
-        event: { subscribe: async () => ({ stream: nativeEvents.stream }) },
-        mcp: {
-          add: async (input: { name: string; config: unknown }) => {
-            registrations.push(input);
-            return { data: {} };
-          },
-          disconnect: async () => ({ data: true }),
-        },
-        session: {
-          create: async () => ({ data: { id: "root", time: { created: 1, updated: 1 } } }),
-          abort: async () => ({ data: true }),
-          children: async () => ({ data: [] }),
-        },
-      }).pipe(Effect.scoped);
-      assert.equal(registrations.length, 1);
-      assert.match(registrations[0]!.name, /^t3u-[a-f0-9]{8}-linear$/);
-      assert.deepEqual(registrations[0]!.config, {
-        type: "remote",
-        url: "http://127.0.0.1:43123/api/mcp-oauth/proxy/linear",
-        headers: { Authorization: "Bearer thread-bridge-credential" },
-      });
-      assert.notInclude(JSON.stringify(registrations), "https://mcp.linear.app/mcp");
-      assert.notInclude(JSON.stringify(registrations), "upstream-only");
     }).pipe(Effect.provide(IdAllocator.layer), Effect.scoped),
   );
 
@@ -1695,7 +1558,6 @@ describe("OpenCodeAdapterV2", () => {
         mcp: { add: async () => ({ data: true }) },
       };
       const adapter = makeOpenCodeAdapterV2({
-        crypto: yield* Crypto.Crypto.pipe(Effect.provide(NodeCrypto.layer)),
         instanceId: ProviderInstanceId.make("opencode-test"),
         settings: OPEN_CODE_TEST_SETTINGS,
         environment: {},
@@ -1991,7 +1853,6 @@ describe("OpenCodeAdapterV2", () => {
         mcp: { add: async () => ({ data: true }) },
       };
       const adapter = makeOpenCodeAdapterV2({
-        crypto: yield* Crypto.Crypto.pipe(Effect.provide(NodeCrypto.layer)),
         instanceId: ProviderInstanceId.make("opencode-initial-stop-test"),
         settings: OPEN_CODE_TEST_SETTINGS,
         environment: {},
@@ -2676,7 +2537,6 @@ describe("OpenCodeAdapterV2", () => {
       const threadId = ThreadId.make("thread-opencode-adopt");
       const modelSelection = { instanceId, model: "default" };
       const adapter = makeOpenCodeAdapterV2({
-        crypto: yield* Crypto.Crypto.pipe(Effect.provide(NodeCrypto.layer)),
         instanceId,
         settings: OPENCODE_TEST_SETTINGS,
         environment: {},
@@ -2863,30 +2723,14 @@ describe("OpenCodeAdapterV2", () => {
     assert.equal(permissionAction(childApprovalRules, "task"), "deny");
   });
 
-  it("keeps skill and MCP isolation after a native child agent's own allows", () => {
+  it("keeps disabled skills denied after a native child agent's own allows", () => {
     const rules = openCodeChildPermissionRules(
       runtimePolicy("full-access"),
       [{ permission: "*", pattern: "*", action: "allow" }],
       ["deploy"],
-      ["t3u-own-docs"],
     );
-    assert.deepEqual(rules.slice(-3), [
-      { permission: "t3u-*", pattern: "*", action: "deny" },
-      { permission: "t3u-own-docs_*", pattern: "*", action: "allow" },
-      { permission: "skill", pattern: "deploy", action: "deny" },
-    ]);
+    assert.deepEqual(rules.slice(-1), [{ permission: "skill", pattern: "deploy", action: "deny" }]);
   });
-
-  it.each(["approval-required", "auto-accept-edits"] as const)(
-    "requires approval for own MCP tools in %s mode",
-    (mode) => {
-      const rules = openCodePermissionRules(runtimePolicy(mode), [], ["t3u-own-docs"]);
-      assert.deepEqual(rules.slice(-2), [
-        { permission: "t3u-*", pattern: "*", action: "deny" },
-        { permission: "t3u-own-docs_*", pattern: "*", action: "ask" },
-      ]);
-    },
-  );
 
   it("uses the next native user message as the exclusive fork and revert boundary", () => {
     const first = providerTurn({ id: "turn:first", ordinal: 1, nativeId: "msg-user-1" });

@@ -35,13 +35,10 @@ import {
   type ProviderInstanceId,
   type ProviderRequestKind,
   type ProviderSessionId,
-  mcpServerVariableRecord,
   type RuntimeRequestId,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import * as Crypto from "effect/Crypto";
-import * as Hex from "effect/encoding/Hex";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -442,7 +439,6 @@ export interface OpenCodeAdapterV2Options {
   readonly settings: OpenCodeSettings;
   readonly environment: NodeJS.ProcessEnv;
   readonly runtime: OpenCodeRuntime.OpenCodeRuntimeShape;
-  readonly crypto: Crypto.Crypto;
   readonly idAllocator: IdAllocator.IdAllocatorV2Shape;
   readonly serverConfig: ServerConfig.ServerConfig["Service"];
   readonly nativeEventLogger?: EventNdjsonLogger;
@@ -629,7 +625,6 @@ const OPENCODE_RESTRICTED_PERMISSIONS = [
 export function openCodePermissionRules(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   disabledSkills: ReadonlyArray<string> = [],
-  userMcpServerNames: ReadonlyArray<string> = [],
 ): PermissionRuleset {
   // Skills switched off in Settings → Tools; the last matching rule wins, so
   // these follow every allow below.
@@ -638,20 +633,7 @@ export function openCodePermissionRules(
     pattern: name,
     action: "deny" as const,
   }));
-  const runtimeRules = openCodeRuntimePermissionRules(runtimePolicy);
-  const userMcpAction =
-    runtimeRules.findLast((entry) => entry.permission === "*")?.action ?? "deny";
-  return [
-    ...runtimeRules,
-    // External servers share their MCP inventory across native sessions.
-    { permission: "t3u-*", pattern: "*", action: "deny" },
-    ...userMcpServerNames.map((name) => ({
-      permission: `${name}_*`,
-      pattern: "*",
-      action: userMcpAction,
-    })),
-    ...skillRules,
-  ];
+  return [...openCodeRuntimePermissionRules(runtimePolicy), ...skillRules];
 }
 
 function openCodeRuntimePermissionRules(
@@ -767,9 +749,8 @@ export function openCodeChildPermissionRules(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   nativeChildRules: PermissionRuleset,
   disabledSkills: ReadonlyArray<string> = [],
-  userMcpServerNames: ReadonlyArray<string> = [],
 ): PermissionRuleset {
-  const parentRules = openCodePermissionRules(runtimePolicy, disabledSkills, userMcpServerNames);
+  const parentRules = openCodePermissionRules(runtimePolicy, disabledSkills);
   const inheritedRules = parentRules.filter(
     (rule) => rule.permission === "external_directory" || rule.action === "deny",
   );
@@ -777,12 +758,10 @@ export function openCodeChildPermissionRules(
     (childRule) =>
       !inheritedRules.some((inheritedRule) => permissionRuleEquals(childRule, inheritedRule)),
   );
-  // A native agent's own allows must not re-enable disabled skills or another
-  // session's user servers after the parent's restrictions.
+  // A native agent's own allows must not re-enable disabled skills after
+  // the parent's restrictions.
   const toolRules = parentRules.filter(
-    (entry) =>
-      entry.permission.startsWith("t3u-") ||
-      (entry.permission === "skill" && entry.action === "deny"),
+    (entry) => entry.permission === "skill" && entry.action === "deny",
   );
   return [...parentRules, ...childSpecificRules, ...toolRules];
 }
@@ -1013,23 +992,6 @@ export function makeOpenCodeAdapterV2(
             : {}),
         });
 
-        const userMcpDigest = yield* options.crypto
-          .digest("SHA-256", new TextEncoder().encode(input.providerSessionId))
-          .pipe(Effect.orDie);
-        const userMcpPrefix = `t3u-${Hex.encode(userMcpDigest).slice(0, 8)}`;
-        const userMcpServerNames: string[] = [];
-        if (connection.external) {
-          yield* Effect.addFinalizer(() =>
-            Effect.forEach(
-              userMcpServerNames,
-              (name) =>
-                OpenCodeRuntime.runOpenCodeSdk("mcp.disconnect", () =>
-                  client.mcp.disconnect({ name }),
-                ).pipe(Effect.timeout("5 seconds"), Effect.ignore({ log: true })),
-              { concurrency: 8, discard: true },
-            ),
-          );
-        }
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
         const hasT3Mcp = mcpSession !== undefined && !connection.external;
         const orchestrationSystemPrompt = t3OrchestrationSystemPrompt(hasT3Mcp);
@@ -1046,41 +1008,6 @@ export function makeOpenCodeAdapterV2(
             }),
           );
         }
-        // The user's servers are additions: one that fails to register must
-        // not stop the session, so each logs and moves on.
-        for (const server of mcpSession?.tools?.servers ?? []) {
-          const name = `${userMcpPrefix}-${server.name}`;
-          yield* OpenCodeRuntime.runOpenCodeSdk("mcp.add", () =>
-            client.mcp.add({
-              name,
-              config:
-                server.transport.type === "stdio"
-                  ? {
-                      type: "local",
-                      command: [server.transport.command, ...server.transport.args],
-                      environment: mcpServerVariableRecord(server.transport.env),
-                    }
-                  : {
-                      type: "remote",
-                      url: server.transport.url,
-                      headers: mcpServerVariableRecord(server.transport.headers),
-                    },
-            }),
-          ).pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                userMcpServerNames.push(name);
-              }),
-            ),
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Could not add an MCP server to OpenCode.", {
-                server: server.name,
-                cause,
-              }),
-            ),
-          );
-        }
-
         const now = yield* DateTime.now;
         let sessionEntity: OrchestrationV2ProviderSession = {
           id: input.providerSessionId,
@@ -1508,7 +1435,6 @@ export function makeOpenCodeAdapterV2(
               turn.runtimePolicy,
               nativeChildSession.permission ?? [],
               McpProviderSession.readMcpProviderSessionTools(turn.threadId).disabledSkills,
-              userMcpServerNames,
             );
             yield* sdkCall(
               "session.update",
@@ -3152,7 +3078,6 @@ export function makeOpenCodeAdapterV2(
                     threadInput.runtimePolicy,
                     McpProviderSession.readMcpProviderSessionTools(threadInput.threadId)
                       .disabledSkills,
-                    userMcpServerNames,
                   ),
                 },
                 () =>
@@ -3161,7 +3086,6 @@ export function makeOpenCodeAdapterV2(
                       threadInput.runtimePolicy,
                       McpProviderSession.readMcpProviderSessionTools(threadInput.threadId)
                         .disabledSkills,
-                      userMcpServerNames,
                     ),
                   }),
               );
@@ -3219,7 +3143,6 @@ export function makeOpenCodeAdapterV2(
                         threadInput.providerThread.appThreadId ??
                         input.threadId,
                     ).disabledSkills,
-                    userMcpServerNames,
                   ),
                 }),
               );
@@ -3746,7 +3669,6 @@ export function makeOpenCodeAdapterV2(
                       McpProviderSession.readMcpProviderSessionTools(
                         rollbackInput.providerThread.appThreadId ?? input.threadId,
                       ).disabledSkills,
-                      userMcpServerNames,
                     ),
                   }),
                 );
@@ -3861,7 +3783,6 @@ export function makeOpenCodeAdapterV2(
 }
 
 export type OpenCodeAdapterV2DriverEnv =
-  | Crypto.Crypto
   | OpenCodeRuntime.OpenCodeRuntime
   | IdAllocator.IdAllocatorV2
   | ProviderEventLoggers.ProviderEventLoggers
@@ -3886,7 +3807,6 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
         settings: { ...input.config, enabled: input.enabled },
         environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
         runtime: openCodeRuntime,
-        crypto: yield* Crypto.Crypto,
         idAllocator,
         serverConfig,
         ...(providerEventLoggers.native === undefined
@@ -3923,7 +3843,6 @@ const layer: Layer.Layer<ProviderAdapter.ProviderAdapterV2, never, OpenCodeAdapt
         settings: DEFAULT_OPENCODE_SETTINGS,
         environment: hostEnvironment,
         runtime: openCodeRuntime,
-        crypto: yield* Crypto.Crypto,
         idAllocator,
         serverConfig,
         ...(providerEventLoggers.native === undefined

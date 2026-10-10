@@ -53,7 +53,6 @@ import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
-import { proxyAgentTools } from "../../mcp/resolveAgentTools.ts";
 import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { HtmlToolkit } from "../../mcp/toolkits/html/tools.ts";
 import { EnvironmentToolkit } from "../../mcp/toolkits/environment/tools.ts";
@@ -658,7 +657,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     });
   });
 
-  it("adds the user's servers and skill switches next to t3-code, and reopens when they change", () => {
+  it("applies skill switches alongside t3-code and reopens when they change", () => {
     const threadId = ThreadId.make("thread-claude-user-tools");
     const session = {
       environmentId: EnvironmentId.make(`environment-${threadId}`),
@@ -672,17 +671,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     McpProviderSession.setMcpProviderSession({
       ...session,
       tools: {
-        servers: [
-          {
-            name: "supabase",
-            transport: {
-              type: "stdio",
-              command: "npx",
-              args: ["-y", "@supabase/mcp-server-supabase"],
-              env: [{ name: "SUPABASE_ACCESS_TOKEN", value: "token", sensitive: true }],
-            },
-          },
-        ],
         disabledSkills: ["grill-me"],
         fingerprint: "a",
       },
@@ -698,93 +686,23 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
         threadId,
         readOnlySandbox: false,
-        permissionMode: queryPolicy.permissionMode,
       });
       assert.deepEqual(overrides, {
-        allowedTools: [ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD, "mcp__supabase__*"],
-        mcpServers: {
-          supabase: {
-            type: "stdio",
-            command: "npx",
-            args: ["-y", "@supabase/mcp-server-supabase"],
-            env: { SUPABASE_ACCESS_TOKEN: "${T3_CODE_MCP_0_0}" },
-          },
-          ...T3_MCP_SERVERS,
-        },
-        mcpEnvironment: { ...T3_MCP_ENVIRONMENT, T3_CODE_MCP_0_0: "token" },
+        allowedTools: [ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD],
+        mcpServers: T3_MCP_SERVERS,
+        mcpEnvironment: T3_MCP_ENVIRONMENT,
         sdkSettings: { skillOverrides: { "grill-me": "off" } },
       });
-      // Read-only sandboxes keep the user's servers behind the permission prompt.
-      assert.deepEqual(
-        ClaudeAdapterV2.claudeMcpQueryOverrides({
-          threadId,
-          readOnlySandbox: true,
-          permissionMode: "bypassPermissions",
-        }).allowedTools,
-        ClaudeAdapterV2.CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS,
-      );
-
       const initialKey = ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(queryPolicy, overrides);
       McpProviderSession.setMcpProviderSession({
         ...session,
-        tools: { servers: [], disabledSkills: [], fingerprint: "" },
+        tools: { disabledSkills: [], fingerprint: "" },
       });
       const clearedKey = ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(
         queryPolicy,
         ClaudeAdapterV2.claudeMcpQueryOverrides({ threadId, readOnlySandbox: false }),
       );
       assert.notEqual(clearedKey, initialKey);
-    } finally {
-      McpProviderSession.clearMcpProviderSession(threadId);
-    }
-  });
-
-  it("routes shared OAuth servers through the bridge without exposing credentials in Claude config", () => {
-    const threadId = ThreadId.make("thread-claude-shared-oauth");
-    const credential = {
-      environmentId: EnvironmentId.make("environment-claude-shared-oauth"),
-      threadId,
-      providerSessionId: "mcp-session-claude-shared-oauth",
-      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
-      endpoint: "http://127.0.0.1:43123/mcp",
-      authorizationHeader: "Bearer thread-bridge-credential",
-      browserToolsAvailable: false,
-    };
-    McpProviderSession.setMcpProviderSession({
-      ...credential,
-      tools: proxyAgentTools(
-        {
-          servers: [
-            {
-              name: "linear",
-              transport: {
-                type: "http",
-                url: "https://mcp.linear.app/mcp",
-                authentication: "oauth",
-                headers: [{ name: "X-Workspace", value: "upstream-only", sensitive: true }],
-              },
-            },
-          ],
-          disabledSkills: [],
-          fingerprint: "shared-oauth-config",
-        },
-        credential,
-      ),
-    });
-    try {
-      const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
-        threadId,
-        readOnlySandbox: false,
-      });
-      assert.deepEqual(overrides.mcpServers?.linear, {
-        type: "http",
-        url: "http://127.0.0.1:43123/api/mcp-oauth/proxy/linear",
-        headers: { Authorization: "${T3_CODE_MCP_0_0}" },
-      });
-      assert.equal(overrides.mcpEnvironment?.T3_CODE_MCP_0_0, "Bearer thread-bridge-credential");
-      assert.notInclude(JSON.stringify(overrides.mcpServers), "thread-bridge-credential");
-      assert.notInclude(JSON.stringify(overrides), "https://mcp.linear.app/mcp");
-      assert.notInclude(JSON.stringify(overrides), "upstream-only");
     } finally {
       McpProviderSession.clearMcpProviderSession(threadId);
     }
@@ -1196,13 +1114,13 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
   );
 });
 
-describe("ClaudeAdapterV2 user tools", () => {
+describe("ClaudeAdapterV2 disabled skills", () => {
   it.effect.each([
-    { runtimeMode: "full-access", approvalPolicy: undefined, preapproved: true },
-    { runtimeMode: "approval-required", approvalPolicy: undefined, preapproved: false },
-    { runtimeMode: "auto-accept-edits", approvalPolicy: undefined, preapproved: false },
-    { runtimeMode: "full-access", approvalPolicy: "on-request", preapproved: false },
-  ] as const)("opens user tools under $runtimeMode / $approvalPolicy", (policy) =>
+    { runtimeMode: "full-access", approvalPolicy: undefined },
+    { runtimeMode: "approval-required", approvalPolicy: undefined },
+    { runtimeMode: "auto-accept-edits", approvalPolicy: undefined },
+    { runtimeMode: "full-access", approvalPolicy: "on-request" },
+  ] as const)("applies skill switches under $runtimeMode / $approvalPolicy", (policy) =>
     Effect.scoped(
       Effect.gen(function* () {
         const runtimePolicy = ProviderAdapterV2RuntimePolicy.make({
@@ -1258,25 +1176,6 @@ describe("ClaudeAdapterV2 user tools", () => {
           authorizationHeader: "Bearer secret-claude-token",
           browserToolsAvailable: true,
           tools: {
-            servers: [
-              {
-                name: "context7",
-                transport: {
-                  type: "stdio",
-                  command: "npx",
-                  args: ["context7"],
-                  env: [{ name: "ACCESS_TOKEN", value: "stdio-secret", sensitive: true }],
-                },
-              },
-              {
-                name: "remote",
-                transport: {
-                  type: "http",
-                  url: "https://example.com/mcp",
-                  headers: [{ name: "Authorization", value: "http-secret", sensitive: true }],
-                },
-              },
-            ],
             disabledSkills: ["grill-me"],
             fingerprint: "a",
           },
@@ -1304,73 +1203,20 @@ describe("ClaudeAdapterV2 user tools", () => {
           }),
         );
 
-        assert.deepInclude(openedOptions?.mcpServers ?? {}, {
-          context7: {
-            type: "stdio",
-            command: "npx",
-            args: ["context7"],
-            env: { ACCESS_TOKEN: "${T3_CODE_MCP_0_0}" },
-          },
-          remote: {
-            type: "http",
-            url: "https://example.com/mcp",
-            headers: { Authorization: "${T3_CODE_MCP_1_0}" },
-          },
-        });
+        assert.deepEqual(Object.keys(openedOptions?.mcpServers ?? {}), ["t3-code"]);
         assert.deepInclude(openedOptions?.env ?? {}, {
           CLAUDE_CONFIG_DIR: "/claude-config",
           T3_CODE_MCP_AUTHORIZATION: "Bearer secret-claude-token",
-          T3_CODE_MCP_0_0: "stdio-secret",
-          T3_CODE_MCP_1_0: "http-secret",
         });
-        for (const secret of ["secret-claude-token", "stdio-secret", "http-secret"]) {
-          assert.notInclude(JSON.stringify(openedOptions?.mcpServers), secret);
-          assert.notInclude(
-            JSON.stringify(ClaudeAdapterV2.loggedClaudeQueryOptions(openedOptions!)),
-            secret,
-          );
-        }
-        assert.equal(openedOptions?.allowedTools?.includes("mcp__context7__*"), policy.preapproved);
-        assert.equal(openedOptions?.allowedTools?.includes("mcp__remote__*"), policy.preapproved);
+        assert.notInclude(JSON.stringify(openedOptions?.mcpServers), "secret-claude-token");
+        assert.notInclude(
+          JSON.stringify(ClaudeAdapterV2.loggedClaudeQueryOptions(openedOptions!)),
+          "secret-claude-token",
+        );
         const settings = openedOptions?.settings;
         assert.deepEqual(typeof settings === "object" ? settings.skillOverrides : undefined, {
           "grill-me": "off",
         });
-        if (policy.preapproved) return;
-        const canUseTool = openedOptions?.canUseTool;
-        assert.isFunction(canUseTool);
-        const requestEvent = yield* runtime.events.pipe(
-          Stream.filter((event) => event.type === "runtime_request.updated"),
-          Stream.runHead,
-          Effect.forkScoped,
-        );
-        const decision = yield* Effect.promise(() =>
-          canUseTool!(
-            "mcp__context7__mutate",
-            { operation: "write" },
-            {
-              signal: new AbortController().signal,
-              toolUseID: "tool-user-mcp",
-              requestId: "request-user-mcp",
-            },
-          ),
-        ).pipe(Effect.forkScoped);
-        const first = yield* Effect.raceFirst(
-          Fiber.join(requestEvent).pipe(
-            Effect.map((event) => ({ type: "request", event }) as const),
-          ),
-          Fiber.join(decision).pipe(
-            Effect.map((result) => ({ type: "decision", result }) as const),
-          ),
-        );
-        assert.equal(first.type, "request", "the user MCP tool ran without asking");
-        if (first.type !== "request" || Option.isNone(first.event)) return;
-        if (first.event.value.type !== "runtime_request.updated") return;
-        yield* runtime.respondToRuntimeRequest({
-          requestId: first.event.value.runtimeRequest.id,
-          decision: "decline",
-        });
-        assert.equal((yield* Fiber.join(decision))?.behavior, "deny");
       }).pipe(Effect.provide(Layer.mergeAll(IdAllocator.layer, NodeServices.layer))),
     ),
   );

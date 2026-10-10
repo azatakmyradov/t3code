@@ -53,7 +53,6 @@ const ACTION_ICONS: Record<string, AppSymbolName> = {
   newThread: "square.and.pencil",
   addProject: "folder.badge.plus",
   settings: "gearshape",
-  bots: "brain",
   appearance: "paintbrush",
   environments: "desktopcomputer",
   usage: "chart.bar.xaxis",
@@ -193,13 +192,6 @@ export function CommandPalette(props: {
         title: "Add project",
         searchTerms: ["folder", "clone", "repository", "git"],
         run: () => navigation.navigate("NewTaskSheet", { screen: "AddProject" }),
-      },
-      {
-        key: "bots",
-        kind: "action",
-        title: "Open bots",
-        searchTerms: ["assistant", "memory", "routines"],
-        run: () => navigation.navigate("Bots"),
       },
       {
         key: "settings",

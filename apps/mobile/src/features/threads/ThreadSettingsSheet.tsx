@@ -184,13 +184,10 @@ function DisclosureRow(props: {
   readonly value: string | undefined;
   readonly onPress: () => void;
   readonly isLast?: boolean;
-  readonly disabled?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
-      disabled={props.disabled}
-      accessibilityState={{ disabled: props.disabled }}
       onPress={props.onPress}
       className={cn(
         "min-h-11 flex-row items-center gap-2 bg-grouped-card px-4 py-2 active:bg-subtle android:min-h-14",
@@ -252,7 +249,6 @@ type ThreadSettingsSessionProps = {
   readonly onUpdateOptionSelections: (selections: ReadonlyArray<ProviderOptionSelection>) => void;
   readonly runtimeMode: RuntimeMode;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
-  readonly runtimeModeDisabled?: boolean;
 };
 
 export type ExistingThreadSettingsRouteSession = ThreadSettingsSessionProps & {
@@ -306,7 +302,6 @@ type ThreadSettingsSessionValue = {
   readonly runtimeMode: RuntimeMode;
   readonly runtimeModeChoices: ReturnType<typeof runtimeModeChoicesForSupportedModes>;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
-  readonly runtimeModeDisabled?: boolean;
   readonly displayedDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly displayedModelSelection: ModelSelection | null;
   readonly reportedModelSelection: ModelSelection | null;
@@ -481,7 +476,6 @@ function ThreadSettingsSessionProvider(
       runtimeMode: compatibleRuntimeMode,
       runtimeModeChoices,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
-      runtimeModeDisabled: props.runtimeModeDisabled,
       displayedDescriptors,
       displayedModelSelection: pendingModel?.selection ?? props.selectedModel,
       reportedModelSelection: pendingModel ? null : (props.reportedModelSelection ?? null),
@@ -523,7 +517,6 @@ function ThreadSettingsSessionProvider(
       pressModel,
       providerFilter,
       props.onUpdateRuntimeMode,
-      props.runtimeModeDisabled,
       props.providerGroups,
       runtimeModeChoices,
       searchQuery,
@@ -784,7 +777,6 @@ function ThreadSettingsOptionsItem(props: {
           <DisclosureRow
             isLast
             label="Runtime"
-            disabled={session.runtimeModeDisabled}
             value={
               session.runtimeModeChoices.find((choice) => choice.mode === session.runtimeMode)
                 ?.label

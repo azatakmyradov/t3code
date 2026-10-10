@@ -6,9 +6,6 @@ import type { ScreenHeaderAction } from "../../components/ScreenHeader.types";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import type { ThreadInspectorMode } from "./thread-inspector-content-stack";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
-import { useBotForThread } from "../../state/bots";
-import { ThreadId, type EnvironmentId } from "@t3tools/contracts";
-import { Keyboard } from "react-native";
 
 export function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -25,7 +22,6 @@ export function ThreadHeader(
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { onOpenTerminal, onMergeBack } = props.gitControls;
   const native = useThreadHeaderOptions(props);
-  const botEntry = useBotForThread(ThreadId.make(props.gitControls.threadId));
   const androidHeaderActions = useMemo<ReadonlyArray<ScreenHeaderAction>>(() => {
     const actions: ScreenHeaderAction[] = [];
     if (props.onReturnToThread) {
@@ -77,66 +73,6 @@ export function ThreadHeader(
     props.hasWorkspaceRoot,
     props.gitControls.canOpenTerminal,
   ]);
-
-  // Only the main conversation is the bot's own; task threads work in real projects
-  // and keep the regular header with its git, files, and terminal controls.
-  const mainBot =
-    botEntry?.bot.environmentId === props.gitControls.environmentId &&
-    botEntry.bot.threadId === props.gitControls.threadId
-      ? botEntry
-      : null;
-  if (mainBot) {
-    const { bot, threads } = mainBot;
-    const openThread = (environmentId: EnvironmentId, threadId: ThreadId) => {
-      Keyboard.dismiss();
-      navigation.navigate("Thread", { environmentId, threadId });
-    };
-    // The bot workspace has no git or files; its header lists the bot's threads and settings.
-    return (
-      <ScreenHeader
-        title={bot.name}
-        subtitle={bot.paused ? "Paused" : "Main conversation"}
-        sidebar={false}
-        hideBottomBorder
-        options={{
-          headerTitle: bot.name,
-          // Keep the thread's left items: the split-view sidebar toggle, and the Home escape when
-          // a deep link or cold start leaves no back button.
-          headerBackVisible: native.options.headerBackVisible,
-          unstable_headerLeftItems: native.options.unstable_headerLeftItems,
-          unstable_headerRightItems: undefined,
-        }}
-        onBack={() => {
-          Keyboard.dismiss();
-          if (navigation.canGoBack()) navigation.goBack();
-          else navigation.dispatch(StackActions.replace("Home"));
-        }}
-        menus={[
-          {
-            title: `${bot.name} threads`,
-            icon: "ellipsis",
-            items: [
-              ...threads.slice(0, 10).map((thread) => ({
-                id: `${thread.environmentId}:${thread.threadId}`,
-                title: thread.title,
-                icon: "text.bubble",
-                onPress: () => openThread(thread.environmentId, thread.threadId),
-              })),
-              {
-                id: "settings",
-                title: "Threads & bot settings",
-                icon: "slider.horizontal.3",
-                onPress: () => {
-                  Keyboard.dismiss();
-                  navigation.navigate("Bots", { environmentId: bot.environmentId, botId: bot.id });
-                },
-              },
-            ],
-          },
-        ]}
-      />
-    );
-  }
 
   return (
     <>

@@ -1,4 +1,3 @@
-import { BOT_NOTES_MAX_LENGTH } from "./bots.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -3059,14 +3058,6 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
  * send them.
  */
 const OrchestrationV2InternalCommand = Schema.Union([
-  /** A persistent bot's update joins its main transcript without starting a provider turn. */
-  Schema.Struct({
-    type: Schema.Literal("thread.bot-update.record"),
-    commandId: CommandId,
-    threadId: ThreadId,
-    turnItemId: TurnItemId,
-    text: Schema.String.check(Schema.isMaxLength(BOT_NOTES_MAX_LENGTH)),
-  }),
   /**
    * Records what a pull request watch saw, and wakes the agent in the same transaction when
    * `wake` is set. Rejected once the watch started at `startedAt` has ended, and a wake is
