@@ -38,7 +38,7 @@ export function AndroidScreenHeader(props: {
   readonly embedded?: boolean;
   readonly hideBottomBorder?: boolean;
 }) {
-  const titleTypography = useScaledTextRole("headline");
+  const titleTypography = useScaledTextRole("title");
   const subtitleTypography = useScaledTextRole("label");
   const { height: materialToolbarHeight, ...headerPadding } = useMaterialToolbarLayout(
     props.embedded,
@@ -71,11 +71,7 @@ export function AndroidScreenHeader(props: {
         {props.leading}
 
         <View className={cn("min-w-0 flex-1", !props.onBack && "pl-1")}>
-          <Text
-            numberOfLines={1}
-            style={titleTypography}
-            className="font-t3-medium text-header-foreground"
-          >
+          <Text numberOfLines={1} style={titleTypography} className="text-header-foreground">
             {props.title}
           </Text>
           {props.subtitle ? (

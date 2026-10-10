@@ -613,7 +613,6 @@ function runBrowserAccessScenario(input: {
   readonly deviceOverride?: boolean;
   readonly createThread?: boolean;
   readonly projectExists?: boolean;
-  readonly projectSkillsDisabled?: boolean;
 }) {
   return Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
@@ -660,11 +659,6 @@ function runBrowserAccessScenario(input: {
             projectSettingsOverrides: {
               [projectId]: {
                 enableAgentBrowserAccess: input.projectOverride,
-                ...(input.projectSkillsDisabled
-                  ? {
-                      disabledSkills: { "private-skill": true },
-                    }
-                  : {}),
                 ...(input.deviceOverride === undefined
                   ? {}
                   : { enableAgentDeviceAccess: input.deviceOverride }),
@@ -1900,21 +1894,6 @@ it.effect("ProviderSessionManagerV2 fails browser access closed for a missing pr
     assert.isDefined(captured);
     assert.equal(captured?.browserToolsAvailable, false);
   }),
-);
-
-it.effect(
-  "ProviderSessionManagerV2 preserves project skill restrictions when the project lookup fails",
-  () =>
-    Effect.gen(function* () {
-      const captured = yield* runBrowserAccessScenario({
-        enableAgentBrowserAccess: true,
-        projectOverride: true,
-        projectExists: false,
-        projectSkillsDisabled: true,
-      });
-      assert.isDefined(captured);
-      assert.deepEqual(captured?.tools?.disabledSkills, ["private-skill"]);
-    }),
 );
 
 it.effect("ProviderSessionManagerV2 fails browser access closed for a missing thread", () =>

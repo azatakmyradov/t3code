@@ -68,18 +68,22 @@ export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/server
 const encodeServerSettings = Schema.encodeEffect(ServerSettings);
 const encodeServerSettingsJson = Schema.encodeUnknownEffect(fromJsonStringPretty(ServerSettings));
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
+const settingsJsonRecord = fromJsonStringPretty(Schema.Record(Schema.String, Schema.Unknown));
+const decodeSettingsJsonRecord = Schema.decodeEffect(settingsJsonRecord);
+const encodeSettingsJsonRecord = Schema.encodeEffect(settingsJsonRecord);
 
-// Removed custom MCP configuration stays inert on disk for users who may still
-// need it. It is never part of decoded settings, client responses or sessions.
-const decodeLegacyMcpSettingsJsonExit = Schema.decodeUnknownExit(
+// Removed tool settings stay inert on disk for users who may still need them.
+// They never enter decoded settings, client responses or provider sessions.
+const legacyToolSettingsFields = {
+  mcpServers: Schema.optionalKey(Schema.Unknown),
+  disabledSkills: Schema.optionalKey(Schema.Unknown),
+};
+const decodeLegacyToolSettingsJsonExit = Schema.decodeUnknownExit(
   fromLenientJson(
     Schema.Struct({
-      mcpServers: Schema.optionalKey(Schema.Unknown),
+      ...legacyToolSettingsFields,
       projectSettingsOverrides: Schema.optionalKey(
-        Schema.Record(
-          Schema.String,
-          Schema.Struct({ mcpServers: Schema.optionalKey(Schema.Unknown) }),
-        ),
+        Schema.Record(Schema.String, Schema.Struct(legacyToolSettingsFields)),
       ),
     }),
   ),
@@ -692,34 +696,25 @@ const make = Effect.gen(function* () {
 
       let contents = sparseSettingsJson;
       if (yield* readConfigExists) {
-        const legacy = decodeLegacyMcpSettingsJsonExit(yield* readRawConfig);
-        if (legacy._tag === "Success") {
-          const sparseSettings = JSON.parse(sparseSettingsJson) as Record<string, unknown> & {
-            projectSettingsOverrides?: Record<string, Record<string, unknown>>;
-          };
+        const legacy = decodeLegacyToolSettingsJsonExit(yield* readRawConfig);
+        if (Exit.isSuccess(legacy)) {
+          const sparseSettings = (yield* decodeSettingsJsonRecord(sparseSettingsJson)) as Record<
+            string,
+            unknown
+          > & { projectSettingsOverrides?: Record<string, Record<string, unknown>> };
+          const { projectSettingsOverrides, ...legacySettings } = legacy.value;
           const projects = new Map(Object.entries(sparseSettings.projectSettingsOverrides ?? {}));
-          for (const [projectId, entry] of Object.entries(
-            legacy.value.projectSettingsOverrides ?? {},
-          )) {
-            if (entry.mcpServers === undefined) continue;
-            projects.set(projectId, {
-              ...projects.get(projectId),
-              mcpServers: entry.mcpServers,
-            });
+          for (const [projectId, entry] of Object.entries(projectSettingsOverrides ?? {})) {
+            if (Object.keys(entry).length === 0) continue;
+            projects.set(projectId, { ...projects.get(projectId), ...entry });
           }
-          contents = JSON.stringify(
-            {
-              ...sparseSettings,
-              ...(legacy.value.mcpServers === undefined
-                ? {}
-                : { mcpServers: legacy.value.mcpServers }),
-              ...(projects.size === 0
-                ? {}
-                : { projectSettingsOverrides: Object.fromEntries(projects) }),
-            },
-            null,
-            2,
-          );
+          contents = yield* encodeSettingsJsonRecord({
+            ...sparseSettings,
+            ...legacySettings,
+            ...(projects.size === 0
+              ? {}
+              : { projectSettingsOverrides: Object.fromEntries(projects) }),
+          });
         }
       }
 

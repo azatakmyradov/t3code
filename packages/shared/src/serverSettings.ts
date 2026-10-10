@@ -421,7 +421,6 @@ export function applyServerSettingsPatch(
           ),
         }
       : {}),
-    ...(patch.disabledSkills !== undefined ? { disabledSkills: patch.disabledSkills } : {}),
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }
       : {}),

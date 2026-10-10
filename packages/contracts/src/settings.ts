@@ -43,7 +43,6 @@ import {
   type ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
-import { DisabledSkills, DisabledSkillsProjectOverride } from "./agentTools.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -1206,7 +1205,6 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "sidebarAutoSettleAfterDays",
   "continueThreadsAfterServerUpdate",
   "responseStreamingMode",
-  "disabledSkills",
 ] as const;
 export type ProjectScopedServerSettingKey = (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number];
 
@@ -1238,8 +1236,6 @@ export const ProjectSettingsOverrides = Schema.Struct({
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
-  // Sparse: merged per name over the environment's value, not a replacement.
-  disabledSkills: ForwardCompatibleOptional(DisabledSkillsProjectOverride),
 } satisfies Record<ProjectScopedServerSettingKey, unknown>);
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
@@ -1508,8 +1504,6 @@ export const ServerSettings = Schema.Struct({
   usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  /** Skill names hidden from every agent on this environment. */
-  disabledSkills: DisabledSkills.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1829,7 +1823,6 @@ export const ServerSettingsPatch = Schema.Struct({
   usageModelAliases: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(TrimmedNonEmptyString)),
   ),
-  disabledSkills: Schema.optionalKey(DisabledSkills),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

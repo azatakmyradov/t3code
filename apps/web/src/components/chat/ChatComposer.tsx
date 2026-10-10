@@ -1131,7 +1131,6 @@ import {
   hasCurrentProviderWorkspaceSnapshot,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
-  resolveDisabledProviderSkillNames,
 } from "@t3tools/client-runtime/providerSkills";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useDelayedStatus } from "../../hooks/useDelayedStatus";
@@ -1620,8 +1619,6 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
-  /** The thread's project, for its Settings → Tools skill switches. */
-  skillsProjectId: ProjectId | null;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   restingControlsHost: HTMLDivElement | null;
@@ -1767,7 +1764,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
-    skillsProjectId,
     pullRequestProjectId,
     pullRequestRepository,
     restingControlsHost,
@@ -2201,25 +2197,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
   // Memoized so the composer menu memo below can cache between renders.
-  // Skills switched off in Settings → Tools leave the menu; the server keeps
-  // them out of the session where the provider allows it.
-  const disabledSkillNames = useMemo(
-    () => resolveDisabledProviderSkillNames(settings, skillsProjectId),
-    [settings.disabledSkills, settings.projectSettingsOverrides, skillsProjectId],
-  );
   const selectedProviderSkills = useMemo(
     () =>
-      selectedProviderStatus
-        ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd, disabledSkillNames)
-        : [],
-    [disabledSkillNames, gitCwd, selectedProviderStatus],
+      selectedProviderStatus ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd) : [],
+    [gitCwd, selectedProviderStatus],
   );
   const selectedProviderSlashCommands = useMemo(
     () =>
       selectedProviderStatus
-        ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd, disabledSkillNames)
+        ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
         : [],
-    [disabledSkillNames, gitCwd, selectedProviderStatus],
+    [gitCwd, selectedProviderStatus],
   );
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,

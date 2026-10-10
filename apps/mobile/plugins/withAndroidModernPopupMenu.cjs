@@ -142,8 +142,9 @@ function withPopupMenuStyles(config) {
         item: [
           { _: "15sp", $: { name: "android:textSize" } },
           { _: "@color/popup_menu_item_text", $: { name: "android:textColor" } },
-          // Matches the app's --font-sans on Android.
-          { _: "sans-serif", $: { name: "android:fontFamily" } },
+          // DM Sans (--font-sans); embedded by the expo-font plugin config in
+          // app.config.ts.
+          { _: "@font/xml_dm_sans_regular", $: { name: "android:fontFamily" } },
         ],
       },
       {
@@ -154,7 +155,7 @@ function withPopupMenuStyles(config) {
         item: [
           { _: "15sp", $: { name: "android:textSize" } },
           { _: "@color/popup_menu_item_text", $: { name: "android:textColor" } },
-          { _: "sans-serif", $: { name: "android:fontFamily" } },
+          { _: "@font/xml_dm_sans_regular", $: { name: "android:fontFamily" } },
         ],
       },
       // The framework default (Widget.Material.ListMenuView) only carries

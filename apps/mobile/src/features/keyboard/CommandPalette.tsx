@@ -91,8 +91,8 @@ function PaletteRow(props: {
       onPress={props.onSelect}
       className={
         props.selected
-          ? "mx-2 flex-row items-center gap-3 rounded-lg bg-thread-selected px-3"
-          : "mx-2 flex-row items-center gap-3 rounded-lg px-3"
+          ? "mx-2 flex-row items-center gap-3 rounded-xl bg-thread-selected px-3"
+          : "mx-2 flex-row items-center gap-3 rounded-xl px-3"
       }
       style={{ height: ROW_HEIGHT }}
     >
@@ -437,7 +437,7 @@ export function CommandPalette(props: {
               style={{
                 width: Math.min(600, width - 32),
                 height: Math.min(520, height - 80),
-                borderRadius: 12,
+                borderRadius: 20,
               }}
             >
               <View className="px-3 pb-2.5 pt-3.5">

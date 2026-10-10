@@ -5,7 +5,6 @@ import {
   FilledTonalButton,
   Host,
   Row,
-  Shape,
   Text,
   TextButton,
 } from "@expo/ui/jetpack-compose";
@@ -16,10 +15,6 @@ import { useAppearancePreferences } from "../features/settings/appearance/Appear
 import { useScaledTextRole } from "../features/settings/appearance/useScaledTextRole";
 import type { MaterialButtonProps } from "./MaterialButton";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
-
-const CONTROL_SHAPE = Shape.RoundedCorner({
-  cornerRadii: { topStart: 8, topEnd: 8, bottomStart: 8, bottomEnd: 8 },
-});
 
 export function MaterialButton(props: MaterialButtonProps) {
   const { themeAppearance, themeVariables: colors } = useAppearancePreferences();
@@ -67,7 +62,6 @@ export function MaterialButton(props: MaterialButtonProps) {
           style={props.fullWidth ? { width: "100%" } : { alignSelf: "flex-start" }}
         >
           <Component
-            shape={CONTROL_SHAPE}
             enabled={!props.disabled && !props.loading}
             onClick={props.onPress}
             modifiers={[

@@ -39,7 +39,7 @@ export function AppTextInput({ className, ref, ...props }: AppTextInputProps) {
     <RNTextInput
       ref={ref}
       className={cn(
-        "min-h-12 rounded-lg border border-input-border bg-input px-3 py-2.5 font-sans text-base text-foreground",
+        "min-h-13.5 rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground",
         className,
       )}
       placeholderTextColorClassName="accent-placeholder"

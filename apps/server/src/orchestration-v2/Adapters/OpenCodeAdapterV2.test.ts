@@ -3,7 +3,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { OpencodeClient, ToolPart } from "@opencode-ai/sdk/v2";
 import {
   CheckpointId,
-  EnvironmentId,
   NodeId,
   OpenCodeSettings,
   ProjectId,
@@ -32,7 +31,6 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
-import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as ServerConfig from "../../config.ts";
 import type { EventNdjsonLogger } from "../../provider/EventNdjsonLogger.ts";
 import type { OpenCodeRuntimeShape } from "../../provider/opencodeRuntime.ts";
@@ -242,74 +240,6 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
 });
 
 describe("OpenCodeAdapterV2", () => {
-  it.effect("keeps disabled skills denied on create, resume, and rollback", () =>
-    Effect.gen(function* () {
-      const suffix = "disabled-skills";
-      const threadId = ThreadId.make(`thread-opencode-${suffix}`);
-      McpProviderSession.setMcpProviderSession({
-        environmentId: EnvironmentId.make("environment:opencode-test"),
-        threadId,
-        providerSessionId: "mcp:disabled-skills",
-        providerInstanceId: ProviderInstanceId.make(`opencode-${suffix}`),
-        endpoint: "http://127.0.0.1/mcp",
-        authorizationHeader: "Bearer test",
-        browserToolsAvailable: false,
-        tools: { disabledSkills: ["deploy"], fingerprint: "disabled-deploy" },
-      });
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-      );
-      const writes: Array<{
-        sessionID: string;
-        permission: ReturnType<typeof openCodePermissionRules>;
-      }> = [];
-      const native = (id: string) => ({ id, time: { created: 1, updated: 1 } });
-      const nativeEvents = asyncEventStream();
-      const harness = yield* makeOpenCodeRuntimeHarness(suffix, "root", {
-        event: { subscribe: async () => ({ stream: nativeEvents.stream }) },
-        session: {
-          create: async (input: { permission: ReturnType<typeof openCodePermissionRules> }) => {
-            writes.push({ sessionID: "root", permission: input.permission });
-            return { data: native("root") };
-          },
-          get: async ({ sessionID }: { sessionID: string }) => ({ data: native(sessionID) }),
-          update: async (input: (typeof writes)[number]) => {
-            writes.push(input);
-            return { data: native(input.sessionID) };
-          },
-          messages: async ({ sessionID }: { sessionID: string }) => ({
-            data: sessionID === "root" ? [{ info: { id: "first", role: "user" }, parts: [] }] : [],
-          }),
-          fork: async () => ({ data: native("fork") }),
-          abort: async () => ({ data: true }),
-          children: async () => ({ data: [] }),
-        },
-      });
-      yield* harness.runtime.resumeThread({ providerThread: harness.providerThread });
-      const rolledBack = yield* harness.runtime.rollbackThread({
-        providerThread: harness.providerThread,
-        target: {
-          type: "thread_start",
-          checkpointId: CheckpointId.make("checkpoint:start"),
-          appRunOrdinal: 0,
-        },
-        providerThreadTurns: [],
-      });
-      assert.equal(rolledBack.providerThread.nativeThreadRef?.nativeId, "fork");
-      assert.deepEqual(
-        writes.map((write) => write.sessionID),
-        ["root", "root", "fork"],
-      );
-      for (const { permission } of writes) {
-        assert.deepEqual(permission.at(-1), {
-          permission: "skill",
-          pattern: "deploy",
-          action: "deny",
-        });
-      }
-    }).pipe(Effect.provide(IdAllocator.layer), Effect.scoped),
-  );
-
   it.effect.each(["completed", "failed", "unresolved", "unavailable", "reconnect"] as const)(
     "normalizes OpenCode step usage for %s turns",
     (ending) =>
@@ -2721,15 +2651,6 @@ describe("OpenCodeAdapterV2", () => {
     ]);
     assert.equal(permissionAction(childApprovalRules, "bash"), "ask");
     assert.equal(permissionAction(childApprovalRules, "task"), "deny");
-  });
-
-  it("keeps disabled skills denied after a native child agent's own allows", () => {
-    const rules = openCodeChildPermissionRules(
-      runtimePolicy("full-access"),
-      [{ permission: "*", pattern: "*", action: "allow" }],
-      ["deploy"],
-    );
-    assert.deepEqual(rules.slice(-1), [{ permission: "skill", pattern: "deploy", action: "deny" }]);
   });
 
   it("uses the next native user message as the exclusive fork and revert boundary", () => {

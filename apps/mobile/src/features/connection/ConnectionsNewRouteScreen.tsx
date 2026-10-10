@@ -232,12 +232,12 @@ export function ConnectionsNewRouteScreen({
           />
 
           <View collapsable={false} className="gap-2">
-            <Text className="px-1 text-xs font-t3-medium text-foreground-muted">Or enter it</Text>
+            <Text className="px-4 text-sm font-t3-medium text-foreground-muted">Or enter it</Text>
             <View
               collapsable={false}
               className={cn(
-                "overflow-hidden rounded-xl border bg-grouped-card",
-                pairingConnectionError ? "border-danger-foreground" : "border-border",
+                "overflow-hidden rounded-[26px] border-continuous border bg-grouped-card",
+                pairingConnectionError ? "border-danger-foreground" : "border-transparent",
               )}
             >
               <PairingInputRow
@@ -300,7 +300,10 @@ function PairingScanCard(props: {
       accessibilityLabel={props.cameraActive ? undefined : "Scan QR code"}
       disabled={props.cameraActive}
       onPress={props.onScanPress}
-      className={cn("overflow-hidden rounded-xl", light ? "bg-white" : "bg-black")}
+      className={cn(
+        "overflow-hidden rounded-[26px] border-continuous",
+        light ? "bg-white" : "bg-black",
+      )}
       style={{ height: SCAN_CARD_HEIGHT }}
     >
       <Svg accessibilityElementsHidden height="100%" style={StyleSheet.absoluteFill} width="100%">
@@ -389,7 +392,7 @@ function T3ConnectSection() {
 
   return (
     <View collapsable={false} className="gap-2">
-      <Text className="px-1 text-xs font-t3-medium text-foreground-muted">
+      <Text className="px-4 text-sm font-t3-medium text-foreground-muted">
         Or use the managed relay
       </Text>
       {isSignedIn ? (
@@ -404,7 +407,7 @@ function T3ConnectSection() {
           accessibilityRole="button"
           disabled={!isLoaded}
           onPress={() => navigation.navigate("SettingsSheet", { screen: "SettingsAuth" })}
-          className="min-h-13 flex-row items-center gap-3 rounded-xl border border-border bg-grouped-card px-4 active:opacity-70"
+          className="min-h-13 flex-row items-center gap-3 rounded-[26px] border-continuous bg-grouped-card px-4 active:opacity-70"
         >
           <View className="min-w-0 flex-1 py-3">
             <Text className="text-base text-foreground">Sign in to T3 Connect</Text>

@@ -24,18 +24,18 @@ export function MaterialButton(props: MaterialButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled, busy: Boolean(props.loading) }}
+      accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={props.onPress}
       className={cn(
-        "min-h-12 justify-center rounded-lg px-4 active:opacity-70",
+        "min-h-12 justify-center rounded-full px-6 active:opacity-70",
         props.fullWidth ? "w-full" : "self-start",
         disabled ? "bg-subtle-strong" : containerClassName,
       )}
     >
       <AppText
         className={cn(
-          "text-center text-sm font-t3-medium",
+          "text-center font-t3-medium",
           disabled ? "text-foreground-muted" : labelClassName,
         )}
       >

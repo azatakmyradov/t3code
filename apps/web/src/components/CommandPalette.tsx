@@ -2358,7 +2358,6 @@ function OpenCommandPaletteDialog(props: {
     run: async () => {
       await navigate({
         to: item.to,
-        search: {},
         hash: item.targetId ?? item.id,
         replace: pathname === item.to,
         hashScrollIntoView: false,

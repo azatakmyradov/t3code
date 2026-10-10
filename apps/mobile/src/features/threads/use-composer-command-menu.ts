@@ -3,7 +3,6 @@ import type {
   ProjectId,
   ProviderInteractionMode,
   ServerProvider,
-  ServerSettings,
   ThreadId,
 } from "@t3tools/contracts";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
@@ -44,7 +43,6 @@ import {
   hasCurrentProviderWorkspaceSnapshot,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
-  resolveDisabledProviderSkillNames,
 } from "@t3tools/client-runtime/providerSkills";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -179,8 +177,6 @@ export function useComposerCommandMenu({
   threadShells = EMPTY_THREAD_SHELLS,
   currentThreadId = null,
   projectCwd,
-  skillsProjectId = null,
-  serverSettings,
   pullRequestProjectId = null,
   pullRequestRepository = null,
   selectedProviderStatus,
@@ -200,8 +196,6 @@ export function useComposerCommandMenu({
   /** Left out of `@` thread suggestions: a thread is never context for itself. */
   readonly currentThreadId?: ThreadId | null;
   readonly projectCwd: string | null;
-  readonly skillsProjectId?: ProjectId | null;
-  readonly serverSettings?: ServerSettings | undefined;
   readonly pullRequestProjectId?: ProjectId | null;
   readonly pullRequestRepository?: string | null;
   readonly selectedProviderStatus: ServerProvider | null;
@@ -247,16 +241,10 @@ export function useComposerCommandMenu({
     setSelection(composerSelectionAtEnd(draftMessage));
   }, [draftMessage, ownerKey]);
 
-  const disabledSkillNames = useMemo(
-    () => resolveDisabledProviderSkillNames(serverSettings, skillsProjectId),
-    [serverSettings, skillsProjectId],
-  );
   const skills = useMemo(
     () =>
-      selectedProviderStatus
-        ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd, disabledSkillNames)
-        : [],
-    [disabledSkillNames, projectCwd, selectedProviderStatus],
+      selectedProviderStatus ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd) : [],
+    [projectCwd, selectedProviderStatus],
   );
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -407,11 +395,7 @@ export function useComposerCommandMenu({
           ? {
               ...selectedProviderStatus,
               slashCommands: getProviderSlashCommandsForSlashMenu(
-                resolveProviderSlashCommandsForCwd(
-                  selectedProviderStatus,
-                  projectCwd,
-                  disabledSkillNames,
-                ),
+                resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
                 visibleSkills,
               ),
             }
@@ -542,7 +526,6 @@ export function useComposerCommandMenu({
     return [];
   }, [
     currentThreadId,
-    disabledSkillNames,
     environmentId,
     threadShells,
     hasThread,

@@ -55,10 +55,10 @@ export function ControlPill(props: {
     variant === "circle" || variant === "danger" || (variant === "primary" && !props.label);
   const containerClassName = cn(
     isCircle
-      ? "h-11 w-11 items-center justify-center rounded-lg"
+      ? "h-11 w-11 items-center justify-center rounded-full"
       : variant === "primary"
-        ? "min-h-11 flex-row items-center justify-center gap-2 rounded-lg px-4 py-2"
-        : "min-h-11 flex-row items-center justify-center gap-2 rounded-lg border border-border px-3 py-2",
+        ? "h-11 flex-row items-center justify-center gap-2 rounded-full px-5"
+        : "h-11 flex-row items-center justify-center gap-2 rounded-full px-3.5",
     variant === "primary"
       ? props.disabled
         ? "bg-subtle-strong"
@@ -69,7 +69,7 @@ export function ControlPill(props: {
     props.className,
   );
   const labelClassName = cn(
-    "text-center text-sm font-t3-medium",
+    "text-center text-xs font-t3-bold",
     variant === "primary"
       ? props.disabled
         ? "text-foreground-muted"
@@ -124,7 +124,6 @@ export function ControlPill(props: {
     <Pressable
       accessibilityLabel={props.accessibilityLabel ?? props.label}
       accessibilityRole="button"
-      accessibilityState={{ disabled: Boolean(props.disabled) }}
       onPress={props.activateOnPressIn ? handlePress : props.onPress}
       onPressIn={props.activateOnPressIn ? handlePressIn : undefined}
       onPressOut={props.activateOnPressIn ? handlePressOut : undefined}

@@ -6,7 +6,7 @@
       --color-sheet: rgba(252, 252, 252, 0.98);
       --color-sheet-solid: #fcfcfc;
       --color-card: #ffffff;
-      --color-grouped-card: #ffffff;
+      --color-grouped-card: #f4f4f5;
       --color-card-alt: #fcfcfc;
       --color-card-translucent: rgba(255, 255, 255, 0.8);
       --color-thread-canvas: #fcfcfc;
@@ -16,11 +16,11 @@
       --color-thread-hover: #fcfcfc;
       --color-row-hover: #f4f4f5;
       --color-composer-panel: rgba(252, 252, 252, 0.88);
-      --color-composer-surface: rgba(255, 255, 255, 0.94);
-      --color-composer-border: #e4e4e7;
+      --color-composer-surface: rgba(244, 244, 245, 0.94);
+      --color-composer-border: rgba(228, 228, 231, 0.8);
       --color-foreground: #27272a;
-      --color-foreground-secondary: #71717b;
-      --color-foreground-muted: #71717b;
+      --color-foreground-secondary: #6f6f79;
+      --color-foreground-muted: #6f6f79;
       --color-foreground-tertiary: #71717b;
       --color-border: #e4e4e7;
       --color-focus: #1b4ed8;
@@ -53,7 +53,7 @@
       --color-input: #ffffff;
       --color-input-border: #d4d4d8;
       --color-sidebar-search: #f4f4f5;
-      --color-placeholder: #71717b;
+      --color-placeholder: #6f6f79;
       --color-icon: #27272a;
       --color-icon-muted: #71717b;
       --color-icon-subtle: #71717b;
@@ -61,7 +61,7 @@
       --color-header-foreground: #27272a;
       --color-header-border: #e4e4e7;
       --color-glass-surface: rgba(255, 255, 255, 0.74);
-      --color-glass-fallback: rgba(255, 255, 255, 0.94);
+      --color-glass-fallback: rgba(244, 244, 245, 0.94);
       --color-glass-tint: rgba(255, 255, 255, 0.22);
       --color-status-bar: #fcfcfc;
       --color-md-body: #27272a;
@@ -76,7 +76,7 @@
       --color-md-user-fence-bg: rgba(0, 0, 0, 0.16);
       --color-md-user-fence-text: #27272a;
       --color-md-hr: #e4e4e7;
-      --color-user-bubble: #f4f4f5;
+      --color-user-bubble: #efeff1;
       --color-user-bubble-foreground: #27272a;
       --color-user-bubble-foreground-muted: rgba(39, 39, 42, 0.78);
       --color-user-bubble-skill-foreground: #1b4ed8;
@@ -165,7 +165,7 @@
       --color-sheet: rgba(10, 10, 10, 0.98);
       --color-sheet-solid: #0a0a0a;
       --color-card: #111111;
-      --color-grouped-card: #111111;
+      --color-grouped-card: #1a1b1b;
       --color-card-alt: #111111;
       --color-card-translucent: rgba(17, 17, 17, 0.8);
       --color-thread-canvas: #0a0a0a;
@@ -175,11 +175,11 @@
       --color-thread-hover: #131313;
       --color-row-hover: #141414;
       --color-composer-panel: rgba(10, 10, 10, 0.92);
-      --color-composer-surface: rgba(17, 17, 17, 0.9);
-      --color-composer-border: #191919;
+      --color-composer-surface: rgba(26, 27, 27, 0.9);
+      --color-composer-border: rgba(25, 25, 25, 0.8);
       --color-foreground: #f5f5f5;
-      --color-foreground-secondary: #818181;
-      --color-foreground-muted: #818181;
+      --color-foreground-secondary: #838383;
+      --color-foreground-muted: #838383;
       --color-foreground-tertiary: #818181;
       --color-border: #191919;
       --color-focus: #346bf1;
@@ -192,7 +192,7 @@
       --color-inline-skill-foreground: #f5f5f5;
       --color-primary: #346bf1;
       --color-primary-foreground: #ffffff;
-      --color-primary-text: #4174f2;
+      --color-primary-text: #4b7cf3;
       --color-primary-shadow: #000000;
       --color-secondary: #111111;
       --color-secondary-foreground: #f5f5f5;
@@ -212,7 +212,7 @@
       --color-input: #111111;
       --color-input-border: #1e1e1e;
       --color-sidebar-search: #0a0a0a;
-      --color-placeholder: #818181;
+      --color-placeholder: #838383;
       --color-icon: #f5f5f5;
       --color-icon-muted: #818181;
       --color-icon-subtle: #818181;
@@ -220,7 +220,7 @@
       --color-header-foreground: #f5f5f5;
       --color-header-border: #191919;
       --color-glass-surface: rgba(17, 17, 17, 0.74);
-      --color-glass-fallback: rgba(17, 17, 17, 0.9);
+      --color-glass-fallback: rgba(26, 27, 27, 0.9);
       --color-glass-tint: rgba(17, 17, 17, 0.22);
       --color-status-bar: #0a0a0a;
       --color-md-body: #f5f5f5;
@@ -235,10 +235,10 @@
       --color-md-user-fence-bg: rgba(0, 0, 0, 0.28);
       --color-md-user-fence-text: #f5f5f5;
       --color-md-hr: #191919;
-      --color-user-bubble: #141414;
+      --color-user-bubble: #161616;
       --color-user-bubble-foreground: #f5f5f5;
       --color-user-bubble-foreground-muted: rgba(245, 245, 245, 0.78);
-      --color-user-bubble-skill-foreground: #4477f2;
+      --color-user-bubble-skill-foreground: #4678f2;
       --color-backdrop: rgba(0, 0, 0, 0.48);
       --color-drawer: #000000;
       --color-drawer-foreground: #f1f3f7;
@@ -335,7 +335,7 @@
       --color-row-hover: #eccfe3;
       --color-composer-panel: rgba(253, 247, 253, 0.88);
       --color-composer-surface: rgba(250, 243, 251, 0.94);
-      --color-composer-border: #eee1ed;
+      --color-composer-border: rgba(238, 225, 237, 0.54);
       --color-foreground: #501854;
       --color-foreground-secondary: #ac1668;
       --color-foreground-muted: #8d1255;
@@ -494,7 +494,7 @@
       --color-row-hover: #463753;
       --color-composer-panel: rgba(31, 26, 36, 0.92);
       --color-composer-surface: rgba(41, 35, 45, 0.9);
-      --color-composer-border: #27242c;
+      --color-composer-border: rgba(39, 36, 44, 0.46);
       --color-foreground: #f9f8fb;
       --color-foreground-secondary: #e7d0dd;
       --color-foreground-muted: #e7d0dd;
@@ -653,7 +653,7 @@
       --color-row-hover: #d5e6dd;
       --color-composer-panel: rgba(243, 247, 244, 0.88);
       --color-composer-surface: rgba(243, 247, 244, 0.94);
-      --color-composer-border: #cbd5d1;
+      --color-composer-border: rgba(203, 213, 209, 0.54);
       --color-foreground: #241523;
       --color-foreground-secondary: #726a71;
       --color-foreground-muted: #6e696f;
@@ -812,7 +812,7 @@
       --color-row-hover: #325c46;
       --color-composer-panel: rgba(27, 40, 33, 0.92);
       --color-composer-surface: rgba(27, 40, 33, 0.9);
-      --color-composer-border: #415f4f;
+      --color-composer-border: rgba(65, 95, 79, 0.46);
       --color-foreground: #fffaff;
       --color-foreground-secondary: #a6aaaa;
       --color-foreground-muted: #a3aba8;
@@ -971,7 +971,7 @@
       --color-row-hover: #d8e4ee;
       --color-composer-panel: rgba(245, 247, 248, 0.88);
       --color-composer-surface: rgba(245, 247, 248, 0.94);
-      --color-composer-border: #cdd4dc;
+      --color-composer-border: rgba(205, 212, 220, 0.54);
       --color-foreground: #241523;
       --color-foreground-secondary: #726a73;
       --color-foreground-muted: #6f6873;
@@ -1130,7 +1130,7 @@
       --color-row-hover: #324e66;
       --color-composer-panel: rgba(23, 33, 43, 0.92);
       --color-composer-surface: rgba(23, 33, 43, 0.9);
-      --color-composer-border: #405567;
+      --color-composer-border: rgba(64, 85, 103, 0.46);
       --color-foreground: #fffaff;
       --color-foreground-secondary: #a2a3aa;
       --color-foreground-muted: #9ea4ad;
@@ -1289,7 +1289,7 @@
       --color-row-hover: #eee0d9;
       --color-composer-panel: rgba(249, 247, 245, 0.88);
       --color-composer-surface: rgba(249, 247, 245, 0.94);
-      --color-composer-border: #ddd2ce;
+      --color-composer-border: rgba(221, 210, 206, 0.54);
       --color-foreground: #241523;
       --color-foreground-secondary: #746a72;
       --color-foreground-muted: #74686f;
@@ -1448,7 +1448,7 @@
       --color-row-hover: #644330;
       --color-composer-panel: rgba(41, 30, 26, 0.92);
       --color-composer-surface: rgba(41, 30, 26, 0.9);
-      --color-composer-border: #664c3f;
+      --color-composer-border: rgba(102, 76, 63, 0.46);
       --color-foreground: #fffaff;
       --color-foreground-secondary: #a8a2a2;
       --color-foreground-muted: #aca19f;
@@ -1607,7 +1607,7 @@
       --color-row-hover: #e5e0f0;
       --color-composer-panel: rgba(248, 247, 249, 0.88);
       --color-composer-surface: rgba(248, 247, 249, 0.94);
-      --color-composer-border: #d6d1de;
+      --color-composer-border: rgba(214, 209, 222, 0.54);
       --color-foreground: #241523;
       --color-foreground-secondary: #746a74;
       --color-foreground-muted: #726874;
@@ -1766,7 +1766,7 @@
       --color-row-hover: #433765;
       --color-composer-panel: rgba(29, 25, 41, 0.92);
       --color-composer-surface: rgba(29, 25, 41, 0.9);
-      --color-composer-border: #4d4366;
+      --color-composer-border: rgba(77, 67, 102, 0.46);
       --color-foreground: #fffaff;
       --color-foreground-secondary: #a09da6;
       --color-foreground-muted: #a19cab;

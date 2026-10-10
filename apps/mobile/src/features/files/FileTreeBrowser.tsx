@@ -66,7 +66,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
         props.onPressFile(node.path);
       }}
       className={cn(
-        "mx-2 min-h-11 flex-row items-center gap-2 rounded-lg px-2 active:bg-subtle",
+        "mx-2 min-h-[42px] flex-row items-center gap-2 rounded-[12px] px-2 active:bg-subtle",
         props.selected && "bg-subtle-strong",
       )}
       style={{ paddingLeft: 8 + depth * 18 }}
@@ -290,7 +290,7 @@ export function FileTreeBrowser(props: {
                 accessibilityRole="button"
                 onPress={props.onRefresh}
                 disabled={props.isPending}
-                className="mt-3 min-h-11 self-start justify-center rounded-lg bg-subtle px-4 active:opacity-70 disabled:opacity-50"
+                className="mt-3 min-h-11 self-start justify-center rounded-full bg-subtle px-4 active:opacity-70 disabled:opacity-50"
               >
                 <Text className="text-sm font-t3-medium text-foreground">Try again</Text>
               </Pressable>

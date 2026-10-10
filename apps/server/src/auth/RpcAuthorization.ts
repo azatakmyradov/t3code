@@ -229,11 +229,8 @@ const SettingsUpdate = Schema.Struct({
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
 });
 
-const decodeSettingsUpdate = Schema.decodeUnknownSync(SettingsUpdate);
-const decodeAssetCreateUrlInput = Schema.decodeUnknownSync(AssetCreateUrlInput);
-
 const requiredScopesForSettingsUpdate = (payload: unknown) => {
-  const input = decodeSettingsUpdate(payload);
+  const input = Schema.decodeUnknownSync(SettingsUpdate)(payload);
   const scopes = requiredScopesForServerSettingsPatch(input.patch);
   if (input.providerInstanceMutation === undefined) return scopes;
   // An atomic provider mutation carries an empty patch unless it also changes settings.
@@ -250,7 +247,7 @@ const requiredScopesForRpcCall = (
     return [AuthEnvironmentMaintainScope, AuthDiagnosticsReadScope];
   }
   if (method === WS_METHODS.assetsCreateUrl) {
-    const { resource } = decodeAssetCreateUrlInput(payload);
+    const { resource } = Schema.decodeUnknownSync(AssetCreateUrlInput)(payload);
     return [
       resource._tag === "workspace-file" ||
       resource._tag === "media-file" ||

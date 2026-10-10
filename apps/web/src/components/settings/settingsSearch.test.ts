@@ -284,14 +284,6 @@ describe("searchSettings", () => {
     expect(searchSettings("sidebar.toggle")[0]?.targetId).toBeUndefined();
   });
 
-  it("opens Skills settings without advertising removed MCP configuration", () => {
-    expect(searchSettings("Skills")[0]).toMatchObject({
-      to: "/settings/tools",
-      id: "tools-skills",
-    });
-    expect(searchSettings("MCP servers")).toEqual([]);
-  });
-
   it("keeps catalog result ids unique", () => {
     const ids = SETTINGS_SEARCH_ITEMS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);

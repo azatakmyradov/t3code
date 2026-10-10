@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Platform, View } from "react-native";
 
-/** Keeps Android sheets and pages on the shared canvas beneath their header. */
+/** Keeps the header surface visible behind rounded Android content corners. */
 export function MaterialScreenContent({
   children,
   insetHorizontal = false,
@@ -18,7 +18,7 @@ export function MaterialScreenContent({
   return (
     <View className={fitToContents ? "shrink bg-header" : "flex-1 bg-header"}>
       <View
-        className="overflow-hidden bg-sheet-solid"
+        className="overflow-hidden rounded-t-[28px] bg-sheet-solid"
         style={{
           flexShrink: 1,
           flexGrow: fitToContents ? 0 : 1,

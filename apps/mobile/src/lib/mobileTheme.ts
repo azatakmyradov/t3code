@@ -235,16 +235,20 @@ export function themeColorWithAlpha(color: string, alpha: number): string {
   return rgb ? `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})` : color;
 }
 
-export function createMobileThemeVariables(colors: ThemeColors, appearance: MobileThemeAppearance) {
+export function createMobileThemeVariables(
+  colors: ThemeColors,
+  appearance: MobileThemeAppearance,
+  groupedCardColor = colors.surface,
+) {
   const c = nativeColors(colors);
-  const textSurfaces = [c.canvas, c.surface, c.surfaceRaised, c.chrome];
+  const groupedCard = themeColorToNativeColor(groupedCardColor);
+  const textSurfaces = [c.canvas, c.surface, c.surfaceRaised, c.chrome, groupedCard];
   return {
     "--color-screen": c.canvas,
     "--color-sheet": withAlpha(c.chrome, 0.98),
     "--color-sheet-solid": c.chrome,
     "--color-card": c.surface,
-    // Grouped sections are outlined like desktop cards, so they share its fill.
-    "--color-grouped-card": c.surface,
+    "--color-grouped-card": groupedCard,
     "--color-card-alt": c.surfaceRaised,
     "--color-card-translucent": withAlpha(c.surface, 0.8),
     "--color-thread-canvas": c.canvas,
@@ -257,8 +261,14 @@ export function createMobileThemeVariables(colors: ThemeColors, appearance: Mobi
     "--color-thread-hover": c.sidebarRowHover,
     "--color-row-hover": c.toolbarControlHover,
     "--color-composer-panel": themeColorWithAlpha(c.canvas, appearance === "dark" ? 0.92 : 0.88),
-    "--color-composer-surface": themeColorWithAlpha(c.surface, appearance === "dark" ? 0.9 : 0.94),
-    "--color-composer-border": c.border,
+    "--color-composer-surface": themeColorWithAlpha(
+      groupedCard,
+      appearance === "dark" ? 0.9 : 0.94,
+    ),
+    "--color-composer-border": themeColorWithAlpha(
+      c.border,
+      groupedCard === c.surface ? (appearance === "dark" ? 0.46 : 0.54) : 0.8,
+    ),
     "--color-foreground": c.text,
     "--color-foreground-secondary": readableTextColor(c.textMuted, textSurfaces),
     "--color-foreground-muted": readableTextColor(c.mutedForeground, textSurfaces),
@@ -302,7 +312,7 @@ export function createMobileThemeVariables(colors: ThemeColors, appearance: Mobi
     "--color-header-foreground": c.toolbarForeground,
     "--color-header-border": c.toolbarBorder,
     "--color-glass-surface": withAlpha(c.surfaceOverlay, 0.74),
-    "--color-glass-fallback": themeColorWithAlpha(c.surface, appearance === "dark" ? 0.9 : 0.94),
+    "--color-glass-fallback": themeColorWithAlpha(groupedCard, appearance === "dark" ? 0.9 : 0.94),
     "--color-glass-tint": withAlpha(c.surfaceOverlay, 0.22),
     "--color-status-bar": c.canvas,
     "--color-md-body": c.text,
@@ -356,10 +366,29 @@ export function getMobileThemeVariables(
   appearance: MobileThemeAppearance,
   overrides: Partial<MobileThemeVariables> | null = null,
 ): MobileThemeVariables {
-  const baseVariables = createMobileThemeVariables(
-    getMobileThemeColors(themeId, appearance),
-    appearance,
-  );
+  const colors = getMobileThemeColors(themeId, appearance);
+  // Mobile settings groups and fallback materials use tonal fills where desktop
+  // uses outlined cards. Regular cards retain their shared desktop surface.
+  const groupedCard =
+    themeId === DEFAULT_MOBILE_THEME_ID
+      ? appearance === "light"
+        ? colors.toolbarControlHover
+        : colors.sidebarRowActive
+      : colors.surface;
+  const mobileColors =
+    themeId === DEFAULT_MOBILE_THEME_ID
+      ? {
+          ...colors,
+          messageSurface: flattenThemeColor(
+            themeColorWithAlpha(
+              appearance === "dark" ? colors.sidebarRowActive : colors.border,
+              0.3,
+            ),
+            colors.messageSurface,
+          ),
+        }
+      : colors;
+  const baseVariables = createMobileThemeVariables(mobileColors, appearance, groupedCard);
 
   // The complete base record guarantees that optional overrides cannot leave a token undefined.
   return overrides ? ({ ...baseVariables, ...overrides } as MobileThemeVariables) : baseVariables;

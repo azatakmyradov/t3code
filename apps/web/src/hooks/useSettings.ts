@@ -533,7 +533,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
             const session = appAtomRegistry.get(environmentSession.sessionStateAtom(targetId));
             if (
               session._tag !== "Initial" &&
-              !requiredScopesForServerSettingsPatch(targetPatch).every((scope) =>
+              !requiredScopesForServerSettingsPatch(sharedPatch).every((scope) =>
                 readEnvironmentScope(targetId, scope),
               )
             ) {

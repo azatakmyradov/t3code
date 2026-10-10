@@ -1,6 +1,4 @@
 import {
-  type DisabledSkills,
-  type DisabledSkillsProjectOverride,
   type ModelSelection,
   PROJECT_FILE_BACKED_SETTINGS,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
@@ -174,15 +172,6 @@ function resolveProjectOverrides(
     // A forward-compatible decode leaves an unknown value as a present
     // undefined; that is not an override.
     if (value === undefined) continue;
-    // Project switches override individual skills without replacing the environment list.
-    if (key === "disabledSkills") {
-      effective[key] = mergeProjectDisabledSkills(
-        settings.disabledSkills,
-        overrides.disabledSkills,
-      );
-      sources[key] = "project";
-      continue;
-    }
     // A model on a disabled provider falls back to the environment, like the
     // environment-level guards do for these keys.
     if (
@@ -197,20 +186,6 @@ function resolveProjectOverrides(
     sources[key] = "project";
   }
   return { settings: effective as ServerSettings, sources, overrides };
-}
-
-/** The environment's disabled skills with a project's per-name switches applied. */
-export function mergeProjectDisabledSkills(
-  environment: DisabledSkills,
-  project: DisabledSkillsProjectOverride | undefined,
-): DisabledSkills {
-  if (project === undefined) return environment;
-  const disabled = new Set(environment);
-  for (const [name, off] of Object.entries(project)) {
-    if (off) disabled.add(name);
-    else disabled.delete(name);
-  }
-  return [...disabled].sort();
 }
 
 /** Replace the project's entry, dropping it entirely when nothing is overridden. */

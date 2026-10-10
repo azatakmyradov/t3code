@@ -24,10 +24,9 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
-import { McpServerStdio } from "effect-acp/schema";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
-import { resolveSpawnCommand, SpawnExecutableResolution } from "@t3tools/shared/shell";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { signalProcessGroup } from "../../process/processGroup.ts";
@@ -51,7 +50,6 @@ import {
 } from "./AcpRuntimeModel.ts";
 
 const MAX_SHOWN_TOOL_CALL_IDS = 256;
-const isAcpStdioMcpServer = Schema.is(McpServerStdio);
 
 interface AcpToolCallTrackedState {
   readonly state: AcpToolCallState;
@@ -2211,76 +2209,19 @@ export const make = (
       return yield* effect;
     });
 
-    const mcpCommandPlatform = yield* HostProcessPlatform;
-    const resolveMcpExecutable = yield* SpawnExecutableResolution;
-    const mcpPath = mcpCommandPlatform === "win32" ? NodePath.win32 : NodePath.posix;
-    const agentEnvironment = {
-      ...(options.spawn.extendEnv === false ? {} : process.env),
-      ...spawnEnvironment,
-    };
-    const agentCwd = options.spawn.cwd ?? process.cwd();
-    const sessionMcpServers = Effect.fnUntraced(function* (
+    const sessionMcpServers = (
       initializeResult: EffectAcpSchema.InitializeResponse,
       activationOptions?: AcpSessionActivationOptions,
-    ) {
-      const capabilities = initializeResult.agentCapabilities?.mcpCapabilities;
+    ): ReadonlyArray<EffectAcpSchema.McpServer> => {
       const acpServers = activationOptions?.acpMcpServers ?? options.acpMcpServers ?? [];
-      const selected =
-        capabilities?.acp === true && acpServers.length > 0
-          ? acpServers
-          : (activationOptions?.mcpServers ?? options.mcpServers ?? []);
-      // Stdio is the only transport every agent must accept; an agent that
-      // does not advertise http rejects the whole session over one entry.
-      const supported =
-        capabilities?.http === true
-          ? selected
-          : selected.filter((server) => !("type" in server) || server.type !== "http");
-      return yield* Effect.forEach(supported, (server) =>
-        Effect.gen(function* () {
-          // Extension transports can also contain a field named command.
-          if (
-            ("type" in server && server.type !== "stdio") ||
-            !isAcpStdioMcpServer(server) ||
-            mcpPath.isAbsolute(server.command)
-          )
-            return server;
-          // ACP requires absolute executable paths. Resolve with the same PATH
-          // and working directory the agent inherits, including server overrides.
-          const environment = {
-            ...agentEnvironment,
-            ...Object.fromEntries((server.env ?? []).map(({ name, value }) => [name, value])),
-          };
-          const pathValue =
-            environment.PATH ??
-            environment.Path ??
-            environment.path ??
-            (mcpCommandPlatform === "win32" ? "" : "/usr/bin:/bin");
-          const searchEnvironment = {
-            ...environment,
-            PATH: pathValue
-              .split(mcpPath.delimiter)
-              .map((entry) => mcpPath.resolve(agentCwd, entry.replace(/^"(.*)"$/, "$1")))
-              .join(mcpPath.delimiter),
-          };
-          const command = yield* Effect.sync(() =>
-            resolveMcpExecutable(
-              server.command.includes("/") || server.command.includes("\\")
-                ? mcpPath.resolve(options.cwd, server.command)
-                : server.command,
-              mcpCommandPlatform,
-              searchEnvironment,
-            ),
-          );
-          if (command === undefined) {
-            return yield* new EffectAcpErrors.AcpSpawnError({
-              command: server.command,
-              cause: new Error("ACP MCP server command was not found on PATH"),
-            });
-          }
-          return { ...server, command };
-        }),
-      );
-    });
+      if (
+        initializeResult.agentCapabilities?.mcpCapabilities?.acp === true &&
+        acpServers.length > 0
+      ) {
+        return acpServers;
+      }
+      return activationOptions?.mcpServers ?? options.mcpServers ?? [];
+    };
 
     const startOnce = Effect.gen(function* () {
       const initializeResult = yield* initialize;
@@ -2349,7 +2290,7 @@ export const make = (
               sessionId,
               cwd: options.cwd,
               ...additionalDirectories,
-              mcpServers: yield* sessionMcpServers(initializeResult),
+              mcpServers: sessionMcpServers(initializeResult),
             } satisfies EffectAcpSchema.LoadSessionRequest;
             sessionSetupResult = yield* runLoadSessionWithReplayIdle(loadPayload, initializeResult);
           } else if (initializeResult.agentCapabilities?.sessionCapabilities?.resume != null) {
@@ -2357,7 +2298,7 @@ export const make = (
               sessionId,
               cwd: options.cwd,
               ...additionalDirectories,
-              mcpServers: yield* sessionMcpServers(initializeResult),
+              mcpServers: sessionMcpServers(initializeResult),
             } satisfies EffectAcpSchema.ResumeSessionRequest;
             sessionSetupResult = yield* runLoggedRequest(
               "session/resume",
@@ -2373,7 +2314,7 @@ export const make = (
         } else {
           const createPayload = {
             cwd: options.cwd,
-            mcpServers: yield* sessionMcpServers(initializeResult),
+            mcpServers: sessionMcpServers(initializeResult),
             ...additionalDirectories,
           } satisfies EffectAcpSchema.NewSessionRequest;
           const created = yield* runLoggedRequest(
@@ -2581,52 +2522,46 @@ export const make = (
       getConfigOptions: Ref.get(configOptionsRef),
       loadSession: (sessionId, activationOptions) =>
         start.pipe(
-          Effect.flatMap(
-            Effect.fnUntraced(function* (started) {
-              const requestPayload = {
-                sessionId,
-                cwd: options.cwd,
-                mcpServers: yield* sessionMcpServers(started.initializeResult, activationOptions),
-              } satisfies EffectAcpSchema.LoadSessionRequest;
-              return yield* runLoadSessionWithReplayIdle(requestPayload, started.initializeResult);
-            }),
-          ),
+          Effect.flatMap((started) => {
+            const requestPayload = {
+              sessionId,
+              cwd: options.cwd,
+              mcpServers: sessionMcpServers(started.initializeResult, activationOptions),
+            } satisfies EffectAcpSchema.LoadSessionRequest;
+            return runLoadSessionWithReplayIdle(requestPayload, started.initializeResult);
+          }),
           Effect.flatMap((response) => adoptSession(sessionId, response)),
         ),
       resumeSession: (sessionId, activationOptions) =>
         start.pipe(
-          Effect.flatMap(
-            Effect.fnUntraced(function* (started) {
-              const requestPayload = {
-                sessionId,
-                cwd: options.cwd,
-                mcpServers: yield* sessionMcpServers(started.initializeResult, activationOptions),
-              } satisfies EffectAcpSchema.ResumeSessionRequest;
-              return yield* runLoggedRequest(
-                "session/resume",
-                requestPayload,
-                acp.agent.resumeSession(requestPayload),
-              );
-            }),
-          ),
+          Effect.flatMap((started) => {
+            const requestPayload = {
+              sessionId,
+              cwd: options.cwd,
+              mcpServers: sessionMcpServers(started.initializeResult, activationOptions),
+            } satisfies EffectAcpSchema.ResumeSessionRequest;
+            return runLoggedRequest(
+              "session/resume",
+              requestPayload,
+              acp.agent.resumeSession(requestPayload),
+            );
+          }),
           Effect.flatMap((response) => adoptSession(sessionId, response)),
         ),
       forkSession: (sessionId, activationOptions) =>
         start.pipe(
-          Effect.flatMap(
-            Effect.fnUntraced(function* (started) {
-              const requestPayload = {
-                sessionId,
-                cwd: options.cwd,
-                mcpServers: yield* sessionMcpServers(started.initializeResult, activationOptions),
-              } satisfies EffectAcpSchema.ForkSessionRequest;
-              return yield* runLoggedRequest(
-                "session/fork",
-                requestPayload,
-                acp.agent.forkSession(requestPayload),
-              );
-            }),
-          ),
+          Effect.flatMap((started) => {
+            const requestPayload = {
+              sessionId,
+              cwd: options.cwd,
+              mcpServers: sessionMcpServers(started.initializeResult, activationOptions),
+            } satisfies EffectAcpSchema.ForkSessionRequest;
+            return runLoggedRequest(
+              "session/fork",
+              requestPayload,
+              acp.agent.forkSession(requestPayload),
+            );
+          }),
           Effect.flatMap((response) => adoptSession(response.sessionId, response)),
         ),
       listSessions: (cursor) => {

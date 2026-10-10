@@ -942,12 +942,11 @@ export const ServerSelfUpdateInput = Schema.Struct({
 });
 export type ServerSelfUpdateInput = typeof ServerSelfUpdateInput.Type;
 
-/** Update result. Unless already current, the server prepares a restart. */
+/** Acknowledgement that the update artifact is installed and the server is
+    about to restart into it — the connection will drop moments later. */
 export const ServerSelfUpdateResult = Schema.Struct({
   targetVersion: TrimmedNonEmptyString,
   method: ServerSelfUpdateMethod,
-  /** The desktop feed has no newer release. No install or restart is needed. */
-  upToDate: Schema.optionalKey(Schema.Boolean),
   /** Launcher-generated correlation ID. Absent when talking to older servers. */
   updateId: Schema.optionalKey(TrimmedNonEmptyString),
   /** Desktop preparation token. Present only for the desktop-app method. */

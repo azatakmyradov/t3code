@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
@@ -97,10 +98,11 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
-  it.effect("keeps legacy MCP configuration and secrets inert while updating skills", () =>
+  it.effect("keeps legacy tool settings and secrets inert during unrelated settings saves", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       const service = yield* ServerSettingsModule.ServerSettingsService;
       const secrets = yield* ServerSecretStore.ServerSecretStore;
       const projectId = ProjectId.make("legacy-project");
@@ -114,62 +116,113 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
       };
-      const legacyProjectServers = {
-        tools: { enabled: false },
-        local: { enabled: true, transport: { type: "stdio", command: "legacy-command" } },
+      const legacyProjectSettings = {
+        mcpServers: {
+          tools: { enabled: false },
+          local: { enabled: true, transport: { type: "stdio", command: "legacy-command" } },
+        },
+        disabledSkills: { review: false, deploy: true },
       };
       const secretName = "mcp-env-dG9vbHM-header-VE9LRU4";
       const secret = new TextEncoder().encode("legacy-secret");
       yield* secrets.set(secretName, secret);
+      const secretCalls = (["get", "set", "create", "getOrCreateRandom", "remove"] as const).map(
+        (method) => vi.spyOn(secrets, method),
+      );
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => secretCalls.forEach((spy) => spy.mockRestore())),
+      );
       yield* fs.writeFileString(
         config.settingsPath,
         JSON.stringify({
           mcpServers: legacyServers,
           disabledSkills: ["review"],
           projectSettingsOverrides: {
-            [projectId]: { mcpServers: legacyProjectServers, disabledSkills: { review: false } },
+            [projectId]: { ...legacyProjectSettings, defaultAutoPull: true },
+            "skills-only": { disabledSkills: {} },
+            "mcp-only": { mcpServers: {} },
           },
         }),
       );
 
       const loaded = yield* service.getSettings;
-      assert.deepEqual(loaded.disabledSkills, ["review"]);
-      assert.notProperty(loaded, "mcpServers");
-      assert.deepEqual(loaded.projectSettingsOverrides[projectId], {
-        disabledSkills: { review: false },
-      });
-      assert.notInclude(
-        JSON.stringify(ServerSettingsModule.redactServerSettingsForClient(loaded)),
-        "legacy-command",
-      );
-      assert.notInclude(JSON.stringify(loaded), "legacy-secret");
-
+      assert.deepEqual(loaded.projectSettingsOverrides[projectId], { defaultAutoPull: true });
       const updated = yield* service.updateSettings({
-        disabledSkills: ["deploy"],
-        projectSettingsOverrides: { [projectId]: { disabledSkills: { deploy: false } } },
+        responseStreamingMode: "turn",
+        projectSettingsOverrides: { [projectId]: { defaultAutoPull: false } },
       });
-      assert.deepEqual(updated.disabledSkills, ["deploy"]);
-      assert.deepEqual(updated.projectSettingsOverrides[projectId], {
-        disabledSkills: { deploy: false },
-      });
-      assert.notProperty(updated, "mcpServers");
+      assert.equal(updated.responseStreamingMode, "turn");
+      assert.deepEqual(updated.projectSettingsOverrides[projectId], { defaultAutoPull: false });
+      for (const settings of [loaded, updated]) {
+        for (const exposed of [
+          settings,
+          ServerSettingsModule.redactServerSettingsForClient(settings),
+        ]) {
+          assert.notProperty(exposed, "mcpServers");
+          assert.notProperty(exposed, "disabledSkills");
+          for (const entry of Object.values(exposed.projectSettingsOverrides)) {
+            assert.notProperty(entry, "mcpServers");
+            assert.notProperty(entry, "disabledSkills");
+          }
+          assert.notInclude(JSON.stringify(exposed), "legacy-command");
+          assert.notInclude(JSON.stringify(exposed), "legacy-secret");
+        }
+      }
       const persisted = JSON.parse(yield* fs.readFileString(config.settingsPath));
       assert.deepEqual(persisted.mcpServers, legacyServers);
-      assert.deepEqual(
-        persisted.projectSettingsOverrides[projectId].mcpServers,
-        legacyProjectServers,
-      );
-      assert.deepEqual(persisted.disabledSkills, ["deploy"]);
+      assert.deepEqual(persisted.disabledSkills, ["review"]);
+      assert.deepEqual(persisted.projectSettingsOverrides[projectId], {
+        ...legacyProjectSettings,
+        defaultAutoPull: false,
+      });
+      assert.deepEqual(persisted.projectSettingsOverrides["skills-only"], { disabledSkills: {} });
+      assert.deepEqual(persisted.projectSettingsOverrides["mcp-only"], { mcpServers: {} });
 
       yield* service.updateSettings({ projectSettingsOverrides: { [projectId]: null } });
       const cleared = JSON.parse(yield* fs.readFileString(config.settingsPath));
-      assert.deepEqual(cleared.projectSettingsOverrides[projectId], {
-        mcpServers: legacyProjectServers,
-      });
-      const stored = yield* secrets.get(secretName);
-      assert.isTrue(Option.isSome(stored));
-      if (Option.isSome(stored)) assert.deepEqual(stored.value, secret);
+      assert.deepEqual(cleared.projectSettingsOverrides[projectId], legacyProjectSettings);
+      assert.deepEqual(cleared.mcpServers, legacyServers);
+      assert.deepEqual(cleared.disabledSkills, ["review"]);
+      for (const spy of secretCalls) {
+        assert.isFalse(spy.mock.calls.some(([name]) => name.startsWith("mcp-")));
+      }
+      assert.deepEqual(yield* fs.readDirectory(config.secretsDir), [`${secretName}.bin`]);
+      assert.deepEqual(
+        Uint8Array.from(yield* fs.readFile(path.join(config.secretsDir, `${secretName}.bin`))),
+        secret,
+      );
     }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
+  it.effect("preserves opaque legacy tool values when loading migrates other settings", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const projectId = ProjectId.make("legacy-project");
+      const legacy = { mcpServers: null, disabledSkills: [] };
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({
+          ...legacy,
+          projectSettingsOverrides: { [projectId]: legacy },
+          projectAutoPullOverrides: { [projectId]: true },
+        }),
+      );
+
+      const loaded = yield* service.getSettings;
+      assert.notProperty(loaded, "mcpServers");
+      assert.notProperty(loaded, "disabledSkills");
+      assert.deepEqual(loaded.projectSettingsOverrides[projectId], { defaultAutoPull: true });
+      const persisted = JSON.parse(yield* fs.readFileString(config.settingsPath));
+      assert.isTrue(persisted.projectSettingsFolded);
+      assert.strictEqual(persisted.mcpServers, null);
+      assert.deepEqual(persisted.disabledSkills, []);
+      assert.deepEqual(persisted.projectSettingsOverrides[projectId], {
+        ...legacy,
+        defaultAutoPull: true,
+      });
+    }).pipe(Effect.provide(layerServerSettings())),
   );
 
   it.effect("migrates saved token delivery to paragraph buffering without resetting settings", () =>

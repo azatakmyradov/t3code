@@ -6,9 +6,6 @@
 @layer theme {
   :root {
     @variant android {
-      --font-sans: "sans-serif";
-      --font-medium: "sans-serif-medium";
-      --font-bold: "sans-serif";
       --font-mono: "monospace";
     }
   }
@@ -16,11 +13,10 @@
 
 /* ─── Typography ────────────────────────────────────────────────────── */
 @theme {
-  /* System families carry no weight; font-t3-* utilities set font-weight.
-     Keep these aligned with src/lib/useFontFamily.ts. */
-  --font-sans: "System";
-  --font-medium: "System";
-  --font-bold: "System";
+  /* Keep these native family names aligned with app.config.ts. */
+  --font-sans: "DMSans-Regular";
+  --font-medium: "DMSans-Medium";
+  --font-bold: "DMSans-Bold";
 
   /* Keep this scale aligned with src/lib/typography.ts for native style props. */
   --text-3xs: 11px;
@@ -46,12 +42,10 @@
 /* ─── Custom utilities ──────────────────────────────────────────────── */
 @utility font-t3-medium {
   font-family: var(--font-medium);
-  font-weight: 500;
 }
 
 @utility font-t3-bold {
   font-family: var(--font-bold);
-  font-weight: 600;
 }
 
 @utility font-t3-extrabold {

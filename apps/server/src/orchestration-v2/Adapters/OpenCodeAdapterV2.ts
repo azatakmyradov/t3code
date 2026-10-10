@@ -624,20 +624,6 @@ const OPENCODE_RESTRICTED_PERMISSIONS = [
  */
 export function openCodePermissionRules(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
-  disabledSkills: ReadonlyArray<string> = [],
-): PermissionRuleset {
-  // Skills switched off in Settings → Tools; the last matching rule wins, so
-  // these follow every allow below.
-  const skillRules = disabledSkills.map((name) => ({
-    permission: "skill",
-    pattern: name,
-    action: "deny" as const,
-  }));
-  return [...openCodeRuntimePermissionRules(runtimePolicy), ...skillRules];
-}
-
-function openCodeRuntimePermissionRules(
-  runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
 ): PermissionRuleset {
   const sandboxPolicy = recordValue(runtimePolicy, "sandboxPolicy");
   const sandboxType = recordString(sandboxPolicy, "type");
@@ -748,9 +734,8 @@ function permissionRuleEquals(
 export function openCodeChildPermissionRules(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   nativeChildRules: PermissionRuleset,
-  disabledSkills: ReadonlyArray<string> = [],
 ): PermissionRuleset {
-  const parentRules = openCodePermissionRules(runtimePolicy, disabledSkills);
+  const parentRules = openCodePermissionRules(runtimePolicy);
   const inheritedRules = parentRules.filter(
     (rule) => rule.permission === "external_directory" || rule.action === "deny",
   );
@@ -758,12 +743,7 @@ export function openCodeChildPermissionRules(
     (childRule) =>
       !inheritedRules.some((inheritedRule) => permissionRuleEquals(childRule, inheritedRule)),
   );
-  // A native agent's own allows must not re-enable disabled skills after
-  // the parent's restrictions.
-  const toolRules = parentRules.filter(
-    (entry) => entry.permission === "skill" && entry.action === "deny",
-  );
-  return [...parentRules, ...childSpecificRules, ...toolRules];
+  return [...parentRules, ...childSpecificRules];
 }
 
 /**
@@ -1008,6 +988,7 @@ export function makeOpenCodeAdapterV2(
             }),
           );
         }
+
         const now = yield* DateTime.now;
         let sessionEntity: OrchestrationV2ProviderSession = {
           id: input.providerSessionId,
@@ -1434,7 +1415,6 @@ export function makeOpenCodeAdapterV2(
             const childPermission = openCodeChildPermissionRules(
               turn.runtimePolicy,
               nativeChildSession.permission ?? [],
-              McpProviderSession.readMcpProviderSessionTools(turn.threadId).disabledSkills,
             );
             yield* sdkCall(
               "session.update",
@@ -3064,29 +3044,16 @@ export function makeOpenCodeAdapterV2(
               if (threadInput.existingProviderThread?.nativeThreadRef != null) {
                 return yield* runtimeSession.resumeThread({
                   providerThread: threadInput.existingProviderThread,
-                  threadId: threadInput.threadId,
-                  runtimePolicy: threadInput.runtimePolicy,
-                  modelSelection: threadInput.modelSelection,
                 });
               }
               // No title: OpenCode generates one from the first prompt only when
               // session.create leaves it unset (SessionPrompt.ensureTitle).
               const response = yield* sdkCall(
                 "session.create",
-                {
-                  permission: openCodePermissionRules(
-                    threadInput.runtimePolicy,
-                    McpProviderSession.readMcpProviderSessionTools(threadInput.threadId)
-                      .disabledSkills,
-                  ),
-                },
+                { permission: openCodePermissionRules(threadInput.runtimePolicy) },
                 () =>
                   client.session.create({
-                    permission: openCodePermissionRules(
-                      threadInput.runtimePolicy,
-                      McpProviderSession.readMcpProviderSessionTools(threadInput.threadId)
-                        .disabledSkills,
-                    ),
+                    permission: openCodePermissionRules(threadInput.runtimePolicy),
                   }),
               );
               const nativeSession = unwrapData("session.create", response);
@@ -3133,19 +3100,6 @@ export function makeOpenCodeAdapterV2(
                 client.session.get({ sessionID: sessionId }),
               );
               const nativeSession = unwrapData("session.get", response);
-              yield* sdkCall("session.update", { sessionID: sessionId }, () =>
-                client.session.update({
-                  sessionID: sessionId,
-                  permission: openCodePermissionRules(
-                    threadInput.runtimePolicy ?? input.runtimePolicy,
-                    McpProviderSession.readMcpProviderSessionTools(
-                      threadInput.threadId ??
-                        threadInput.providerThread.appThreadId ??
-                        input.threadId,
-                    ).disabledSkills,
-                  ),
-                }),
-              );
               const resumedAt = yield* DateTime.now;
               const providerThread = {
                 ...threadInput.providerThread,
@@ -3664,12 +3618,7 @@ export function makeOpenCodeAdapterV2(
                 yield* sdkCall("session.update", { sessionID: fork.id }, () =>
                   client.session.update({
                     sessionID: fork.id,
-                    permission: openCodePermissionRules(
-                      input.runtimePolicy,
-                      McpProviderSession.readMcpProviderSessionTools(
-                        rollbackInput.providerThread.appThreadId ?? input.threadId,
-                      ).disabledSkills,
-                    ),
+                    permission: openCodePermissionRules(input.runtimePolicy),
                   }),
                 );
                 retainedThread = {

@@ -732,7 +732,7 @@ function ThreadSettingsOptionsItem(props: {
       <ChatGptSharingStatus provider={selectedProvider} />
       <Text className="px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted">Options</Text>
       <Animated.View
-        className="mx-4 overflow-hidden rounded-xl border border-border bg-grouped-card"
+        className="mx-4 overflow-hidden rounded-2xl bg-grouped-card"
         layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}
       >
         {session.displayedDescriptors.map((descriptor) => {
@@ -791,7 +791,7 @@ function ThreadSettingsOptionsItem(props: {
           <Text className="px-5 pb-2 pt-7 text-sm font-t3-medium text-foreground-muted">
             Catalog
           </Text>
-          <View className="mx-4 overflow-hidden rounded-xl border border-border bg-grouped-card">
+          <View className="mx-4 overflow-hidden rounded-2xl bg-grouped-card">
             <SwitchRow
               isLast
               label="Legacy models"
@@ -920,7 +920,7 @@ function ThreadSettingsMainContent(props: {
           {Platform.OS === "android" ? (
             <View className="px-4 pb-2 pt-3">
               <View
-                className="flex-row items-center rounded-lg border border-input-border bg-input px-2"
+                className="flex-row items-center rounded-full bg-input px-2"
                 style={{ minHeight: 56 }}
               >
                 <View pointerEvents="none" className="px-2">
@@ -1042,7 +1042,7 @@ function ThreadSettingsChoiceContent(props: {
       contentInsetAdjustmentBehavior="automatic"
       showsVerticalScrollIndicator={false}
     >
-      <View className="overflow-hidden rounded-xl border border-border bg-grouped-card">
+      <View className="overflow-hidden rounded-2xl bg-grouped-card">
         {submenuContent.rows.map((row, index) => (
           <ChoiceRow
             key={row.id}

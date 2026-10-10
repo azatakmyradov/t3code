@@ -1,6 +1,5 @@
 import {
   PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS,
-  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
@@ -16,7 +15,6 @@ import {
   hasCurrentProviderWorkspaceSnapshot,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
-  resolveDisabledProviderSkillNames,
   resolveProviderSkillSourceKind,
 } from "./providerSkills.ts";
 
@@ -304,94 +302,5 @@ describe("workspace provider snapshots", () => {
     expect(hasCurrentProviderWorkspaceSnapshot(provider, "/workspace/project-b", scannedAt)).toBe(
       false,
     );
-  });
-});
-
-describe("disabled skill slash commands", () => {
-  it("hides disabled skill commands in workspace snapshots and the fallback list", () => {
-    expect(
-      resolveProviderSlashCommandsForCwd(provider, "/workspace/project-a", new Set(["project"])),
-    ).toEqual([]);
-    expect(resolveProviderSlashCommandsForCwd(provider, null, new Set(["global"]))).toEqual([]);
-    expect(
-      resolveProviderSlashCommandsForCwd(provider, "/workspace/project-a", new Set(["global"])),
-    ).toEqual([{ name: "project" }]);
-  });
-
-  it("matches normalized names without hiding unrelated commands", () => {
-    const withCommands = {
-      ...provider,
-      slashCommands: [{ name: " Review " }, { name: "compact" }],
-    };
-    expect(resolveProviderSlashCommandsForCwd(withCommands, null, new Set(["review"]))).toEqual([
-      { name: "compact" },
-    ]);
-  });
-});
-
-describe("Tools skill filtering", () => {
-  const projectId = ProjectId.make("project-a");
-  const settings = {
-    disabledSkills: ["global", "review"],
-    projectSettingsOverrides: {
-      [projectId]: { disabledSkills: { global: false, project: true } },
-    },
-  };
-
-  it("applies environment defaults and only the selected project's overrides", () => {
-    expect([...resolveDisabledProviderSkillNames(settings, null)]).toEqual(["global", "review"]);
-    expect([...resolveDisabledProviderSkillNames(settings, projectId)]).toEqual([
-      "project",
-      "review",
-    ]);
-    expect([
-      ...resolveDisabledProviderSkillNames(settings, ProjectId.make("another-project")),
-    ]).toEqual(["global", "review"]);
-    expect([...resolveDisabledProviderSkillNames(undefined, projectId)]).toEqual([]);
-  });
-
-  it("filters workspace skills and fallback skills with the same project switches as commands", () => {
-    const disabled = resolveDisabledProviderSkillNames(settings, projectId);
-    expect(resolveProviderSkillsForCwd(provider, "/workspace/project-a", disabled)).toEqual([]);
-    expect(resolveProviderSlashCommandsForCwd(provider, "/workspace/project-a", disabled)).toEqual(
-      [],
-    );
-    // This project re-enables the environment's global skill before workspace discovery.
-    expect(resolveProviderSkillsForCwd(provider, "/workspace/project-b", disabled)).toEqual(
-      provider.skills,
-    );
-    expect(resolveProviderSlashCommandsForCwd(provider, null, disabled)).toEqual(
-      provider.slashCommands,
-    );
-    const environmentDisabled = resolveDisabledProviderSkillNames(settings, null);
-    expect(resolveProviderSkillsForCwd(provider, null, environmentDisabled)).toEqual([]);
-    expect(provider.skills).toHaveLength(1);
-    expect(provider.workspaceSnapshots[0]?.skills).toHaveLength(1);
-  });
-
-  it("matches normalized names and preserves native skill restrictions", () => {
-    const withSkills = {
-      ...provider,
-      skills: [
-        { name: " Review ", path: "/review/SKILL.md", enabled: true },
-        { name: "native-off", path: "/native/SKILL.md", enabled: false },
-        { name: "allowed", path: "/allowed/SKILL.md", enabled: true },
-      ],
-    };
-    const disabled = resolveDisabledProviderSkillNames(
-      {
-        disabledSkills: [" REVIEW ", "native-off"],
-        projectSettingsOverrides: {
-          [projectId]: { disabledSkills: { "native-off": false } },
-        },
-      },
-      projectId,
-    );
-    const filtered = resolveProviderSkillsForCwd(withSkills, null, disabled);
-    expect(filtered.map((skill) => skill.name)).toEqual(["native-off", "allowed"]);
-    expect(getProviderSkillsForSlashMenu(filtered, true).map((skill) => skill.name)).toEqual([
-      "allowed",
-    ]);
-    expect(resolveProviderSkillsForCwd(withSkills, null, new Set())).toBe(withSkills.skills);
   });
 });

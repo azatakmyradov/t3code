@@ -55,10 +55,10 @@ export function WorkspaceEmptyDetail(props: {
             ) : (
               <Pressable
                 accessibilityRole="button"
-                className="mt-2 min-h-11 flex-row items-center gap-2 rounded-lg bg-primary px-4 py-3 active:opacity-70"
+                className="mt-2 flex-row items-center gap-2 rounded-full bg-primary px-5 py-3 active:opacity-70"
                 onPress={props.onStartNewTask}
               >
-                <Text className="text-base font-t3-medium text-primary-foreground">New Task</Text>
+                <Text className="text-base font-t3-bold text-primary-foreground">New Task</Text>
               </Pressable>
             )
           ) : null}

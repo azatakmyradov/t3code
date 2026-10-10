@@ -168,27 +168,50 @@ describe("mobile themes", () => {
   });
 
   it.each(["light", "dark"] as const)(
-    "keeps default %s groups, messages and navigation on the desktop palette",
+    "separates default settings groups from their %s background",
     (appearance) => {
-      const desktop =
-        appearance === "dark" ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS;
       const variables = getMobileThemeVariables("t3-code", appearance);
-      expect(variables["--color-grouped-card"]).toBe(desktop.surface);
-      expect(variables["--color-user-bubble"]).toBe(desktop.messageSurface);
-      expect(variables["--color-composer-border"]).toBe(desktop.border);
+      expect(
+        contrastRatio(variables["--color-grouped-card"], variables["--color-sheet-solid"]),
+      ).toBeGreaterThanOrEqual(1.06);
+      expect(variables["--color-grouped-card"]).not.toBe(variables["--color-card"]);
       for (const platform of ["ios", "android"]) {
         const runtime = getMobileThemeRuntimeVariables("t3-code", appearance, platform);
         const sidebar = flattenThemeColor(runtime["--color-drawer"], runtime["--color-screen"]);
-        expect(runtime["--color-drawer"]).toBe(desktop.sidebar);
-        for (const role of [
-          "--color-drawer-foreground",
-          "--color-drawer-foreground-muted",
-        ] as const) {
-          expect(contrastRatio(runtime[role], sidebar)).toBeGreaterThanOrEqual(4.5);
+        const chrome = flattenThemeColor(
+          runtime[platform === "android" ? "--color-header" : "--color-drawer"],
+          runtime["--color-screen"],
+        );
+        expect(relativeLuminance(sidebar)).toBeLessThan(
+          relativeLuminance(runtime["--color-thread-canvas"]),
+        );
+        expect(contrastRatio(chrome, runtime["--color-screen"])).toBeGreaterThanOrEqual(1.06);
+        const foregroundRoles =
+          platform === "android"
+            ? (["--color-header-foreground", "--color-foreground-muted"] as const)
+            : (["--color-drawer-foreground", "--color-drawer-foreground-muted"] as const);
+        for (const role of foregroundRoles) {
+          expect(contrastRatio(runtime[role], chrome)).toBeGreaterThanOrEqual(4.5);
         }
       }
+    },
+  );
+
+  it.each(["light", "dark"] as const)(
+    "slightly strengthens default %s messages and separates fallback materials",
+    (appearance) => {
+      const variables = getMobileThemeVariables("t3-code", appearance);
+      const desktop =
+        appearance === "dark" ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS;
+      const bubbleContrast = contrastRatio(
+        variables["--color-user-bubble"],
+        variables["--color-screen"],
+      );
+      expect(bubbleContrast).toBeGreaterThan(contrastRatio(desktop.messageSurface, desktop.canvas));
+      expect(bubbleContrast).toBeLessThan(1.2);
       for (const role of ["--color-composer-surface", "--color-glass-fallback"] as const) {
         const surface = flattenThemeColor(variables[role], variables["--color-screen"]);
+        expect(contrastRatio(surface, variables["--color-screen"])).toBeGreaterThanOrEqual(1.06);
         for (const foreground of [
           "--color-foreground",
           "--color-placeholder",

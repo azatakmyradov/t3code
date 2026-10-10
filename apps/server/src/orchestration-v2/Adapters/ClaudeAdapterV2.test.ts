@@ -478,14 +478,10 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       type: "http",
       url: "http://127.0.0.1:43123/mcp",
       headers: {
-        Authorization: "${T3_CODE_MCP_AUTHORIZATION}",
+        Authorization: "Bearer secret-claude-token",
       },
       timeout: ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
     },
-  } as const;
-
-  const T3_MCP_ENVIRONMENT = {
-    T3_CODE_MCP_AUTHORIZATION: "Bearer secret-claude-token",
   } as const;
 
   const withMcpSession = (threadId: ThreadId, run: () => void) => {
@@ -535,7 +531,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       assert.deepEqual(overrides, {
         allowedTools: [ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD],
         mcpServers: T3_MCP_SERVERS,
-        mcpEnvironment: T3_MCP_ENVIRONMENT,
       });
     });
   });
@@ -552,7 +547,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       assert.deepEqual(overrides, {
         allowedTools: ["Read", "mcp__t3-code__*"],
         mcpServers: T3_MCP_SERVERS,
-        mcpEnvironment: T3_MCP_ENVIRONMENT,
       });
     });
   });
@@ -572,7 +566,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
           ...ClaudeAdapterV2.CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS,
         ],
         mcpServers: T3_MCP_SERVERS,
-        mcpEnvironment: T3_MCP_ENVIRONMENT,
       });
       assert.isFalse(overrides.allowedTools?.includes(ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD));
     });
@@ -657,57 +650,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     });
   });
 
-  it("applies skill switches alongside t3-code and reopens when they change", () => {
-    const threadId = ThreadId.make("thread-claude-user-tools");
-    const session = {
-      environmentId: EnvironmentId.make(`environment-${threadId}`),
-      threadId,
-      providerSessionId: `mcp-session-${threadId}`,
-      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
-      endpoint: "http://127.0.0.1:43123/mcp",
-      authorizationHeader: "Bearer secret-claude-token",
-      browserToolsAvailable: true,
-    };
-    McpProviderSession.setMcpProviderSession({
-      ...session,
-      tools: {
-        disabledSkills: ["grill-me"],
-        fingerprint: "a",
-      },
-    });
-    try {
-      const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
-        ProviderAdapterV2RuntimePolicy.make({
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          cwd: "/workspace",
-        }),
-      );
-      const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
-        threadId,
-        readOnlySandbox: false,
-      });
-      assert.deepEqual(overrides, {
-        allowedTools: [ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD],
-        mcpServers: T3_MCP_SERVERS,
-        mcpEnvironment: T3_MCP_ENVIRONMENT,
-        sdkSettings: { skillOverrides: { "grill-me": "off" } },
-      });
-      const initialKey = ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(queryPolicy, overrides);
-      McpProviderSession.setMcpProviderSession({
-        ...session,
-        tools: { disabledSkills: [], fingerprint: "" },
-      });
-      const clearedKey = ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(
-        queryPolicy,
-        ClaudeAdapterV2.claudeMcpQueryOverrides({ threadId, readOnlySandbox: false }),
-      );
-      assert.notEqual(clearedKey, initialKey);
-    } finally {
-      McpProviderSession.clearMcpProviderSession(threadId);
-    }
-  });
-
   it("matches the read-only allowlist to the orchestrator toolkit annotations", () => {
     const readOnlyToolNames = [
       ...Object.values(OrchestratorToolkit.tools),
@@ -755,12 +697,11 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
             type: "http",
             url: "http://127.0.0.1:43123/mcp",
             headers: {
-              Authorization: "${T3_CODE_MCP_AUTHORIZATION}",
+              Authorization: "Bearer secret-claude-token",
             },
             timeout: ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
           },
         },
-        mcpEnvironment: { T3_CODE_MCP_AUTHORIZATION: "Bearer secret-claude-token" },
       });
 
       const options = ClaudeAdapterV2.makeClaudeQueryOptions({
@@ -772,10 +713,7 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
         resume: false,
         cwd: "/workspace",
         ...overrides,
-        environment: { ...overrides.mcpEnvironment },
       });
-      assert.notInclude(JSON.stringify(options.mcpServers), "secret-claude-token");
-      assert.equal(options.env?.T3_CODE_MCP_AUTHORIZATION, "Bearer secret-claude-token");
       assert.isObject(options.systemPrompt);
       const systemPrompt = options.systemPrompt as {
         readonly type: string;
@@ -1110,114 +1048,6 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
         });
         assert.equal((yield* Fiber.join(decision))?.behavior, "allow");
       }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
-    ),
-  );
-});
-
-describe("ClaudeAdapterV2 disabled skills", () => {
-  it.effect.each([
-    { runtimeMode: "full-access", approvalPolicy: undefined },
-    { runtimeMode: "approval-required", approvalPolicy: undefined },
-    { runtimeMode: "auto-accept-edits", approvalPolicy: undefined },
-    { runtimeMode: "full-access", approvalPolicy: "on-request" },
-  ] as const)("applies skill switches under $runtimeMode / $approvalPolicy", (policy) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const runtimePolicy = ProviderAdapterV2RuntimePolicy.make({
-          ...CLAUDE_TEST_RUNTIME_POLICY,
-          runtimeMode: policy.runtimeMode,
-          ...(policy.approvalPolicy === undefined ? {} : { approvalPolicy: policy.approvalPolicy }),
-        });
-        const fileSystem = yield* FileSystem.FileSystem;
-        const idAllocator = yield* IdAllocator.IdAllocatorV2;
-        const attachmentsDir = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-claude-user-tools-",
-        });
-        let openedOptions: ClaudeAdapterV2.ClaudeAgentSdkQueryOptions | undefined;
-        const adapter = ClaudeAdapterV2.makeClaudeAdapterV2({
-          instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
-          settings: DEFAULT_CLAUDE_SETTINGS,
-          environment: { CLAUDE_CONFIG_DIR: "/claude-config" },
-          attachmentsDir,
-          fileSystem,
-          path: yield* Path.Path,
-          crypto: yield* Crypto.Crypto,
-          idAllocator,
-          queryRunner: {
-            allocateSessionId: Effect.succeed("native-thread-claude-user-tools"),
-            open: (input) =>
-              Effect.sync(() => {
-                openedOptions = input.options;
-                return {
-                  messages: Stream.never,
-                  offer: () => Effect.void,
-                  setModel: () => Effect.void,
-                  setPermissionMode: () => Effect.void,
-                  interrupt: Effect.void,
-                  close: Effect.void,
-                };
-              }),
-            forkSession: () => Effect.die("unused"),
-            subagentLaunchToolUseId: () => Effect.succeed(null),
-            assertComplete: Effect.void,
-          },
-        });
-        const threadId = ThreadId.make("thread-claude-user-tools-turn");
-        yield* Scope.addFinalizer(
-          yield* Scope.Scope,
-          Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
-        );
-        McpProviderSession.setMcpProviderSession({
-          environmentId: EnvironmentId.make("environment-claude-user-tools"),
-          threadId,
-          providerSessionId: "mcp-session-claude-user-tools",
-          providerInstanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
-          endpoint: "http://127.0.0.1:43123/mcp",
-          authorizationHeader: "Bearer secret-claude-token",
-          browserToolsAvailable: true,
-          tools: {
-            disabledSkills: ["grill-me"],
-            fingerprint: "a",
-          },
-        });
-        const runtime = yield* adapter.openSession({
-          threadId,
-          providerSessionId: ProviderSessionId.make("provider-session-claude-user-tools"),
-          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-          runtimePolicy,
-        });
-        const providerThread = yield* runtime.ensureThread({
-          threadId,
-          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-          runtimePolicy,
-        });
-        yield* runtime.startTurn(
-          makeClaudeTestTurnInput({
-            threadId,
-            providerThread,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("attempt-claude-user-tools"),
-            text: "Hello.",
-            attachments: [],
-            runtimePolicy,
-          }),
-        );
-
-        assert.deepEqual(Object.keys(openedOptions?.mcpServers ?? {}), ["t3-code"]);
-        assert.deepInclude(openedOptions?.env ?? {}, {
-          CLAUDE_CONFIG_DIR: "/claude-config",
-          T3_CODE_MCP_AUTHORIZATION: "Bearer secret-claude-token",
-        });
-        assert.notInclude(JSON.stringify(openedOptions?.mcpServers), "secret-claude-token");
-        assert.notInclude(
-          JSON.stringify(ClaudeAdapterV2.loggedClaudeQueryOptions(openedOptions!)),
-          "secret-claude-token",
-        );
-        const settings = openedOptions?.settings;
-        assert.deepEqual(typeof settings === "object" ? settings.skillOverrides : undefined, {
-          "grill-me": "off",
-        });
-      }).pipe(Effect.provide(Layer.mergeAll(IdAllocator.layer, NodeServices.layer))),
     ),
   );
 });

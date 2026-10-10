@@ -17,14 +17,14 @@ export function SettingsChoiceRow(props: {
       accessibilityState={{ checked: props.selected, disabled: props.disabled }}
       className={
         props.separated
-          ? "flex-row items-center gap-3 border-t border-border-subtle px-3.5 py-3 active:opacity-70"
-          : "flex-row items-center gap-3 px-3.5 py-3 active:opacity-70"
+          ? "flex-row items-center gap-4 border-t border-border-subtle p-4 active:opacity-70"
+          : "flex-row items-center gap-4 p-4 active:opacity-70"
       }
       disabled={props.disabled}
       onPress={props.onPress}
     >
       <View className="min-w-0 flex-1 gap-1">
-        <Text className="text-base text-foreground">{props.label}</Text>
+        <Text className="text-lg text-foreground android:text-base">{props.label}</Text>
         <Text className="text-sm leading-normal text-foreground-muted">{props.description}</Text>
       </View>
       {props.selected ? (

@@ -15,11 +15,15 @@ export function ConnectionFormField({ label, className, ...inputProps }: Connect
       <AppText
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        className="text-xs font-t3-medium text-foreground-muted"
+        className="text-2xs font-t3-bold tracking-[0.8px] uppercase text-foreground-muted"
       >
         {label}
       </AppText>
-      <AppTextInput {...inputProps} accessibilityLabel={label} className="rounded-lg px-3 py-2.5" />
+      <AppTextInput
+        {...inputProps}
+        accessibilityLabel={label}
+        className="rounded-[14px] px-4 py-3.5"
+      />
     </View>
   );
 }

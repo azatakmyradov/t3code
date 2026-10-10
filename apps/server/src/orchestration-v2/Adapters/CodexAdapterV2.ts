@@ -1327,7 +1327,6 @@ export function codexThreadRuntimeParams(input: {
 } {
   const mcpSession =
     input.threadId === null ? undefined : McpProviderSession.readMcpProviderSession(input.threadId);
-  const tools = mcpSession?.tools ?? McpProviderSession.EMPTY_MCP_PROVIDER_SESSION_TOOLS;
   return {
     ...(input.runtimePolicy?.cwd == null ? {} : { cwd: input.runtimePolicy.cwd }),
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
@@ -1343,15 +1342,6 @@ export function codexThreadRuntimeParams(input: {
                   Authorization: mcpSession.authorizationHeader,
                 },
               },
-            },
-          }),
-      // Thread config is Codex's session-flags layer, which its skill rules
-      // read alongside the user's config.toml; a later name rule wins.
-      ...(tools.disabledSkills.length === 0
-        ? {}
-        : {
-            skills: {
-              config: tools.disabledSkills.map((name) => ({ name, enabled: false })),
             },
           }),
     },

@@ -213,7 +213,7 @@ export function ConnectionEnvironmentRow(props: {
             <View className="flex-row justify-end gap-2">
               {props.environment.isRelayManaged ? null : (
                 <Pressable
-                  className="min-h-[42px] flex-1 flex-row items-center justify-center gap-1.5 rounded-lg bg-primary px-3.5 py-2.5 active:opacity-70"
+                  className="min-h-[42px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[14px] bg-primary px-3.5 py-2.5 active:opacity-70"
                   onPress={handleSave}
                 >
                   <SymbolView
@@ -222,12 +222,14 @@ export function ConnectionEnvironmentRow(props: {
                     tintColorClassName="accent-primary-foreground"
                     type="monochrome"
                   />
-                  <Text className="text-sm font-t3-medium text-primary-foreground">Save</Text>
+                  <Text className="text-xs font-t3-bold tracking-[0.8px] uppercase text-primary-foreground">
+                    Save
+                  </Text>
                 </Pressable>
               )}
 
               <Pressable
-                className="h-[42px] w-[42px] items-center justify-center rounded-lg border border-input-border bg-input active:opacity-70 disabled:opacity-40"
+                className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-input-border bg-input active:opacity-70 disabled:opacity-40"
                 disabled={!enabled}
                 onPress={() => props.onReconnect(props.environment.environmentId)}
               >
@@ -240,7 +242,7 @@ export function ConnectionEnvironmentRow(props: {
               </Pressable>
 
               <Pressable
-                className="h-[42px] w-[42px] items-center justify-center rounded-lg border border-danger-border bg-danger active:opacity-70"
+                className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-danger-border bg-danger active:opacity-70"
                 onPress={() => props.onRemove(props.environment.environmentId)}
               >
                 <SymbolView

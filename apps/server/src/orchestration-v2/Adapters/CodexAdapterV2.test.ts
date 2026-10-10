@@ -690,36 +690,6 @@ describe("CodexAdapterV2 process spawning", () => {
     }
   });
 
-  it("applies disabled skills alongside the built-in t3-code server", () => {
-    const threadId = ThreadId.make("thread-codex-user-tools");
-    McpProviderSession.setMcpProviderSession({
-      environmentId: EnvironmentId.make("environment-codex-user-tools"),
-      threadId,
-      providerSessionId: "mcp-session-codex-user-tools",
-      providerInstanceId: ProviderInstanceId.make("codex"),
-      endpoint: "http://127.0.0.1:43123/mcp",
-      authorizationHeader: "Bearer secret-codex-token",
-      browserToolsAvailable: true,
-      tools: {
-        disabledSkills: ["grill-me"],
-        fingerprint: "a",
-      },
-    });
-
-    try {
-      const { config } = CodexAdapterV2.codexThreadRuntimeParams({ threadId });
-      assert.deepEqual(config.mcp_servers, {
-        "t3-code": {
-          url: "http://127.0.0.1:43123/mcp",
-          http_headers: { Authorization: "Bearer secret-codex-token" },
-        },
-      });
-      assert.deepEqual(config.skills, { config: [{ name: "grill-me", enabled: false }] });
-    } finally {
-      McpProviderSession.clearMcpProviderSession(threadId);
-    }
-  });
-
   it.effect("resolves Windows command shims through the shared spawn policy", () =>
     Effect.gen(function* () {
       const command = yield* CodexAdapterV2.makeCodexAppServerSpawnCommand({

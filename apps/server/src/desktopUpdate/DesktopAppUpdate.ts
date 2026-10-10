@@ -46,8 +46,8 @@ export class DesktopAppUpdate extends Context.Service<
     /** True when this server was spawned by a desktop app that can be
         driven over the telemetry control channel. */
     readonly available: boolean;
-    /** Checks and downloads through the desktop app. Returns an install token
-        when prepared, or an up-to-date result without restarting. */
+    /** Checks and downloads through the desktop app, then returns a token
+        while this server is still connected. `commit` starts installation. */
     readonly run: (
       reportProgress: (
         stage: ServerSelfUpdateProgressStage,
@@ -134,12 +134,9 @@ export const make = Effect.fn("desktopUpdate.desktopAppUpdate.make")(function* (
         return { targetVersion, method: "desktop-app" as const, desktopUpdateToken: requestId };
       }
       if (report.outcome === "up-to-date") {
-        yield* Ref.set(inFlight, false);
-        return {
-          targetVersion: report.state.currentVersion,
-          method: "desktop-app" as const,
-          upToDate: true,
-        };
+        return yield* failWith(
+          `The T3 Code desktop app on this machine is already up to date on ${report.state.currentVersion}.`,
+        );
       }
       return yield* failWith(
         report.reason ?? report.state.message ?? "The desktop app update failed.",

@@ -392,7 +392,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
                         accessibilityLabel={`Steer with message ${index + 1} now`}
                         disabled={!controls.canSteer}
                         onPress={() => void act(run.id, "steer")}
-                        className="h-8 shrink-0 justify-center rounded-lg bg-primary px-3 active:opacity-70 disabled:opacity-40"
+                        className="h-8 shrink-0 justify-center rounded-full bg-primary px-3 active:opacity-70 disabled:opacity-40"
                       >
                         <Text className="font-t3-medium text-xs text-primary-foreground">
                           Steer

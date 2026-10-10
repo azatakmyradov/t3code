@@ -142,11 +142,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
               });
               if (AsyncResult.isFailure(result)) throw squashAtomCommandFailure(result);
               setRelease(null);
-              setNotice(
-                result.value.upToDate
-                  ? `Already up to date on ${result.value.targetVersion}.`
-                  : `Updated to ${result.value.targetVersion}.`,
-              );
+              setNotice(`Updated to ${result.value.targetVersion}.`);
             }),
         },
       ],
