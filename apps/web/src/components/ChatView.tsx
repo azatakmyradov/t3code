@@ -11777,6 +11777,9 @@ export default function ChatView(props: ChatViewProps) {
                               }
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeContextWindow={activeContextWindow}
+                              activeContextModelSelection={
+                                activeThreadUsageSelection.modelSelection
+                              }
                               activeTurnThroughput={activeTurnThroughput}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}

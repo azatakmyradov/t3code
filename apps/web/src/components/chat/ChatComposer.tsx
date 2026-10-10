@@ -298,6 +298,7 @@ import {
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { ComposerStatusRow } from "./ComposerStatusRow";
+import { usageModelMatchesSelection } from "./ComposerStatusRow.logic";
 import type { TurnThroughput } from "../../lib/turnThroughput";
 import {
   providerSupportsManualCompaction,
@@ -1612,6 +1613,7 @@ export interface ChatComposerProps {
 
   // Context window
   activeContextWindow: ContextWindowSnapshot | null;
+  activeContextModelSelection: ModelSelection | null;
   activeTurnThroughput: TurnThroughput | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
@@ -2406,6 +2408,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => resolveContextWindowModelDisplayName(activeThreadModelSelection, modelOptionsByInstance),
     [activeThreadModelSelection, modelOptionsByInstance],
   );
+  const selectedContextWindow =
+    selectedProviderStatus !== null &&
+    selectedProviderStatus.instanceId === selectedInstanceId &&
+    usageModelMatchesSelection(
+      selectedModelSelection,
+      props.activeContextModelSelection,
+      selectedProviderStatus.driver,
+    )
+      ? activeContextWindow
+      : null;
   const reserveContextWindowMeter = shouldReserveContextWindowMeter({
     meterEnabled: settings.contextWindowMeterEnabled,
     detailLoading: props.threadSyncPhase === "loading",
@@ -7656,7 +7668,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
                     activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
+                      settings.contextWindowMeterEnabled ? selectedContextWindow : null
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
@@ -7738,17 +7750,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       multipleModelSelections === null ? (
         <ComposerStatusRow
           provider={selectedProviderStatus}
-          context={
-            activeThreadModelSelection?.instanceId === selectedInstanceId
-              ? activeContextWindow
-              : null
-          }
+          selectedModel={selectedModelSelection}
+          context={activeContextWindow}
+          contextModelSelection={props.activeContextModelSelection}
           showContext={settings.contextWindowMeterEnabled}
-          turnTokensPerSecond={
-            props.activeTurnThroughput?.providerInstanceId === selectedInstanceId
-              ? props.activeTurnThroughput.tokensPerSecond
-              : null
-          }
+          throughput={props.activeTurnThroughput}
           disconnected={environmentUnavailable !== null}
         />
       ) : null}

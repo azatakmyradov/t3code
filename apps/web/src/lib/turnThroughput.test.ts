@@ -1,4 +1,10 @@
-import { ProviderInstanceId, ProviderThreadId, RunAttemptId, RunId } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ProviderThreadId,
+  RunAttemptId,
+  RunId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -9,13 +15,19 @@ const providerInstanceId = ProviderInstanceId.make("codex");
 const providerThreadId = ProviderThreadId.make("provider-thread");
 const attemptId = RunAttemptId.make("attempt");
 const runId = RunId.make("run");
+const modelSelection = { instanceId: providerInstanceId, model: "gpt-5" };
+const nativeThreadRef = {
+  driver: ProviderDriverKind.make("codex"),
+  nativeId: "native-thread",
+  strength: "strong" as const,
+};
 const startedAt = DateTime.makeUnsafe("2026-10-10T12:00:00.000Z");
 const completedAt = DateTime.makeUnsafe("2026-10-10T12:00:10.000Z");
 
 function makeProjection(overrides: Partial<Projection> = {}): Projection {
   return {
     thread: { activeProviderThreadId: providerThreadId },
-    providerThreads: [{ id: providerThreadId, providerInstanceId }],
+    providerThreads: [{ id: providerThreadId, providerInstanceId, nativeThreadRef }],
     providerTurns: [
       {
         providerThreadId,
@@ -38,12 +50,22 @@ function makeProjection(overrides: Partial<Projection> = {}): Projection {
       {
         id: attemptId,
         runId,
+        nativeThreadId: nativeThreadRef.nativeId,
         providerThreadId,
         providerInstanceId,
         status: "completed",
       },
     ],
-    runs: [{ id: runId, ordinal: 1, activeAttemptId: attemptId, status: "completed" }],
+    runs: [
+      {
+        id: runId,
+        ordinal: 1,
+        activeAttemptId: attemptId,
+        status: "completed",
+        providerThreadId,
+        modelSelection,
+      },
+    ],
     ...overrides,
   };
 }
@@ -57,6 +79,7 @@ describe("completed-turn throughput", () => {
   it("uses complete output totals including reasoning across the whole turn", () => {
     expect(deriveLatestTurnThroughput(makeProjection())).toEqual({
       providerInstanceId,
+      modelSelection,
       outputTokens: 250,
       durationMs: 10_000,
       tokensPerSecond: 25,
@@ -207,7 +230,13 @@ describe("completed-turn throughput", () => {
       deriveLatestTurnThroughput({
         ...projection,
         runs: [
-          { id: RunId.make("new-run"), ordinal: 2, activeAttemptId: null, status: "queued" },
+          {
+            ...projection.runs[0]!,
+            id: RunId.make("new-run"),
+            ordinal: 2,
+            activeAttemptId: null,
+            status: "queued",
+          },
           ...projection.runs,
         ],
       }),
@@ -232,6 +261,7 @@ describe("completed-turn throughput", () => {
         runs: [
           ...projection.runs,
           {
+            ...projection.runs[0]!,
             id: rolledBackRunId,
             ordinal: 2,
             activeAttemptId: rolledBackAttemptId,
@@ -240,5 +270,61 @@ describe("completed-turn throughput", () => {
         ],
       }),
     ).toBeNull();
+  });
+
+  it("does not show a previous native session's rate on a reused provider-thread row", () => {
+    const projection = makeProjection();
+    expect(
+      deriveLatestTurnThroughput({
+        ...projection,
+        providerThreads: [
+          {
+            ...projection.providerThreads[0]!,
+            nativeThreadRef: { ...nativeThreadRef, nativeId: "replacement-session" },
+          },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      deriveLatestTurnThroughput({
+        ...projection,
+        attempts: [{ ...projection.attempts[0]!, nativeThreadId: undefined }],
+      }),
+    ).toBeNull();
+  });
+
+  it("requires the owning run to name the same provider thread and account", () => {
+    const projection = makeProjection();
+    expect(
+      deriveLatestTurnThroughput({
+        ...projection,
+        runs: [{ ...projection.runs[0]!, providerThreadId: ProviderThreadId.make("other-thread") }],
+      }),
+    ).toBeNull();
+    expect(
+      deriveLatestTurnThroughput({
+        ...projection,
+        runs: [
+          {
+            ...projection.runs[0]!,
+            modelSelection: {
+              ...modelSelection,
+              instanceId: ProviderInstanceId.make("other-account"),
+            },
+          },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("returns the measured model for scoping a same-account model switch in the composer", () => {
+    const projection = makeProjection();
+    const measuredModel = { ...modelSelection, model: "measured-model" };
+    expect(
+      deriveLatestTurnThroughput({
+        ...projection,
+        runs: [{ ...projection.runs[0]!, modelSelection: measuredModel }],
+      })?.modelSelection,
+    ).toEqual(measuredModel);
   });
 });

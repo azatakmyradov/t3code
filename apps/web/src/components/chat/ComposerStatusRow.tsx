@@ -1,11 +1,16 @@
-import type { ServerProvider } from "@t3tools/contracts";
+import type { ModelSelection, ServerProvider } from "@t3tools/contracts";
 import type { ReactNode } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import { formatContextWindowTokens } from "../../lib/contextWindow";
+import type { TurnThroughput } from "../../lib/turnThroughput";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { composerQuotaStatus, formatStatusPercent } from "./ComposerStatusRow.logic";
+import {
+  composerQuotaStatus,
+  formatStatusPercent,
+  selectComposerUsage,
+} from "./ComposerStatusRow.logic";
 
 function StatusDetail({ children, description }: { children: ReactNode; description: string }) {
   return (
@@ -30,21 +35,36 @@ function StatusDetail({ children, description }: { children: ReactNode; descript
 /** A read-only summary of provider reports, with no extra polling or agent requests. */
 export function ComposerStatusRow({
   provider,
+  selectedModel,
   context,
+  contextModelSelection,
   showContext,
-  turnTokensPerSecond,
+  throughput,
   disconnected,
 }: {
-  provider: Pick<ServerProvider, "usageLimits"> | null;
+  provider: Pick<ServerProvider, "instanceId" | "driver" | "usageLimits"> | null;
+  selectedModel: ModelSelection;
   context: ContextWindowSnapshot | null;
+  contextModelSelection: ModelSelection | null;
   showContext: boolean;
-  turnTokensPerSecond: number | null;
+  throughput: TurnThroughput | null;
   disconnected: boolean;
 }) {
   const minute = useNowMinute();
-  const quota = composerQuotaStatus(provider, Date.parse(`${minute}:00Z`), disconnected);
-  const contextPercent = disconnected ? null : (context?.usedPercentage ?? null);
-  const throughput = disconnected ? null : turnTokensPerSecond;
+  const selectedUsage = selectComposerUsage({
+    provider,
+    selectedModel,
+    context,
+    contextModelSelection,
+    throughput,
+  });
+  const quota = composerQuotaStatus(
+    selectedUsage.provider,
+    Date.parse(`${minute}:00Z`),
+    disconnected,
+  );
+  const contextPercent = disconnected ? null : (selectedUsage.context?.usedPercentage ?? null);
+  const tokensPerSecond = disconnected ? null : selectedUsage.tokensPerSecond;
 
   return (
     <div
@@ -112,12 +132,12 @@ export function ComposerStatusRow({
         {showContext ? <span aria-hidden>·</span> : null}
         <StatusDetail
           description={
-            throughput === null
+            tokensPerSecond === null
               ? "Turn average is available after a completed turn reports complete token usage and timing. Live generation speed is not reported."
               : "Average output tokens per second for the latest completed turn, including reasoning tokens and time spent on tools or waiting. This is not live model generation speed."
           }
         >
-          {throughput === null ? "—" : Number(throughput.toFixed(1))} tok/s turn avg
+          {tokensPerSecond === null ? "—" : Number(tokensPerSecond.toFixed(1))} tok/s turn avg
         </StatusDetail>
       </div>
     </div>

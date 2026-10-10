@@ -4,7 +4,10 @@ import * as DateTime from "effect/DateTime";
 type TurnThroughputProjection = {
   readonly thread: Pick<OrchestrationV2ThreadProjection["thread"], "activeProviderThreadId">;
   readonly providerThreads: ReadonlyArray<
-    Pick<OrchestrationV2ThreadProjection["providerThreads"][number], "id" | "providerInstanceId">
+    Pick<
+      OrchestrationV2ThreadProjection["providerThreads"][number],
+      "id" | "providerInstanceId" | "nativeThreadRef"
+    >
   >;
   readonly providerTurns: ReadonlyArray<
     Pick<
@@ -21,13 +24,13 @@ type TurnThroughputProjection = {
   readonly attempts: ReadonlyArray<
     Pick<
       OrchestrationV2ThreadProjection["attempts"][number],
-      "id" | "runId" | "providerThreadId" | "providerInstanceId" | "status"
+      "id" | "runId" | "providerThreadId" | "providerInstanceId" | "status" | "nativeThreadId"
     >
   >;
   readonly runs: ReadonlyArray<
     Pick<
       OrchestrationV2ThreadProjection["runs"][number],
-      "id" | "ordinal" | "activeAttemptId" | "status"
+      "id" | "ordinal" | "activeAttemptId" | "status" | "modelSelection" | "providerThreadId"
     >
   >;
 };
@@ -60,11 +63,13 @@ export function deriveLatestTurnThroughput(projection: TurnThroughputProjection 
   }
 
   const attempt = projection.attempts.find((entry) => entry.id === latestTurn.runAttemptId);
+  const nativeId = providerThread.nativeThreadRef?.nativeId;
   if (
     attempt === undefined ||
     attempt.status !== "completed" ||
     attempt.providerThreadId !== providerThread.id ||
-    attempt.providerInstanceId !== providerThread.providerInstanceId
+    attempt.providerInstanceId !== providerThread.providerInstanceId ||
+    (nativeId !== undefined && attempt.nativeThreadId !== nativeId)
   ) {
     return null;
   }
@@ -77,6 +82,8 @@ export function deriveLatestTurnThroughput(projection: TurnThroughputProjection 
     latestRun === undefined ||
     latestRun.id !== attempt.runId ||
     latestRun.activeAttemptId !== attempt.id ||
+    latestRun.providerThreadId !== providerThread.id ||
+    latestRun.modelSelection.instanceId !== providerThread.providerInstanceId ||
     latestRun.status !== "completed"
   ) {
     return null;
@@ -98,6 +105,7 @@ export function deriveLatestTurnThroughput(projection: TurnThroughputProjection 
 
   return {
     providerInstanceId: providerThread.providerInstanceId,
+    modelSelection: latestRun.modelSelection,
     tokensPerSecond,
     outputTokens,
     durationMs,

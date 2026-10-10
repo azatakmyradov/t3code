@@ -1,7 +1,16 @@
-import type { ServerProviderUsageLimits, ServerProviderUsageWindow } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProviderUsageLimits,
+  type ServerProviderUsageWindow,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { composerQuotaStatus, formatStatusPercent } from "./ComposerStatusRow.logic";
+import {
+  composerQuotaStatus,
+  formatStatusPercent,
+  selectComposerUsage,
+} from "./ComposerStatusRow.logic";
 
 const now = Date.parse("2026-10-10T12:00:00Z");
 const session: ServerProviderUsageWindow = {
@@ -131,4 +140,142 @@ it("formats small percentages without confusing missing data with zero", () => {
     "100%",
     "—",
   ]);
+});
+
+describe("selected-provider usage scope", () => {
+  const selectedModel = {
+    instanceId: ProviderInstanceId.make("claude-work"),
+    model: "claude-opus-5-5",
+  };
+  const input: Parameters<typeof selectComposerUsage>[0] = {
+    selectedModel,
+    provider: {
+      instanceId: selectedModel.instanceId,
+      driver: ProviderDriverKind.make("claudeAgent"),
+      usageLimits: limits,
+    },
+    context: null,
+    contextModelSelection: null,
+    throughput: null,
+  };
+  const windowsFor = (model: string, windows: ServerProviderUsageWindow[]) =>
+    selectComposerUsage({
+      ...input,
+      selectedModel: { ...selectedModel, model },
+      provider: { ...input.provider!, usageLimits: { ...limits, windows } },
+    }).provider?.usageLimits?.windows;
+
+  it("keeps the selected account's time windows and only its matching Claude model bucket", () => {
+    const windows = [
+      session,
+      weekly,
+      ...["opus", "sonnet", "fable"].map((name) => ({
+        ...weekly,
+        id: `seven_day_${name}`,
+        label: `Weekly · ${name}`,
+      })),
+    ];
+    expect(windowsFor("claude-opus-5-5", windows)?.map(({ id }) => id)).toEqual([
+      "five_hour",
+      "seven_day",
+      "seven_day_opus",
+    ]);
+    expect(windowsFor("claude-sonnet-5-5", windows)?.map(({ id }) => id)).toEqual([
+      "five_hour",
+      "seven_day",
+      "seven_day_sonnet",
+    ]);
+    expect(windowsFor("fable", windows)?.map(({ id }) => id)).toEqual([
+      "five_hour",
+      "seven_day",
+      "seven_day_fable",
+    ]);
+    expect(windows).toHaveLength(5);
+  });
+
+  it("matches scoped display-name tokens on boundaries and omits ambiguous scopes", () => {
+    const windows = ["claude_fable_5_1", "fable", "overage_included", "other", ""].map((scope) => ({
+      ...weekly,
+      id: `seven_day_${scope}`,
+    }));
+    expect(windowsFor("claude-fable-5-1", windows)?.map(({ id }) => id)).toEqual([
+      "seven_day_claude_fable_5_1",
+      "seven_day_fable",
+    ]);
+    expect(windowsFor("myfableproxy", windows)).toEqual([]);
+  });
+
+  it.each([
+    "anthropic/claude-opus-5-5",
+    "openai/gpt-5",
+    "opencode/big-pickle",
+    "opencode-go-other/model",
+  ])("does not show OpenCode Go subscription usage for %s", (model) => {
+    const provider = {
+      ...input.provider!,
+      driver: ProviderDriverKind.make("opencode"),
+      usageLimits: {
+        ...limits,
+        windows: [
+          { ...session, id: "go_rolling" },
+          { ...weekly, id: "go_weekly" },
+        ],
+      },
+    };
+    const result = selectComposerUsage({
+      ...input,
+      selectedModel: { ...selectedModel, model },
+      provider,
+    });
+    expect(result.provider?.usageLimits?.windows).toEqual([]);
+    expect(result.provider?.usageLimits?.unavailable?.reason).toBe("unsupported");
+    expect(
+      selectComposerUsage({
+        ...input,
+        selectedModel: { ...selectedModel, model: "opencode-go/kimi-k2.5" },
+        provider,
+      }).provider?.usageLimits?.windows,
+    ).toHaveLength(2);
+  });
+
+  it("rejects a stale snapshot from another account even when the driver and model match", () => {
+    expect(
+      selectComposerUsage({
+        ...input,
+        selectedModel: { ...selectedModel, instanceId: ProviderInstanceId.make("claude-personal") },
+      }),
+    ).toEqual({ provider: null, context: null, tokensPerSecond: null });
+  });
+
+  it("does not substitute another account or model's completed turn rate", () => {
+    const throughput = {
+      providerInstanceId: selectedModel.instanceId,
+      modelSelection: selectedModel,
+      tokensPerSecond: 91,
+      outputTokens: 910,
+      durationMs: 10_000,
+    };
+    expect(selectComposerUsage({ ...input, throughput }).tokensPerSecond).toBe(91);
+    expect(
+      selectComposerUsage({
+        ...input,
+        throughput: {
+          ...throughput,
+          modelSelection: {
+            ...selectedModel,
+            instanceId: ProviderInstanceId.make("claude-personal"),
+          },
+        },
+      }).tokensPerSecond,
+    ).toBeNull();
+    expect(
+      selectComposerUsage({
+        ...input,
+        throughput: {
+          ...throughput,
+          modelSelection: { ...selectedModel, model: "claude-sonnet-5-5" },
+        },
+      }).tokensPerSecond,
+    ).toBeNull();
+  });
 });

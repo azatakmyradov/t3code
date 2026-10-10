@@ -5,6 +5,7 @@ import {
   RunAttemptId,
   RunId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import { selectActiveProviderThreadUsage } from "./providerTurnUsage";
@@ -24,7 +25,15 @@ const usage = { usedTokens: 10_000, maxTokens: 100_000, updatedAt: "2026-10-10T1
 function makeProjection(overrides: Partial<Projection> = {}): Projection {
   return {
     thread: { activeProviderThreadId: providerThreadId },
-    providerThreads: [{ id: providerThreadId, nativeThreadRef, lastRunOrdinal: 1 }],
+    providerThreads: [
+      {
+        id: providerThreadId,
+        providerInstanceId: modelSelection.instanceId,
+        nativeThreadRef,
+        lastRunOrdinal: 1,
+        nativeMetadata: null,
+      },
+    ],
     providerTurns: [{ providerThreadId, ordinal: 1, runAttemptId: attemptId, tokenUsage: usage }],
     attempts: [
       {
@@ -32,6 +41,7 @@ function makeProjection(overrides: Partial<Projection> = {}): Projection {
         runId,
         providerThreadId,
         nativeThreadId: nativeThreadRef.nativeId,
+        providerInstanceId: modelSelection.instanceId,
         status: "completed",
       },
     ],
@@ -42,6 +52,7 @@ function makeProjection(overrides: Partial<Projection> = {}): Projection {
         providerThreadId,
         modelSelection,
         status: "completed",
+        startedAt: DateTime.makeUnsafe("2026-10-10T11:59:00Z"),
         activeAttemptId: attemptId,
       },
     ],
@@ -67,7 +78,7 @@ describe("active provider-thread context usage", () => {
           },
         ],
       }),
-    ).toEqual({ usage: latestUsage, allowFallback: true });
+    ).toEqual({ usage: latestUsage, allowFallback: true, modelSelection });
   });
 
   it("retains the latest report until the next turn reports its own usage", () => {
@@ -80,7 +91,7 @@ describe("active provider-thread context usage", () => {
           { ...projection.providerTurns[0]!, ordinal: 2, tokenUsage: undefined },
         ],
       }),
-    ).toEqual({ usage, allowFallback: true });
+    ).toEqual({ usage, allowFallback: true, modelSelection });
   });
 
   it("never falls back to another provider thread after a handoff", () => {
@@ -90,18 +101,23 @@ describe("active provider-thread context usage", () => {
           thread: { activeProviderThreadId: ProviderThreadId.make("new-provider") },
         }),
       ),
-    ).toEqual({ usage: null, allowFallback: false });
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
   });
 
   it("returns no report for missing or unselected thread data", () => {
-    expect(selectActiveProviderThreadUsage(null)).toEqual({ usage: null, allowFallback: false });
+    expect(selectActiveProviderThreadUsage(null)).toEqual({
+      usage: null,
+      allowFallback: false,
+      modelSelection: null,
+    });
     expect(selectActiveProviderThreadUsage(makeProjection({ providerTurns: [] }))).toEqual({
       usage: null,
       allowFallback: true,
+      modelSelection,
     });
     expect(
       selectActiveProviderThreadUsage(makeProjection({ thread: { activeProviderThreadId: null } })),
-    ).toEqual({ usage: null, allowFallback: false });
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
   });
 
   it("does not resurrect usage from a rewound run or superseded attempt", () => {
@@ -111,29 +127,31 @@ describe("active provider-thread context usage", () => {
         ...projection,
         runs: [{ ...projection.runs[0]!, status: "rolled_back" }],
       }),
-    ).toEqual({ usage: null, allowFallback: false });
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
     expect(
       selectActiveProviderThreadUsage({
         ...projection,
         attempts: [{ ...projection.attempts[0]!, status: "superseded" }],
       }),
-    ).toEqual({ usage: null, allowFallback: false });
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
     expect(
       selectActiveProviderThreadUsage({
         ...projection,
         runs: [{ ...projection.runs[0]!, activeAttemptId: RunAttemptId.make("new-attempt") }],
       }),
-    ).toEqual({ usage: null, allowFallback: false });
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
   });
 
   it("requires an owning run and attempt when the turn names one", () => {
     expect(selectActiveProviderThreadUsage(makeProjection({ attempts: [] }))).toEqual({
       usage: null,
       allowFallback: false,
+      modelSelection: null,
     });
     expect(selectActiveProviderThreadUsage(makeProjection({ runs: [] }))).toEqual({
       usage: null,
       allowFallback: false,
+      modelSelection: null,
     });
   });
 
@@ -142,11 +160,14 @@ describe("active provider-thread context usage", () => {
     expect(
       selectActiveProviderThreadUsage({
         ...projection,
+        providerThreads: [
+          { ...projection.providerThreads[0]!, nativeMetadata: { modelSelection } },
+        ],
         providerTurns: [{ ...projection.providerTurns[0]!, runAttemptId: null }],
         runs: [],
         attempts: [],
       }),
-    ).toEqual({ usage, allowFallback: true });
+    ).toEqual({ usage, allowFallback: true, modelSelection });
   });
 
   it("suppresses all fallbacks when a durable row now points at a different native session", () => {
@@ -161,13 +182,13 @@ describe("active provider-thread context usage", () => {
           },
         ],
       }),
-    ).toEqual({ usage: null, allowFallback: false });
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
     expect(
       selectActiveProviderThreadUsage({
         ...projection,
         attempts: [{ ...projection.attempts[0]!, nativeThreadId: undefined }],
       }),
-    ).toEqual({ usage: null, allowFallback: false });
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
   });
 
   it("resumes presentation when the replacement session reports valid new usage", () => {
@@ -207,7 +228,11 @@ describe("active provider-thread context usage", () => {
         { ...projection.runs[0]!, id: nextRunId, ordinal: 2, activeAttemptId: newAttemptId },
       ],
     };
-    expect(selectActiveProviderThreadUsage(updated)).toEqual({ usage: null, allowFallback: false });
+    expect(selectActiveProviderThreadUsage(updated)).toEqual({
+      usage: null,
+      allowFallback: false,
+      modelSelection: null,
+    });
     expect(
       selectActiveProviderThreadUsage({
         ...updated,
@@ -216,7 +241,7 @@ describe("active provider-thread context usage", () => {
           { ...updated.providerTurns[1]!, tokenUsage: nextUsage },
         ],
       }),
-    ).toEqual({ usage: nextUsage, allowFallback: true });
+    ).toEqual({ usage: nextUsage, allowFallback: true, modelSelection });
   });
 
   it("uses the server-adjusted context window after a model switch on the same native session", () => {
@@ -235,7 +260,91 @@ describe("active provider-thread context usage", () => {
           },
         ],
       }),
-    ).toEqual({ usage: null, allowFallback: true });
+    ).toEqual({
+      usage: null,
+      allowFallback: true,
+      modelSelection: { ...modelSelection, model: "smaller-model" },
+    });
+  });
+
+  it.each(["starting", "failed"] as const)(
+    "keeps measured context on its original model when a new model run is %s but never started",
+    (status) => {
+      const projection = makeProjection();
+      const nextModelSelection = { ...modelSelection, model: "smaller-model" };
+      expect(
+        selectActiveProviderThreadUsage({
+          ...projection,
+          providerThreads: [
+            {
+              ...projection.providerThreads[0]!,
+              lastRunOrdinal: 2,
+              nativeMetadata: { modelSelection: nextModelSelection },
+            },
+          ],
+          runs: [
+            ...projection.runs,
+            {
+              ...projection.runs[0]!,
+              id: RunId.make("unstarted-model-switch"),
+              ordinal: 2,
+              modelSelection: nextModelSelection,
+              status,
+              startedAt: null,
+            },
+          ],
+        }),
+      ).toEqual({ usage, allowFallback: true, modelSelection });
+    },
+  );
+
+  it.each(["starting", "failed"] as const)(
+    "does not identify unmeasured fallback using setup metadata from a %s run",
+    (status) => {
+      const projection = makeProjection();
+      const nextModelSelection = { ...modelSelection, model: "smaller-model" };
+      expect(
+        selectActiveProviderThreadUsage({
+          ...projection,
+          providerTurns: [],
+          providerThreads: [
+            {
+              ...projection.providerThreads[0]!,
+              lastRunOrdinal: 2,
+              nativeMetadata: { modelSelection: nextModelSelection },
+            },
+          ],
+          runs: [
+            ...projection.runs,
+            {
+              ...projection.runs[0]!,
+              id: RunId.make("unstarted-model-switch"),
+              ordinal: 2,
+              modelSelection: nextModelSelection,
+              status,
+              startedAt: null,
+            },
+          ],
+        }),
+      ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
+    },
+  );
+
+  it("does not infer fallback ownership from native metadata when the latest run is missing", () => {
+    const projection = makeProjection();
+    expect(
+      selectActiveProviderThreadUsage({
+        ...projection,
+        providerTurns: [],
+        providerThreads: [
+          {
+            ...projection.providerThreads[0]!,
+            lastRunOrdinal: 2,
+            nativeMetadata: { modelSelection: { ...modelSelection, model: "smaller-model" } },
+          },
+        ],
+      }),
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
   });
 
   it("blocks fallback after a newer unmeasured turn is rolled back", () => {
@@ -269,6 +378,83 @@ describe("active provider-thread context usage", () => {
           },
         ],
       }),
-    ).toEqual({ usage: null, allowFallback: false });
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
+  });
+
+  it("identifies retained context by its owning run, not a newer native model report", () => {
+    const projection = makeProjection();
+    expect(
+      selectActiveProviderThreadUsage({
+        ...projection,
+        providerThreads: [
+          {
+            ...projection.providerThreads[0]!,
+            nativeMetadata: { modelSelection: { ...modelSelection, model: "different-model" } },
+          },
+        ],
+      }),
+    ).toEqual({ usage, allowFallback: true, modelSelection });
+  });
+
+  it("identifies imported provider-thread fallback from its native model report", () => {
+    const projection = makeProjection();
+    expect(
+      selectActiveProviderThreadUsage({
+        ...projection,
+        providerThreads: [
+          {
+            ...projection.providerThreads[0]!,
+            lastRunOrdinal: null,
+            nativeMetadata: { modelSelection },
+          },
+        ],
+        providerTurns: [],
+        attempts: [],
+        runs: [],
+      }),
+    ).toEqual({ usage: null, allowFallback: true, modelSelection });
+  });
+
+  it("keeps runless source identity unavailable without a matching provider model report", () => {
+    const projection = makeProjection();
+    for (const nativeMetadata of [
+      null,
+      {
+        modelSelection: {
+          ...modelSelection,
+          instanceId: ProviderInstanceId.make("other-account"),
+        },
+      },
+    ]) {
+      expect(
+        selectActiveProviderThreadUsage({
+          ...projection,
+          providerThreads: [{ ...projection.providerThreads[0]!, nativeMetadata }],
+          providerTurns: [{ ...projection.providerTurns[0]!, runAttemptId: null }],
+        }),
+      ).toEqual({ usage, allowFallback: true, modelSelection: null });
+    }
+  });
+
+  it("rejects a report whose attempt or owning model belongs to another account", () => {
+    const projection = makeProjection();
+    const otherInstanceId = ProviderInstanceId.make("other-account");
+    expect(
+      selectActiveProviderThreadUsage({
+        ...projection,
+        attempts: [{ ...projection.attempts[0]!, providerInstanceId: otherInstanceId }],
+      }),
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
+    expect(
+      selectActiveProviderThreadUsage({
+        ...projection,
+        runs: [
+          {
+            ...projection.runs[0]!,
+            modelSelection: { ...modelSelection, instanceId: otherInstanceId },
+          },
+        ],
+      }),
+    ).toEqual({ usage: null, allowFallback: false, modelSelection: null });
   });
 });
