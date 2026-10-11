@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
+import { NO_PROVIDER_MODEL_SELECTION } from "../../providerInstances";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import { formatContextWindowTokens } from "../../lib/contextWindow";
 import type { TurnThroughput } from "../../lib/turnThroughput";
@@ -81,16 +82,18 @@ export function ProviderUsageSection({
       >
         {multipleModels ? (
           <p className="py-1">Select one model to see its usage.</p>
+        ) : selectedModel.instanceId === NO_PROVIDER_MODEL_SELECTION.instanceId ? (
+          <p className="py-1">No provider selected</p>
         ) : (
           <>
             <Tooltip>
               <TooltipTrigger
                 render={<div className="mb-1 truncate text-xs font-medium text-foreground/80" />}
               >
-                {selectedUsage.provider?.displayName ?? selectedModel.instanceId}
+                {selectedUsage.provider?.displayName ?? "Selected provider"}
               </TooltipTrigger>
               <TooltipPopup side="top">
-                {selectedUsage.provider?.displayName ?? selectedModel.instanceId}
+                {selectedUsage.provider?.displayName ?? "Selected provider"}
               </TooltipPopup>
             </Tooltip>
             {quota.windows.map((window) => {

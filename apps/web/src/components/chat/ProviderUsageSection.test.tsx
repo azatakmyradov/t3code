@@ -5,6 +5,7 @@ import { ProviderDriverKind, ProviderInstanceId, type ModelSelection } from "@t3
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 
+import { NO_PROVIDER_MODEL_SELECTION } from "../../providerInstances";
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
 import { TooltipProvider } from "../ui/tooltip";
 import { ProviderUsageSection } from "./ProviderUsageSection";
@@ -272,6 +273,59 @@ it("stays outside the composer and follows closing, reopening, and changing the 
     composer.remove();
     sidebar.remove();
     popover.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("shows a readable empty state when providers are disabled and recovers when one is selected", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const container = document.createElement("div");
+  const host = document.createElement("div");
+  document.body.append(container, host);
+  const root = createRoot(container);
+  const selectedModel = { instanceId: ProviderInstanceId.make("codex-work"), model: "gpt-5" };
+  const render = async (enabled: boolean) => {
+    await act(async () =>
+      root.render(
+        <TooltipProvider>
+          <ProviderUsageSection
+            host={host}
+            multipleModels={false}
+            provider={
+              enabled
+                ? {
+                    instanceId: selectedModel.instanceId,
+                    driver: ProviderDriverKind.make("codex"),
+                    displayName: "Codex Work",
+                  }
+                : null
+            }
+            selectedModel={enabled ? selectedModel : NO_PROVIDER_MODEL_SELECTION}
+            context={null}
+            contextModelSelection={null}
+            showContext
+            throughput={null}
+            disconnected={false}
+          />
+        </TooltipProvider>,
+      ),
+    );
+  };
+  try {
+    await render(true);
+    expect(host.textContent).toContain("Codex Work");
+    await render(false);
+    expect(host.textContent).toBe("Provider usageNo provider selected");
+    expect(host.textContent).not.toContain("t3code_no_provider");
+    expect(host.textContent).not.toContain("Codex Work");
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    await render(true);
+    expect(host.textContent).toContain("Codex Work");
+    expect(host.textContent).not.toContain("No provider selected");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    host.remove();
     vi.unstubAllGlobals();
   }
 });
