@@ -1,7 +1,17 @@
 import { ProviderDriverKind } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveProviderInstanceAcpRegistryIconUrl } from "./ProviderInstanceIcon";
+import {
+  providerTextColor,
+  resolveProviderInstanceAcpRegistryIconUrl,
+} from "./ProviderInstanceIcon";
+
+it.each(["constructor", "toString", "unknown-driver"])(
+  "uses the default label color for the unknown driver %s",
+  (driver) => {
+    expect(providerTextColor(ProviderDriverKind.make(driver))).toEqual({});
+  },
+);
 
 describe("resolveProviderInstanceAcpRegistryIconUrl", () => {
   it("uses allowlisted catalog metadata and rejects untrusted overrides", () => {
