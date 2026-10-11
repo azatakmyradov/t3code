@@ -7,10 +7,10 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  composerQuotaStatus,
+  providerQuotaStatus,
   formatStatusPercent,
-  selectComposerUsage,
-} from "./ComposerStatusRow.logic";
+  selectProviderUsage,
+} from "./providerUsage.logic";
 
 const now = Date.parse("2026-10-10T12:00:00Z");
 const session: ServerProviderUsageWindow = {
@@ -35,7 +35,7 @@ const limits: ServerProviderUsageLimits = {
 
 describe("composer quota status", () => {
   it("shows used percentages in session/weekly order without mutating the snapshot", () => {
-    const status = composerQuotaStatus({ usageLimits: limits }, now);
+    const status = providerQuotaStatus({ usageLimits: limits }, now);
     expect(status.windows.map(({ shortLabel, usedPercent }) => [shortLabel, usedPercent])).toEqual([
       ["5h", 12],
       ["Week", 62],
@@ -44,7 +44,7 @@ describe("composer quota status", () => {
   });
 
   it("preserves monthly and model-specific scopes rather than inventing five-hour limits", () => {
-    const status = composerQuotaStatus(
+    const status = providerQuotaStatus(
       {
         usageLimits: {
           ...limits,
@@ -71,7 +71,7 @@ describe("composer quota status", () => {
   });
 
   it("keeps OpenCode Go quotas explicitly scoped to Go", () => {
-    const status = composerQuotaStatus(
+    const status = providerQuotaStatus(
       {
         usageLimits: {
           ...limits,
@@ -87,7 +87,7 @@ describe("composer quota status", () => {
   });
 
   it("keeps a failed probe's retained values visibly stale", () => {
-    const status = composerQuotaStatus(
+    const status = providerQuotaStatus(
       { usageLimits: { ...limits, unavailable: { reason: "probeFailed" } } },
       now,
     );
@@ -96,7 +96,7 @@ describe("composer quota status", () => {
   });
 
   it("does not present expired windows as either fresh usage or zero", () => {
-    const status = composerQuotaStatus({ usageLimits: limits }, Date.parse(session.resetsAt!));
+    const status = providerQuotaStatus({ usageLimits: limits }, Date.parse(session.resetsAt!));
     expect(status.windows[0]?.usedPercent).toBeNull();
     expect(status.windows[1]?.usedPercent).toBe(62);
   });
@@ -107,13 +107,13 @@ describe("composer quota status", () => {
     [{ usageLimits: { ...limits, unavailable: { reason: "unsupported" as const } } }, false],
     [{ usageLimits: limits }, true],
   ])("clears unavailable or disconnected account values", (provider, disconnected) => {
-    const status = composerQuotaStatus(provider, now, disconnected);
+    const status = providerQuotaStatus(provider, now, disconnected);
     expect(status.windows).toEqual([]);
     expect(status.unavailable).not.toBeNull();
   });
 
   it("keeps a true zero and clamps malformed percentages", () => {
-    const status = composerQuotaStatus(
+    const status = providerQuotaStatus(
       {
         usageLimits: {
           ...limits,
@@ -147,7 +147,7 @@ describe("selected-provider usage scope", () => {
     instanceId: ProviderInstanceId.make("claude-work"),
     model: "claude-opus-5-5",
   };
-  const input: Parameters<typeof selectComposerUsage>[0] = {
+  const input: Parameters<typeof selectProviderUsage>[0] = {
     selectedModel,
     provider: {
       instanceId: selectedModel.instanceId,
@@ -159,7 +159,7 @@ describe("selected-provider usage scope", () => {
     throughput: null,
   };
   const windowsFor = (model: string, windows: ServerProviderUsageWindow[]) =>
-    selectComposerUsage({
+    selectProviderUsage({
       ...input,
       selectedModel: { ...selectedModel, model },
       provider: { ...input.provider!, usageLimits: { ...limits, windows } },
@@ -222,7 +222,7 @@ describe("selected-provider usage scope", () => {
         ],
       },
     };
-    const result = selectComposerUsage({
+    const result = selectProviderUsage({
       ...input,
       selectedModel: { ...selectedModel, model },
       provider,
@@ -230,7 +230,7 @@ describe("selected-provider usage scope", () => {
     expect(result.provider?.usageLimits?.windows).toEqual([]);
     expect(result.provider?.usageLimits?.unavailable?.reason).toBe("unsupported");
     expect(
-      selectComposerUsage({
+      selectProviderUsage({
         ...input,
         selectedModel: { ...selectedModel, model: "opencode-go/kimi-k2.5" },
         provider,
@@ -240,7 +240,7 @@ describe("selected-provider usage scope", () => {
 
   it("rejects a stale snapshot from another account even when the driver and model match", () => {
     expect(
-      selectComposerUsage({
+      selectProviderUsage({
         ...input,
         selectedModel: { ...selectedModel, instanceId: ProviderInstanceId.make("claude-personal") },
       }),
@@ -255,9 +255,9 @@ describe("selected-provider usage scope", () => {
       outputTokens: 910,
       durationMs: 10_000,
     };
-    expect(selectComposerUsage({ ...input, throughput }).tokensPerSecond).toBe(91);
+    expect(selectProviderUsage({ ...input, throughput }).tokensPerSecond).toBe(91);
     expect(
-      selectComposerUsage({
+      selectProviderUsage({
         ...input,
         throughput: {
           ...throughput,
@@ -269,7 +269,7 @@ describe("selected-provider usage scope", () => {
       }).tokensPerSecond,
     ).toBeNull();
     expect(
-      selectComposerUsage({
+      selectProviderUsage({
         ...input,
         throughput: {
           ...throughput,

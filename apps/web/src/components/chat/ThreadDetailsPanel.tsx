@@ -29,6 +29,7 @@ export interface ThreadDetailsPanelProps extends Pick<
   "anchor" | "handle" | "onPresentationChange"
 > {
   forceNewWorktree?: boolean;
+  onProviderUsageHostChange?: (host: HTMLDivElement | null) => void;
   environmentId: EnvironmentId;
   threadId: ThreadId;
   draftId?: DraftId;
@@ -184,6 +185,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               </div>
             </ThreadDetailsSection>
           ) : null}
+
+          <div ref={props.onProviderUsageHostChange} />
 
           {density === "full" && !props.draftId ? (
             <ThreadAutomationsPanel environmentId={props.environmentId} threadId={props.threadId} />

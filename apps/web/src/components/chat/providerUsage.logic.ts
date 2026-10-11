@@ -45,8 +45,8 @@ function windowAppliesToModel(
 }
 
 /** Every metric follows the picker immediately, including before a new turn starts. */
-export function selectComposerUsage(input: {
-  provider: Pick<ServerProvider, "instanceId" | "driver" | "usageLimits"> | null;
+export function selectProviderUsage(input: {
+  provider: Pick<ServerProvider, "instanceId" | "driver" | "displayName" | "usageLimits"> | null;
   selectedModel: ModelSelection;
   context: ContextWindowSnapshot | null;
   contextModelSelection: ModelSelection | null;
@@ -108,7 +108,7 @@ function compactWindowLabel(window: ServerProviderUsageWindow): string {
 }
 
 /** Keep quota tied to the selected instance; another account's allowance is not a fallback. */
-export function composerQuotaStatus(
+export function providerQuotaStatus(
   provider: Pick<ServerProvider, "usageLimits"> | null,
   now: number,
   disconnected = false,

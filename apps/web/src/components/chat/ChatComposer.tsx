@@ -297,8 +297,8 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
-import { ComposerStatusRow } from "./ComposerStatusRow";
-import { usageModelMatchesSelection } from "./ComposerStatusRow.logic";
+import { ProviderUsageSection } from "./ProviderUsageSection";
+import { usageModelMatchesSelection } from "./providerUsage.logic";
 import type { TurnThroughput } from "../../lib/turnThroughput";
 import {
   providerSupportsManualCompaction,
@@ -1615,6 +1615,7 @@ export interface ChatComposerProps {
   activeContextWindow: ContextWindowSnapshot | null;
   activeContextModelSelection: ModelSelection | null;
   activeTurnThroughput: TurnThroughput | null;
+  providerUsageHost: HTMLDivElement | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -6661,7 +6662,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   // Render
   // ------------------------------------------------------------------
-  return (
+  const composerForm = (
     <form
       ref={composerFormRef}
       onSubmit={submitComposer}
@@ -7748,19 +7749,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           </div>
         </ComposerSurface.Main>
       </div>
-      {!isComposerCollapsedMobile &&
-      !isComposerApprovalState &&
-      multipleModelSelections === null ? (
-        <ComposerStatusRow
-          provider={selectedProviderStatus}
-          selectedModel={selectedModelSelection}
-          context={activeContextWindow}
-          contextModelSelection={props.activeContextModelSelection}
-          showContext={settings.contextWindowMeterEnabled}
-          throughput={props.activeTurnThroughput}
-          disconnected={environmentUnavailable !== null}
-        />
-      ) : null}
     </form>
+  );
+
+  // Portal events follow the React tree: usage must not reach composer capture handlers.
+  return (
+    <>
+      {composerForm}
+      <ProviderUsageSection
+        host={props.providerUsageHost}
+        provider={selectedProviderStatus}
+        selectedModel={selectedModelSelection}
+        multipleModels={multipleModelSelections !== null}
+        context={activeContextWindow}
+        contextModelSelection={props.activeContextModelSelection}
+        showContext={settings.contextWindowMeterEnabled}
+        throughput={props.activeTurnThroughput}
+        disconnected={environmentUnavailable !== null}
+      />
+    </>
   );
 });

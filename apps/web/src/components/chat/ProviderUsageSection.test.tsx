@@ -7,14 +7,15 @@ import { expect, it, vi } from "vite-plus/test";
 
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
 import { TooltipProvider } from "../ui/tooltip";
-import { ComposerStatusRow } from "./ComposerStatusRow";
+import { ProviderUsageSection } from "./ProviderUsageSection";
 
 vi.mock("../../hooks/useNowMinute", () => ({ useNowMinute: () => "2026-10-10T12:00" }));
 
 it("updates reported metrics and clears another account's values when switching or disconnecting", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
-  document.body.append(container);
+  const host = document.createElement("div");
+  document.body.append(container, host);
   const root = createRoot(container);
   const selectedModel = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" };
   const context = deriveLatestContextWindowSnapshot([], {
@@ -26,7 +27,9 @@ it("updates reported metrics and clears another account's values when switching 
     await act(async () => {
       root.render(
         <TooltipProvider>
-          <ComposerStatusRow
+          <ProviderUsageSection
+            host={host}
+            multipleModels={false}
             provider={
               reported
                 ? {
@@ -70,23 +73,24 @@ it("updates reported metrics and clears another account's values when switching 
   };
   try {
     await render(true);
-    expect(container.textContent).toContain("5h12%");
-    expect(container.textContent).toContain("5% context");
-    expect(container.textContent).toContain("91 tok/s turn avg");
+    expect(host.textContent).toContain("5h12%");
+    expect(host.textContent).toContain("Context5%");
+    expect(host.textContent).toContain("Turn average91 tok/s");
     await render(false);
-    expect(container.textContent).toContain("Quota —");
-    expect(container.textContent).toContain("— context");
-    expect(container.textContent).toContain("— tok/s turn avg");
-    expect(container.textContent).not.toContain("12%");
+    expect(host.textContent).toContain("QuotaUnavailable");
+    expect(host.textContent).toContain("Context—");
+    expect(host.textContent).toContain("Turn average— tok/s");
+    expect(host.textContent).not.toContain("12%");
     await render(true, true);
-    expect(container.textContent).not.toContain("12%");
-    expect(container.textContent).not.toContain("91 tok/s");
+    expect(host.textContent).not.toContain("12%");
+    expect(host.textContent).not.toContain("91 tok/s");
     await render(true, false, false);
-    expect(container.textContent).not.toContain("context");
-    expect(container.textContent).toContain("91 tok/s turn avg");
+    expect(host.textContent).not.toContain("Context");
+    expect(host.textContent).toContain("Turn average91 tok/s");
   } finally {
     await act(async () => root.unmount());
     container.remove();
+    host.remove();
     vi.unstubAllGlobals();
   }
 });
@@ -94,7 +98,8 @@ it("updates reported metrics and clears another account's values when switching 
 it("follows provider and model picks immediately while their new telemetry is still loading", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
-  document.body.append(container);
+  const host = document.createElement("div");
+  document.body.append(container, host);
   const root = createRoot(container);
   const opus = { instanceId: ProviderInstanceId.make("claude-work"), model: "claude-opus-5-5" };
   const sonnet = { ...opus, model: "claude-sonnet-5-5" };
@@ -153,7 +158,9 @@ it("follows provider and model picks immediately while their new telemetry is st
     await act(async () => {
       root.render(
         <TooltipProvider>
-          <ComposerStatusRow
+          <ProviderUsageSection
+            host={host}
+            multipleModels={false}
             provider={provider}
             selectedModel={selectedModel}
             context={context}
@@ -174,28 +181,97 @@ it("follows provider and model picks immediately while their new telemetry is st
   };
   try {
     await render(opus);
-    expect(container.textContent).toContain("5h12%");
-    expect(container.textContent).toContain("Week62%");
-    expect(container.textContent).toContain("Week · Opus71%");
-    expect(container.textContent).not.toContain("Sonnet");
+    expect(host.textContent).toContain("5h12%");
+    expect(host.textContent).toContain("Week62%");
+    expect(host.textContent).toContain("Week · Opus71%");
+    expect(host.textContent).not.toContain("Sonnet");
     await render(sonnet);
-    expect(container.textContent).toContain("Week · Sonnet84%");
-    expect(container.textContent).not.toContain("Opus");
-    expect(container.textContent).toContain("— context");
-    expect(container.textContent).toContain("— tok/s turn avg");
+    expect(host.textContent).toContain("Week · Sonnet84%");
+    expect(host.textContent).not.toContain("Opus");
+    expect(host.textContent).toContain("Context—");
+    expect(host.textContent).toContain("Turn average— tok/s");
     await render(codex);
-    expect(container.textContent).toContain("Quota —");
-    expect(container.textContent).not.toMatch(/12%|62%|71%|84%/);
+    expect(host.textContent).toContain("QuotaUnavailable");
+    expect(host.textContent).not.toMatch(/12%|62%|71%|84%/);
     await render(codex, codexProvider);
-    expect(container.textContent).toContain("5h34%");
-    expect(container.textContent).toContain("— context");
-    expect(container.textContent).toContain("— tok/s turn avg");
+    expect(host.textContent).toContain("5h34%");
+    expect(host.textContent).toContain("Context—");
+    expect(host.textContent).toContain("Turn average— tok/s");
     await render(codex, codexProvider, codex);
-    expect(container.textContent).toContain("5% context");
-    expect(container.textContent).toContain("91 tok/s turn avg");
+    expect(host.textContent).toContain("Context5%");
+    expect(host.textContent).toContain("Turn average91 tok/s");
   } finally {
     await act(async () => root.unmount());
     container.remove();
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("stays outside the composer and follows closing, reopening, and changing the card host", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const composer = document.createElement("form");
+  const sidebar = document.createElement("div");
+  const popover = document.createElement("div");
+  document.body.append(composer, sidebar, popover);
+  const root = createRoot(composer);
+  const selectedModel = { instanceId: ProviderInstanceId.make("codex-work"), model: "gpt-5" };
+  const render = async (host: HTMLDivElement | null, multipleModels = false) => {
+    await act(async () =>
+      root.render(
+        <TooltipProvider>
+          <ProviderUsageSection
+            host={host}
+            multipleModels={multipleModels}
+            provider={{
+              instanceId: selectedModel.instanceId,
+              driver: ProviderDriverKind.make("codex"),
+              displayName: "Codex Work",
+              usageLimits: {
+                checkedAt: "2026-10-10T11:59:00Z",
+                windows: [
+                  {
+                    id: "primary",
+                    kind: "session",
+                    label: "Session",
+                    windowDurationMins: 300,
+                    usedPercent: 12,
+                  },
+                ],
+              },
+            }}
+            selectedModel={selectedModel}
+            context={null}
+            contextModelSelection={null}
+            showContext
+            throughput={null}
+            disconnected={false}
+          />
+        </TooltipProvider>,
+      ),
+    );
+  };
+  try {
+    await render(sidebar);
+    expect(composer.textContent).toBe("");
+    expect(sidebar.textContent).toContain("Codex Work5h12%");
+    await render(null);
+    expect(sidebar.textContent).toBe("");
+    await render(popover);
+    expect(sidebar.textContent).toBe("");
+    expect(popover.textContent).toContain("Codex Work5h12%");
+    await render(popover, true);
+    expect(popover.textContent).toContain("Select one model to see its usage.");
+    expect(popover.textContent).not.toContain("12%");
+    await render(sidebar);
+    expect(popover.textContent).toBe("");
+    expect(sidebar.textContent).toContain("5h12%");
+    expect(composer.textContent).toBe("");
+  } finally {
+    await act(async () => root.unmount());
+    composer.remove();
+    sidebar.remove();
+    popover.remove();
     vi.unstubAllGlobals();
   }
 });

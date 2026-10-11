@@ -1868,6 +1868,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
+  const [providerUsageHost, setProviderUsageHost] = useState<HTMLDivElement | null>(null);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
   const [restingComposerControlsVisible, setRestingComposerControlsVisible] = useState(false);
@@ -11205,6 +11206,7 @@ export default function ChatView(props: ChatViewProps) {
     handle: threadPanelPopoverHandle,
     onPresentationChange: setThreadPanelPresentation,
     forceNewWorktree: multipleModelSelections !== null,
+    onProviderUsageHostChange: setProviderUsageHost,
     environmentId: activeThread.environmentId,
     threadId: activeThread.id,
     ...(draftId ? { draftId } : {}),
@@ -11782,6 +11784,7 @@ export default function ChatView(props: ChatViewProps) {
                                 activeThreadUsageSelection.modelSelection
                               }
                               activeTurnThroughput={activeTurnThroughput}
+                              providerUsageHost={providerUsageHost}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}
