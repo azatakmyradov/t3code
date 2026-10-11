@@ -1,4 +1,4 @@
-import type { ModelSelection } from "@t3tools/contracts";
+import type { EnvironmentId, ModelSelection } from "@t3tools/contracts";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -9,6 +9,20 @@ import { formatContextWindowTokens } from "../../lib/contextWindow";
 import type { TurnThroughput } from "../../lib/turnThroughput";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
+import { ThreadDetailsControl } from "./ThreadDetailsControl";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItemLabel,
+  MenuPopup,
+  MenuTrigger,
+} from "../ui/menu";
+import {
+  selectHiddenUsageProviderIds,
+  useProviderUsagePreferencesStore,
+} from "../../providerUsagePreferencesStore";
 import { providerQuotaStatus, formatStatusPercent, selectThreadUsage } from "./providerUsage.logic";
 
 function UsageDetail({ children, description }: { children: ReactNode; description: string }) {
@@ -66,7 +80,7 @@ function ProviderQuotaGroup({
   now: number;
   disconnected: boolean;
 }) {
-  const state = !entry.enabled ? "Disabled" : !entry.isAvailable ? "Unavailable" : null;
+  const state = !entry.isAvailable ? "Unavailable" : null;
   const quota = providerQuotaStatus(entry.snapshot, now, disconnected);
   return (
     <div
@@ -132,9 +146,10 @@ function ProviderQuotaGroup({
   );
 }
 
-/** Quotas cover every configured account; thread metrics stay scoped to the picker. */
+/** Quotas cover visible enabled accounts; thread metrics stay scoped to the picker. */
 export function ProviderUsageSection({
   host,
+  environmentId,
   providers,
   catalogKnown,
   selectedModel,
@@ -146,6 +161,7 @@ export function ProviderUsageSection({
   disconnected,
 }: {
   host: HTMLDivElement | null;
+  environmentId: EnvironmentId;
   providers: ReadonlyArray<ProviderInstanceEntry>;
   catalogKnown: boolean;
   selectedModel: ModelSelection;
@@ -157,9 +173,18 @@ export function ProviderUsageSection({
   disconnected: boolean;
 }) {
   const minute = useNowMinute();
+  const hiddenIds = useProviderUsagePreferencesStore((state) =>
+    selectHiddenUsageProviderIds(state, environmentId),
+  );
+  const setHidden = useProviderUsagePreferencesStore((state) => state.setHidden);
+  const showAll = useProviderUsagePreferencesStore((state) => state.showAll);
+  const enabledProviders = providers.filter((entry) => entry.enabled);
+  const visibleProviders = enabledProviders.filter(
+    (entry) => !hiddenIds.includes(entry.instanceId),
+  );
   const selectedProvider = multipleModels
     ? null
-    : (providers.find(
+    : (visibleProviders.find(
         (entry) =>
           entry.instanceId === selectedModel.instanceId && entry.enabled && entry.isAvailable,
       ) ?? null);
@@ -175,25 +200,63 @@ export function ProviderUsageSection({
   if (host === null) return null;
 
   return createPortal(
-    <ThreadDetailsSection headingId="thread-details-usage-heading" title="Provider usage">
+    <ThreadDetailsSection
+      headingId="thread-details-usage-heading"
+      title="Provider usage"
+      actions={
+        enabledProviders.length > 0 ? (
+          <Menu>
+            <MenuTrigger
+              render={<ThreadDetailsControl part="meta" aria-label="Choose visible providers" />}
+            >
+              Show/hide
+            </MenuTrigger>
+            <MenuPopup align="end">
+              <MenuGroup>
+                <MenuGroupLabel>Shown in this sidebar</MenuGroupLabel>
+                {enabledProviders.map((entry) => (
+                  <MenuCheckboxItem
+                    key={entry.instanceId}
+                    checked={!hiddenIds.includes(entry.instanceId)}
+                    onCheckedChange={(checked) =>
+                      setHidden(environmentId, entry.instanceId, !checked)
+                    }
+                    closeOnClick={false}
+                  >
+                    <MenuItemLabel>{instanceLabel(entry, enabledProviders)}</MenuItemLabel>
+                  </MenuCheckboxItem>
+                ))}
+              </MenuGroup>
+            </MenuPopup>
+          </Menu>
+        ) : undefined
+      }
+    >
       <div
         data-provider-usage-section
         className="min-w-0 space-y-2 px-2.5 text-2xs leading-4 text-muted-foreground tabular-nums"
       >
-        {providers.length === 0 ? (
+        {enabledProviders.length === 0 ? (
           <p className="py-1">
             {disconnected
               ? "Reconnect to see provider usage."
               : catalogKnown
-                ? "No providers configured"
+                ? "No enabled providers"
                 : "Loading providers…"}
           </p>
+        ) : visibleProviders.length === 0 ? (
+          <div className="flex items-center justify-between gap-2 py-1">
+            <p>All providers hidden</p>
+            <ThreadDetailsControl part="meta" onClick={() => showAll(environmentId)}>
+              Show all
+            </ThreadDetailsControl>
+          </div>
         ) : (
-          providers.map((entry) => (
+          visibleProviders.map((entry) => (
             <ProviderQuotaGroup
               key={entry.instanceId}
               entry={entry}
-              label={instanceLabel(entry, providers)}
+              label={instanceLabel(entry, enabledProviders)}
               now={Date.parse(`${minute}:00Z`)}
               disconnected={disconnected}
             />
@@ -202,7 +265,7 @@ export function ProviderUsageSection({
         {selectedProvider ? (
           <div data-thread-usage className="min-w-0 border-t border-border/40 pt-2">
             <p className="mb-1 font-medium">Thread usage · selected model</p>
-            <UsageLabel>{`${instanceLabel(selectedProvider, providers)} · ${selectedModel.model}`}</UsageLabel>
+            <UsageLabel>{`${instanceLabel(selectedProvider, enabledProviders)} · ${selectedModel.model}`}</UsageLabel>
             {showContext ? (
               <UsageDetail
                 description={

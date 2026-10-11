@@ -1,18 +1,25 @@
 // @vitest-environment jsdom
 
 import { act, type ComponentProps } from "react";
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
 import {
+  applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
 } from "../../providerInstances";
 import { TooltipProvider } from "../ui/tooltip";
 import { ProviderUsageSection } from "./ProviderUsageSection";
 import { selectConfiguredUsageProviders } from "./providerUsage.logic";
+import { useProviderUsagePreferencesStore } from "../../providerUsagePreferencesStore";
 
 vi.mock("../../hooks/useNowMinute", () => ({ useNowMinute: () => "2026-10-10T12:00" }));
 
@@ -64,6 +71,7 @@ const claude = provider("claude-work", "Claude Work", 56, {
     ],
   },
 });
+const environmentId = EnvironmentId.make("usage-environment");
 const selectedModel = { instanceId: claude.instanceId, model: "claude-opus-5-5" };
 const context = deriveLatestContextWindowSnapshot([], {
   usedTokens: 10_000,
@@ -75,6 +83,7 @@ let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  useProviderUsagePreferencesStore.setState({ hiddenByEnvironment: {} });
   composer = document.createElement("form");
   host = document.createElement("div");
   document.body.append(composer, host);
@@ -92,6 +101,7 @@ async function render(overrides: Partial<ComponentProps<typeof ProviderUsageSect
       <TooltipProvider>
         <ProviderUsageSection
           host={host}
+          environmentId={environmentId}
           providers={deriveProviderInstanceEntries([codex, personal, claude])}
           catalogKnown
           selectedModel={selectedModel}
@@ -176,14 +186,14 @@ it("retains all providers in multi-model mode but never assigns thread metrics t
   expect(threadUsage()?.textContent).toContain("Turn average91 tok/s");
 });
 
-it("shows disabled and unavailable instances honestly without cached quota or thread values", async () => {
+it("omits disabled providers and shows enabled unavailable instances without cached values", async () => {
   await render({
     providers: deriveProviderInstanceEntries([
       { ...codex, enabled: false },
       { ...claude, availability: "unavailable" },
     ]),
   });
-  expect(group("codex").textContent).toBe("CodexDisabled");
+  expect(host.querySelector('[data-provider-usage-instance="codex"]')).toBeNull();
   expect(group("claude-work").textContent).toBe("Claude WorkUnavailable");
   expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
   expect(threadUsage()).toBeNull();
@@ -248,7 +258,7 @@ it("distinguishes loading, empty, and disconnected catalogs without exposing pla
   await render({ providers: [], catalogKnown: false, selectedModel: NO_PROVIDER_MODEL_SELECTION });
   expect(host.textContent).toContain("Loading providers…");
   await render({ providers: [], selectedModel: NO_PROVIDER_MODEL_SELECTION });
-  expect(host.textContent).toBe("Provider usageNo providers configured");
+  expect(host.textContent).toBe("Provider usageNo enabled providers");
   await render({ providers: [], disconnected: true });
   expect(host.textContent).toContain("Reconnect to see provider usage.");
   expect(host.textContent).not.toContain("t3code_no_provider");
@@ -290,3 +300,92 @@ it.each(["fork-driver", "acpRegistry", "constructor"])(
     expect(group("codex").textContent).toContain("12%");
   },
 );
+
+it("hides and restores accounts through the menu without disabling them", async () => {
+  await render();
+  const trigger = host.parentElement!.querySelector<HTMLButtonElement>(
+    '[aria-label="Choose visible providers"]',
+  )!;
+  await act(async () => trigger.click());
+  const choice = () =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find(
+      (item) => item.textContent === "Claude Work",
+    )!;
+  expect(choice().getAttribute("aria-checked")).toBe("true");
+  await act(async () => choice().click());
+  expect(host.querySelector('[data-provider-usage-instance="claude-work"]')).toBeNull();
+  expect(threadUsage()).toBeNull();
+  expect(claude.enabled).toBe(true);
+  expect(choice().getAttribute("aria-checked")).toBe("false");
+  await act(async () => choice().click());
+  expect(group("claude-work").textContent).toContain("56%");
+  expect(threadUsage()?.textContent).toContain("91 tok/s");
+});
+
+it("keeps restoration discoverable when all enabled providers are hidden", async () => {
+  await render();
+  await act(async () => {
+    for (const snapshot of [codex, personal, claude]) {
+      useProviderUsagePreferencesStore
+        .getState()
+        .setHidden(environmentId, snapshot.instanceId, true);
+    }
+  });
+  expect(host.textContent).toContain("All providers hidden");
+  expect(host.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(0);
+  expect(host.querySelector('[aria-label="Choose visible providers"]')).not.toBeNull();
+  const showAll = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "Show all",
+  )!;
+  await act(async () => showAll.click());
+  expect(host.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(3);
+  expect(host.textContent).not.toContain("All providers hidden");
+});
+
+it("excludes disabled providers from groups and choices and remembers hidden choices across re-enable", async () => {
+  await render({
+    providers: deriveProviderInstanceEntries([{ ...codex, enabled: false }, personal]),
+  });
+  expect(host.querySelector('[data-provider-usage-instance="codex"]')).toBeNull();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="Choose visible providers"]')!.click(),
+  );
+  expect(
+    [...document.querySelectorAll('[role="menuitemcheckbox"]')].map((item) => item.textContent),
+  ).toEqual(["Codex Personal"]);
+  await act(async () => document.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!.click());
+  await render({ providers: deriveProviderInstanceEntries([{ ...personal, enabled: false }]) });
+  expect(host.textContent).toBe("Provider usageNo enabled providers");
+  await render({ providers: deriveProviderInstanceEntries([personal]) });
+  expect(host.textContent).toContain("All providers hidden");
+  await render({
+    environmentId: EnvironmentId.make("other-environment"),
+    providers: deriveProviderInstanceEntries([personal]),
+  });
+  expect(group("codex-personal").textContent).toContain("34%");
+});
+
+it("honors settings disable immediately while the previous ready snapshot still reports quota", async () => {
+  const snapshots = deriveProviderInstanceEntries([codex]);
+  const disabled = {
+    providerInstances: { [codex.instanceId]: { driver: codex.driver, enabled: false } },
+  };
+  await render({
+    providers: selectConfiguredUsageProviders(
+      applyProviderInstanceSettings(snapshots, disabled),
+      disabled,
+    ),
+  });
+  expect(host.textContent).toBe("Provider usageNo enabled providers");
+  expect(host.querySelector('[role="progressbar"]')).toBeNull();
+  const enabled = {
+    providerInstances: { [codex.instanceId]: { driver: codex.driver, enabled: true } },
+  };
+  await render({
+    providers: selectConfiguredUsageProviders(
+      applyProviderInstanceSettings(snapshots, enabled),
+      enabled,
+    ),
+  });
+  expect(group("codex").textContent).toContain("12%");
+});

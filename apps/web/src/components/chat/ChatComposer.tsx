@@ -7762,6 +7762,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       {composerForm}
       <ProviderUsageSection
         host={props.providerUsageHost}
+        environmentId={environmentId}
         providers={usageProviderEntries}
         catalogKnown={providerCatalogKnown}
         selectedModel={selectedModelSelection}
