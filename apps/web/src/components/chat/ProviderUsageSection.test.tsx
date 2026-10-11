@@ -93,6 +93,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   composer.remove();
   host.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 async function render(overrides: Partial<ComponentProps<typeof ProviderUsageSection>> = {}) {
@@ -172,7 +173,7 @@ it("keeps duplicate labels and same-driver accounts distinct through updates and
     providers: deriveProviderInstanceEntries([{ ...personal, usageLimits: undefined }]),
   });
   expect(host.querySelector('[data-provider-usage-instance="codex"]')).toBeNull();
-  expect(group("codex-personal").textContent).toContain("QuotaUnavailable");
+  expect(group("codex-personal").textContent).toContain("Codex PersonalUnavailable");
   expect(host.textContent).not.toMatch(/12%|34%/);
 });
 
@@ -199,6 +200,29 @@ it("omits disabled providers and shows enabled unavailable instances without cac
   expect(threadUsage()).toBeNull();
   await render();
   expect(group("codex").textContent).toContain("12%");
+});
+
+it("explains compact unavailable rows on keyboard focus without implying an empty quota", async () => {
+  vi.useFakeTimers();
+  await render({
+    providers: deriveProviderInstanceEntries([{ ...codex, usageLimits: undefined }]),
+  });
+  const row = group("codex").querySelector<HTMLElement>('[role="group"]')!;
+  expect(row.textContent).toBe("CodexUnavailable");
+  expect(group("codex").querySelector('[role="progressbar"]')).toBeNull();
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+    row.focus();
+    await vi.advanceTimersByTimeAsync(60);
+  });
+  expect(document.querySelector('[data-slot="tooltip-popup"][data-open]')?.textContent).toBe(
+    "Codex: No subscription usage has been reported for this account.",
+  );
+  await act(async () => {
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.advanceTimersByTimeAsync(100);
+  });
+  expect(document.querySelector('[data-slot="tooltip-popup"][data-open]')).toBeNull();
 });
 
 it("clears every account on disconnect and restores only its current report on reconnect", async () => {
@@ -258,7 +282,7 @@ it("distinguishes loading, empty, and disconnected catalogs without exposing pla
   await render({ providers: [], catalogKnown: false, selectedModel: NO_PROVIDER_MODEL_SELECTION });
   expect(host.textContent).toContain("Loading providers…");
   await render({ providers: [], selectedModel: NO_PROVIDER_MODEL_SELECTION });
-  expect(host.textContent).toBe("Provider usageNo enabled providers");
+  expect(host.textContent).toBe("UsageNo enabled providers");
   await render({ providers: [], disconnected: true });
   expect(host.textContent).toContain("Reconnect to see provider usage.");
   expect(host.textContent).not.toContain("t3code_no_provider");
@@ -355,7 +379,7 @@ it("excludes disabled providers from groups and choices and remembers hidden cho
   ).toEqual(["Codex Personal"]);
   await act(async () => document.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!.click());
   await render({ providers: deriveProviderInstanceEntries([{ ...personal, enabled: false }]) });
-  expect(host.textContent).toBe("Provider usageNo enabled providers");
+  expect(host.textContent).toBe("UsageNo enabled providers");
   await render({ providers: deriveProviderInstanceEntries([personal]) });
   expect(host.textContent).toContain("All providers hidden");
   await render({
@@ -376,7 +400,7 @@ it("honors settings disable immediately while the previous ready snapshot still 
       disabled,
     ),
   });
-  expect(host.textContent).toBe("Provider usageNo enabled providers");
+  expect(host.textContent).toBe("UsageNo enabled providers");
   expect(host.querySelector('[role="progressbar"]')).toBeNull();
   const enabled = {
     providerInstances: { [codex.instanceId]: { driver: codex.driver, enabled: true } },

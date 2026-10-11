@@ -1,4 +1,5 @@
 import type { EnvironmentId, ModelSelection } from "@t3tools/contracts";
+import { GaugeIcon, MoreHorizontalIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -7,9 +8,17 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import { formatContextWindowTokens } from "../../lib/contextWindow";
 import type { TurnThroughput } from "../../lib/turnThroughput";
+import { cn } from "../../lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
+import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import {
+  THREAD_DETAILS_PANEL_ICON_CLASS,
+  THREAD_DETAILS_PANEL_LABEL_CLASS,
+  THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
+  THREAD_DETAILS_PANEL_TEXT_CLASS,
+} from "./threadDetailsPanelStyles";
 import {
   Menu,
   MenuCheckboxItem,
@@ -25,7 +34,15 @@ import {
 } from "../../providerUsagePreferencesStore";
 import { providerQuotaStatus, formatStatusPercent, selectThreadUsage } from "./providerUsage.logic";
 
-function UsageDetail({ children, description }: { children: ReactNode; description: string }) {
+function UsageDetail({
+  children,
+  description,
+  className,
+}: {
+  children: ReactNode;
+  description: string;
+  className?: string;
+}) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -34,7 +51,10 @@ function UsageDetail({ children, description }: { children: ReactNode; descripti
             role="group"
             tabIndex={0}
             aria-label={description}
-            className="flex min-w-0 items-center justify-between gap-2 rounded-sm py-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            className={cn(
+              "flex min-w-0 items-center justify-between gap-2 rounded-md py-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              className,
+            )}
           />
         }
       >
@@ -45,14 +65,22 @@ function UsageDetail({ children, description }: { children: ReactNode; descripti
   );
 }
 
-function UsageLabel({ children }: { children: string }) {
+function UsageLabel({ children, tooltip = true }: { children: string; tooltip?: boolean }) {
+  const label = (
+    <div
+      className={cn(
+        "min-w-0 flex-1 truncate",
+        THREAD_DETAILS_PANEL_TEXT_CLASS,
+        THREAD_DETAILS_PANEL_LABEL_CLASS,
+      )}
+    >
+      {children}
+    </div>
+  );
+  if (!tooltip) return label;
   return (
     <Tooltip>
-      <TooltipTrigger
-        render={<div className="min-w-0 truncate text-xs font-medium text-foreground/80" />}
-      >
-        {children}
-      </TooltipTrigger>
+      <TooltipTrigger render={label} />
       <TooltipPopup side="top">{children}</TooltipPopup>
     </Tooltip>
   );
@@ -80,68 +108,89 @@ function ProviderQuotaGroup({
   now: number;
   disconnected: boolean;
 }) {
-  const state = !entry.isAvailable ? "Unavailable" : null;
   const quota = providerQuotaStatus(entry.snapshot, now, disconnected);
+  const unavailable = !entry.isAvailable
+    ? "This provider is unavailable in the current environment."
+    : quota.unavailable;
+  const identity = (
+    <>
+      <span aria-hidden="true">
+        <ProviderInstanceIcon
+          driverKind={entry.driverKind}
+          displayName={entry.displayName}
+          acpRegistryAgentId={entry.acpRegistryAgentId}
+          acpRegistryIconUrl={entry.acpRegistryIconUrl}
+          iconClassName={THREAD_DETAILS_PANEL_ICON_CLASS}
+        />
+      </span>
+      <UsageLabel tooltip={unavailable === null}>{label}</UsageLabel>
+    </>
+  );
   return (
-    <div
-      data-provider-usage-instance={entry.instanceId}
-      className="min-w-0 not-first:border-t not-first:border-border/40 not-first:pt-2"
-    >
-      <div className="mb-1 flex min-w-0 items-center justify-between gap-2">
-        <UsageLabel>{label}</UsageLabel>
-        {state ? <span className="shrink-0">{state}</span> : null}
-      </div>
-      {state === null ? (
+    <div data-provider-usage-instance={entry.instanceId} className="min-w-0">
+      {unavailable !== null ? (
+        <UsageDetail
+          description={`${label}: ${unavailable}`}
+          className={cn("h-8 py-0", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)}
+        >
+          {identity}
+          <span className="shrink-0">Unavailable</span>
+        </UsageDetail>
+      ) : (
         <>
-          {quota.windows.map((window) => {
-            const percent = formatStatusPercent(window.usedPercent);
-            const description = [
-              `${label} · ${window.label}: ${window.usedPercent === null ? "waiting for refreshed usage after reset" : `${percent} used`}.`,
-              window.resetsAt ? `Resets ${new Date(window.resetsAt).toLocaleString()}.` : "",
-              quota.checkedAt ? `Last reported ${new Date(quota.checkedAt).toLocaleString()}.` : "",
-              quota.stale ? "The latest refresh failed; this is the last reported usage." : "",
-            ]
-              .filter(Boolean)
-              .join(" ");
-            return (
-              <UsageDetail key={window.id} description={description}>
-                <span className="min-w-0 flex-1 truncate">{window.shortLabel}</span>
-                <span
-                  role="progressbar"
-                  aria-label={`${label} · ${window.label} quota used`}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={window.usedPercent ?? undefined}
-                  aria-valuetext={
-                    window.usedPercent === null ? "Awaiting refreshed usage" : `${percent} used`
-                  }
-                  className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-muted-foreground/20"
-                >
-                  {window.usedPercent !== null ? (
-                    <span
-                      className={
-                        window.usedPercent >= 90
-                          ? "block h-full bg-warning"
-                          : "block h-full bg-muted-foreground/70"
-                      }
-                      style={{ width: `${window.usedPercent}%` }}
-                    />
-                  ) : null}
-                </span>
-                <span className="w-9 shrink-0 text-end">{percent}</span>
-              </UsageDetail>
-            );
-          })}
-          {quota.unavailable !== null ? (
-            <UsageDetail description={quota.unavailable}>
-              <span>Quota</span>
-              <span>Unavailable</span>
-            </UsageDetail>
-          ) : quota.stale ? (
-            <p className="py-1">Last reported usage · refresh failed</p>
-          ) : null}
+          <div
+            className={cn("flex h-8 min-w-0 items-center", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)}
+          >
+            {identity}
+          </div>
+          <div className="space-y-1 ps-9 pe-2.5 pb-1.5">
+            {quota.windows.map((window) => {
+              const percent = formatStatusPercent(window.usedPercent);
+              const description = [
+                `${label} · ${window.label}: ${window.usedPercent === null ? "waiting for refreshed usage after reset" : `${percent} used`}.`,
+                window.resetsAt ? `Resets ${new Date(window.resetsAt).toLocaleString()}.` : "",
+                quota.checkedAt
+                  ? `Last reported ${new Date(quota.checkedAt).toLocaleString()}.`
+                  : "",
+                quota.stale ? "The latest refresh failed; this is the last reported usage." : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              return (
+                <UsageDetail key={window.id} description={description} className="block space-y-1">
+                  <div className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">{window.shortLabel}</span>
+                    <span className="shrink-0 text-foreground/80">{percent}</span>
+                  </div>
+                  <span
+                    role="progressbar"
+                    aria-label={`${label} · ${window.label} quota used`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={window.usedPercent ?? undefined}
+                    aria-valuetext={
+                      window.usedPercent === null ? "Awaiting refreshed usage" : `${percent} used`
+                    }
+                    className="block h-1 w-full overflow-hidden rounded-full bg-muted-foreground/15"
+                  >
+                    {window.usedPercent !== null ? (
+                      <span
+                        className={
+                          window.usedPercent >= 90
+                            ? "block h-full bg-warning"
+                            : "block h-full bg-muted-foreground/60"
+                        }
+                        style={{ width: `${window.usedPercent}%` }}
+                      />
+                    ) : null}
+                  </span>
+                </UsageDetail>
+              );
+            })}
+            {quota.stale ? <p className="py-1">Last reported usage · refresh failed</p> : null}
+          </div>
         </>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -202,15 +251,25 @@ export function ProviderUsageSection({
   return createPortal(
     <ThreadDetailsSection
       headingId="thread-details-usage-heading"
-      title="Provider usage"
+      title="Usage"
+      headingIcon={<GaugeIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden="true" />}
       actions={
         enabledProviders.length > 0 ? (
           <Menu>
-            <MenuTrigger
-              render={<ThreadDetailsControl part="meta" aria-label="Choose visible providers" />}
-            >
-              Show/hide
-            </MenuTrigger>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    render={
+                      <ThreadDetailsControl part="icon" aria-label="Choose visible providers" />
+                    }
+                  >
+                    <MoreHorizontalIcon className="size-4" />
+                  </MenuTrigger>
+                }
+              />
+              <TooltipPopup>Show or hide providers</TooltipPopup>
+            </Tooltip>
             <MenuPopup align="end">
               <MenuGroup>
                 <MenuGroupLabel>Shown in this sidebar</MenuGroupLabel>
@@ -234,10 +293,10 @@ export function ProviderUsageSection({
     >
       <div
         data-provider-usage-section
-        className="min-w-0 space-y-2 px-2.5 text-2xs leading-4 text-muted-foreground tabular-nums"
+        className="min-w-0 text-2xs leading-4 text-muted-foreground tabular-nums"
       >
         {enabledProviders.length === 0 ? (
-          <p className="py-1">
+          <p className="ps-9 pe-2.5 py-1.5">
             {disconnected
               ? "Reconnect to see provider usage."
               : catalogKnown
@@ -245,7 +304,7 @@ export function ProviderUsageSection({
                 : "Loading providers…"}
           </p>
         ) : visibleProviders.length === 0 ? (
-          <div className="flex items-center justify-between gap-2 py-1">
+          <div className="flex items-center justify-between gap-2 ps-9 pe-2.5 py-1">
             <p>All providers hidden</p>
             <ThreadDetailsControl part="meta" onClick={() => showAll(environmentId)}>
               Show all
@@ -263,7 +322,7 @@ export function ProviderUsageSection({
           ))
         )}
         {selectedProvider ? (
-          <div data-thread-usage className="min-w-0 border-t border-border/40 pt-2">
+          <div data-thread-usage className="min-w-0 space-y-1 ps-9 pe-2.5 pt-2">
             <p className="mb-1 font-medium">Thread usage · selected model</p>
             <UsageLabel>{`${instanceLabel(selectedProvider, enabledProviders)} · ${selectedModel.model}`}</UsageLabel>
             {showContext ? (
