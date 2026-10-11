@@ -525,6 +525,8 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                       key={row.key}
                       title={row.title}
                       subtitle={row.subtitle}
+                      subtitleNumberOfLines={1}
+                      subtitleEllipsizeMode="middle"
                       accessibilityState={{ selected: row.selected }}
                       disabled={reservedDestinationProject !== null}
                       onPress={row.onPress}
