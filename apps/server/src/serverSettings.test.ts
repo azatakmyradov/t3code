@@ -1770,6 +1770,70 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerSettings));
   });
 
+  it.effect.each(["project migration", "unrelated save"] as const)(
+    "preserves retired source control settings after a failed copy during %s",
+    (action) => {
+      const cause = new ServerSecretStore.SecretStoreReadError({
+        resource: "legacy source control token",
+        cause: new Error("Secret backend unavailable"),
+      });
+      const layerSettings = ServerSettingsModule.layer.pipe(
+        Layer.provide(layerFailingSecretStore(cause)),
+        Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
+        Layer.provideMerge(
+          Layer.fresh(
+            ServerConfig.layerTest(process.cwd(), {
+              prefix: "t3code-legacy-source-control-preservation-test-",
+            }),
+          ),
+        ),
+      );
+      return Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const marker = "\u2022\u2022\u2022\u2022\u2022\u2022";
+        const legacy = {
+          bitbucket: { email: "me@example.com", accessToken: marker },
+          github: { hosts: { "github.com": "personal" }, tokens: { "github.com": marker } },
+          mcpServers: { tools: { enabled: false } },
+          disabledSkills: ["review"],
+        };
+        yield* fs.writeFileString(
+          config.settingsPath,
+          JSON.stringify({
+            ...legacy,
+            ...(action === "project migration"
+              ? { projectAutoPullOverrides: { "legacy-project": true } }
+              : {}),
+          }),
+        );
+
+        const loaded = yield* service.getSettings;
+        assert.deepEqual(loaded.sourceControlHosts, {});
+        if (action === "unrelated save") {
+          const updated = yield* service.updateSettings({ responseStreamingMode: "turn" });
+          assert.equal(updated.responseStreamingMode, "turn");
+          assert.deepEqual(updated.sourceControlHosts, {});
+        }
+
+        const persisted = JSON.parse(yield* fs.readFileString(config.settingsPath));
+        assert.deepEqual(persisted.bitbucket, legacy.bitbucket);
+        assert.deepEqual(persisted.github, legacy.github);
+        assert.deepEqual(persisted.mcpServers, legacy.mcpServers);
+        assert.deepEqual(persisted.disabledSkills, legacy.disabledSkills);
+        if (action === "project migration") {
+          assert.isTrue(persisted.projectSettingsFolded);
+          assert.deepEqual(persisted.projectSettingsOverrides["legacy-project"], {
+            defaultAutoPull: true,
+          });
+        } else {
+          assert.equal(persisted.responseStreamingMode, "turn");
+        }
+      }).pipe(Effect.provide(layerSettings));
+    },
+  );
+
   it.effect("moves the retired bitbucket and github keys and their secrets on load", () =>
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig.ServerConfig;
@@ -1801,6 +1865,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
       assert.notInclude(raw, '"bitbucket":{"email"');
       assert.include(raw, "sourceControlHosts");
+      const persisted = JSON.parse(raw);
+      assert.notProperty(persisted, "bitbucket");
+      assert.notProperty(persisted, "github");
       assert.isTrue(Option.isNone(yield* secrets.get("bitbucket-access-token")));
     }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );

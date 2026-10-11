@@ -87,10 +87,13 @@ const legacyToolSettingsFields = {
   mcpServers: Schema.optionalKey(Schema.Unknown),
   disabledSkills: Schema.optionalKey(Schema.Unknown),
 };
-const decodeLegacyToolSettingsJsonExit = Schema.decodeUnknownExit(
+const decodePreservedLegacySettingsJsonExit = Schema.decodeUnknownExit(
   fromLenientJson(
     Schema.Struct({
       ...legacyToolSettingsFields,
+      // These keys stay recoverable until their secret-store migration succeeds.
+      bitbucket: Schema.optionalKey(Schema.Unknown),
+      github: Schema.optionalKey(Schema.Unknown),
       projectSettingsOverrides: Schema.optionalKey(
         Schema.Record(Schema.String, Schema.Struct(legacyToolSettingsFields)),
       ),
@@ -798,20 +801,20 @@ const make = Effect.gen(function* () {
   );
 
   const writeSettingsAtomically = Effect.fnUntraced(
-    function* (settings: ServerSettings) {
+    function* (settings: ServerSettings, options: { removeLegacySourceControl?: boolean } = {}) {
       const sparseSettingsJson = yield* encodeServerSettingsJson(
         stripDefaultServerSettings(settings, DEFAULT_SERVER_SETTINGS) ?? {},
       );
 
       let contents = sparseSettingsJson;
       if (yield* readConfigExists) {
-        const legacy = decodeLegacyToolSettingsJsonExit(yield* readRawConfig);
+        const legacy = decodePreservedLegacySettingsJsonExit(yield* readRawConfig);
         if (Exit.isSuccess(legacy)) {
           const sparseSettings = (yield* decodeSettingsJsonRecord(sparseSettingsJson)) as Record<
             string,
             unknown
           > & { projectSettingsOverrides?: Record<string, Record<string, unknown>> };
-          const { projectSettingsOverrides, ...legacySettings } = legacy.value;
+          const { projectSettingsOverrides, bitbucket, github, ...legacySettings } = legacy.value;
           const projects = new Map(Object.entries(sparseSettings.projectSettingsOverrides ?? {}));
           for (const [projectId, entry] of Object.entries(projectSettingsOverrides ?? {})) {
             if (Object.keys(entry).length === 0) continue;
@@ -820,6 +823,12 @@ const make = Effect.gen(function* () {
           contents = yield* encodeSettingsJsonRecord({
             ...sparseSettings,
             ...legacySettings,
+            ...(options.removeLegacySourceControl
+              ? {}
+              : {
+                  ...(bitbucket === undefined ? {} : { bitbucket }),
+                  ...(github === undefined ? {} : { github }),
+                }),
             ...(projects.size === 0
               ? {}
               : { projectSettingsOverrides: Object.fromEntries(projects) }),
@@ -1006,7 +1015,9 @@ const make = Effect.gen(function* () {
       (settingsFileTrusted && legacyProviders !== undefined) ||
       hasLegacySourceControl
     ) {
-      yield* writeSettingsAtomically(migrated);
+      yield* writeSettingsAtomically(migrated, {
+        removeLegacySourceControl: hasLegacySourceControl,
+      });
       for (const move of sourceControlMigration.secretMoves) {
         yield* secretStore.remove(move.from).pipe(Effect.ignore);
       }
