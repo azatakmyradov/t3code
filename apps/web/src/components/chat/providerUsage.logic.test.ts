@@ -6,11 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  providerQuotaStatus,
-  formatStatusPercent,
-  selectProviderUsage,
-} from "./providerUsage.logic";
+import { providerQuotaStatus, formatStatusPercent, selectThreadUsage } from "./providerUsage.logic";
 
 const now = Date.parse("2026-10-10T12:00:00Z");
 const session: ServerProviderUsageWindow = {
@@ -33,7 +29,7 @@ const limits: ServerProviderUsageLimits = {
   windows: [weekly, session],
 };
 
-describe("composer quota status", () => {
+describe("provider quota status", () => {
   it("shows used percentages in session/weekly order without mutating the snapshot", () => {
     const status = providerQuotaStatus({ usageLimits: limits }, now);
     expect(status.windows.map(({ shortLabel, usedPercent }) => [shortLabel, usedPercent])).toEqual([
@@ -142,109 +138,28 @@ it("formats small percentages without confusing missing data with zero", () => {
   ]);
 });
 
-describe("selected-provider usage scope", () => {
+describe("selected-thread usage scope", () => {
   const selectedModel = {
     instanceId: ProviderInstanceId.make("claude-work"),
     model: "claude-opus-5-5",
   };
-  const input: Parameters<typeof selectProviderUsage>[0] = {
+  const input: Parameters<typeof selectThreadUsage>[0] = {
     selectedModel,
     provider: {
       instanceId: selectedModel.instanceId,
       driver: ProviderDriverKind.make("claudeAgent"),
-      usageLimits: limits,
     },
     context: null,
     contextModelSelection: null,
     throughput: null,
   };
-  const windowsFor = (model: string, windows: ServerProviderUsageWindow[]) =>
-    selectProviderUsage({
-      ...input,
-      selectedModel: { ...selectedModel, model },
-      provider: { ...input.provider!, usageLimits: { ...limits, windows } },
-    }).provider?.usageLimits?.windows;
-
-  it("keeps the selected account's time windows and only its matching Claude model bucket", () => {
-    const windows = [
-      session,
-      weekly,
-      ...["opus", "sonnet", "fable"].map((name) => ({
-        ...weekly,
-        id: `seven_day_${name}`,
-        label: `Weekly · ${name}`,
-      })),
-    ];
-    expect(windowsFor("claude-opus-5-5", windows)?.map(({ id }) => id)).toEqual([
-      "five_hour",
-      "seven_day",
-      "seven_day_opus",
-    ]);
-    expect(windowsFor("claude-sonnet-5-5", windows)?.map(({ id }) => id)).toEqual([
-      "five_hour",
-      "seven_day",
-      "seven_day_sonnet",
-    ]);
-    expect(windowsFor("fable", windows)?.map(({ id }) => id)).toEqual([
-      "five_hour",
-      "seven_day",
-      "seven_day_fable",
-    ]);
-    expect(windows).toHaveLength(5);
-  });
-
-  it("matches scoped display-name tokens on boundaries and omits ambiguous scopes", () => {
-    const windows = ["claude_fable_5_1", "fable", "overage_included", "other", ""].map((scope) => ({
-      ...weekly,
-      id: `seven_day_${scope}`,
-    }));
-    expect(windowsFor("claude-fable-5-1", windows)?.map(({ id }) => id)).toEqual([
-      "seven_day_claude_fable_5_1",
-      "seven_day_fable",
-    ]);
-    expect(windowsFor("myfableproxy", windows)).toEqual([]);
-  });
-
-  it.each([
-    "anthropic/claude-opus-5-5",
-    "openai/gpt-5",
-    "opencode/big-pickle",
-    "opencode-go-other/model",
-  ])("does not show OpenCode Go subscription usage for %s", (model) => {
-    const provider = {
-      ...input.provider!,
-      driver: ProviderDriverKind.make("opencode"),
-      usageLimits: {
-        ...limits,
-        windows: [
-          { ...session, id: "go_rolling" },
-          { ...weekly, id: "go_weekly" },
-        ],
-      },
-    };
-    const result = selectProviderUsage({
-      ...input,
-      selectedModel: { ...selectedModel, model },
-      provider,
-    });
-    expect(result.provider?.usageLimits?.windows).toEqual([]);
-    expect(result.provider?.usageLimits?.unavailable?.reason).toBe("unsupported");
-    expect(
-      selectProviderUsage({
-        ...input,
-        selectedModel: { ...selectedModel, model: "opencode-go/kimi-k2.5" },
-        provider,
-      }).provider?.usageLimits?.windows,
-    ).toHaveLength(2);
-  });
-
   it("rejects a stale snapshot from another account even when the driver and model match", () => {
     expect(
-      selectProviderUsage({
+      selectThreadUsage({
         ...input,
         selectedModel: { ...selectedModel, instanceId: ProviderInstanceId.make("claude-personal") },
       }),
-    ).toEqual({ provider: null, context: null, tokensPerSecond: null });
+    ).toEqual({ context: null, tokensPerSecond: null });
   });
 
   it("does not substitute another account or model's completed turn rate", () => {
@@ -255,9 +170,9 @@ describe("selected-provider usage scope", () => {
       outputTokens: 910,
       durationMs: 10_000,
     };
-    expect(selectProviderUsage({ ...input, throughput }).tokensPerSecond).toBe(91);
+    expect(selectThreadUsage({ ...input, throughput }).tokensPerSecond).toBe(91);
     expect(
-      selectProviderUsage({
+      selectThreadUsage({
         ...input,
         throughput: {
           ...throughput,
@@ -269,7 +184,7 @@ describe("selected-provider usage scope", () => {
       }).tokensPerSecond,
     ).toBeNull();
     expect(
-      selectProviderUsage({
+      selectThreadUsage({
         ...input,
         throughput: {
           ...throughput,

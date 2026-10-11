@@ -298,7 +298,7 @@ import {
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { ProviderUsageSection } from "./ProviderUsageSection";
-import { usageModelMatchesSelection } from "./providerUsage.logic";
+import { selectConfiguredUsageProviders, usageModelMatchesSelection } from "./providerUsage.logic";
 import type { TurnThroughput } from "../../lib/turnThroughput";
 import {
   providerSupportsManualCompaction,
@@ -2132,6 +2132,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         applyProviderInstanceSettings(deriveProviderInstanceEntries(providerStatuses), settings),
       ),
     [providerStatuses, settings],
+  );
+  const usageProviderEntries = useMemo(
+    () => selectConfiguredUsageProviders(providerInstanceEntries, settings),
+    [providerInstanceEntries, settings],
   );
   const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
   const {
@@ -7758,7 +7762,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       {composerForm}
       <ProviderUsageSection
         host={props.providerUsageHost}
-        provider={selectedProviderStatus}
+        providers={usageProviderEntries}
+        catalogKnown={providerCatalogKnown}
         selectedModel={selectedModelSelection}
         multipleModels={multipleModelSelections !== null}
         context={activeContextWindow}

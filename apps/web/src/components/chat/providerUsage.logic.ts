@@ -1,8 +1,27 @@
-import type { ModelSelection, ServerProvider, ServerProviderUsageWindow } from "@t3tools/contracts";
+import type {
+  ModelSelection,
+  ServerProvider,
+  ServerProviderUsageWindow,
+  ServerSettings,
+} from "@t3tools/contracts";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import type { TurnThroughput } from "../../lib/turnThroughput";
+import type { ProviderInstanceEntry } from "../../providerInstances";
+import { providerClients } from "../settings/providerDriverMeta";
+
+/** Remove deleted custom accounts before the next provider snapshot reconciles. */
+export function selectConfiguredUsageProviders(
+  entries: ReadonlyArray<ProviderInstanceEntry>,
+  settings: Pick<ServerSettings, "providerInstances">,
+) {
+  return entries.filter((entry) => {
+    if (Object.hasOwn(settings.providerInstances, entry.instanceId)) return true;
+    const definition = providerClients.get(entry.driverKind);
+    return entry.isDefault && definition !== undefined && definition.hasDefaultInstance !== false;
+  });
+}
 
 const WINDOW_ORDER = { session: 0, weekly: 1, monthly: 2, other: 3 } as const;
 
@@ -20,33 +39,9 @@ export function usageModelMatchesSelection(
   );
 }
 
-function windowAppliesToModel(
-  window: ServerProviderUsageWindow,
-  driver: ServerProvider["driver"],
-  model: string,
-) {
-  if (driver === "opencode" && window.id.startsWith("go_")) {
-    return model.startsWith("opencode-go/");
-  }
-  if (driver !== "claudeAgent" || !window.id.startsWith("seven_day_")) return true;
-  // Claude names scoped windows from the provider's display name. Match whole
-  // tokens so a Sonnet bucket cannot appear for Opus or an unrelated alias.
-  const scope = window.id.slice("seven_day_".length).split("_").filter(Boolean);
-  const modelTokens = model
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-  return (
-    scope.length > 0 &&
-    modelTokens.some((_, index) =>
-      scope.every((token, offset) => modelTokens[index + offset] === token),
-    )
-  );
-}
-
-/** Every metric follows the picker immediately, including before a new turn starts. */
-export function selectProviderUsage(input: {
-  provider: Pick<ServerProvider, "instanceId" | "driver" | "displayName" | "usageLimits"> | null;
+/** Thread metrics belong only to the selected account and model, never every quota group. */
+export function selectThreadUsage(input: {
+  provider: Pick<ServerProvider, "instanceId" | "driver"> | null;
   selectedModel: ModelSelection;
   context: ContextWindowSnapshot | null;
   contextModelSelection: ModelSelection | null;
@@ -54,31 +49,8 @@ export function selectProviderUsage(input: {
 }) {
   const provider =
     input.provider?.instanceId === input.selectedModel.instanceId ? input.provider : null;
-  if (provider === null) return { provider: null, context: null, tokensPerSecond: null };
-  const model = normalizeModelSlug(input.selectedModel.model, provider.driver) ?? "";
-  const limits = provider.usageLimits;
-  const windows = limits?.windows.filter((window) =>
-    windowAppliesToModel(window, provider.driver, model),
-  );
+  if (provider === null) return { context: null, tokensPerSecond: null };
   return {
-    provider:
-      limits && windows
-        ? {
-            ...provider,
-            usageLimits: {
-              ...limits,
-              windows,
-              ...(limits.windows.length > 0 && windows.length === 0
-                ? {
-                    unavailable: {
-                      reason: "unsupported" as const,
-                      message: "No subscription quota is reported for the selected model.",
-                    },
-                  }
-                : {}),
-            },
-          }
-        : provider,
     context: usageModelMatchesSelection(
       input.selectedModel,
       input.contextModelSelection,
@@ -107,7 +79,7 @@ function compactWindowLabel(window: ServerProviderUsageWindow): string {
   return window.label.replace(/^Weekly · /, "Week · ");
 }
 
-/** Keep quota tied to the selected instance; another account's allowance is not a fallback. */
+/** Keep each quota report tied to its own instance; never pool different accounts. */
 export function providerQuotaStatus(
   provider: Pick<ServerProvider, "usageLimits"> | null,
   now: number,
