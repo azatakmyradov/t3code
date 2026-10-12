@@ -409,9 +409,10 @@ export function createPullRequestRouter() {
         if (id !== origin.target.environmentId) {
           if (!(yield* routingAllowed(registry, origin.target.environmentId, id, writes.has(tag))))
             return yield* visit(index + 1);
-          // An older server would discard expectedAccountId. Verify it implements the guard first.
+          // Older servers may ignore the requested account; verify the returned identity before dispatch.
           const alternateProbe = request(WS_METHODS.pullRequestsRoutingIdentity, {
             host: identity.host,
+            expectedAccountId: identity.accountId,
           }).pipe(
             Effect.timeout("2 seconds"),
             Effect.catchCause((cause) =>
@@ -422,7 +423,11 @@ export function createPullRequestRouter() {
             .run(
               id,
               reads.has(tag)
-                ? shareMetadataRead(pendingIdentities, identity.host.toLowerCase(), alternateProbe)
+                ? shareMetadataRead(
+                    pendingIdentities,
+                    encodeKey([identity.host.toLowerCase(), identity.accountId]),
+                    alternateProbe,
+                  )
                 : alternateProbe,
             )
             .pipe(

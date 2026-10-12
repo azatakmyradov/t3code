@@ -12,7 +12,7 @@ import { groupGitHubAccounts, nextGitHubHosts } from "./GitHubAccountSettings.lo
 import { readGitHubSettings } from "@t3tools/client-runtime/source-control-clients";
 import { redactedPlaceholder } from "./RedactedSensitiveText";
 
-/** Sentinel select value for "follow gh's active login"; logins never contain spaces. */
+/** Sentinel select value for following gh in each repository; logins never contain spaces. */
 const ACTIVE_ACCOUNT = "active gh account";
 
 /**
@@ -39,7 +39,7 @@ function RedactedLogin(props: {
 
 /**
  * Per-host GitHub choices for one environment: turn a host off, or pin which of the
- * logins `gh` holds is used instead of its active one. Changes save immediately.
+ * logins `gh` holds is used instead of following each repository’s CLI account. Changes save immediately.
  */
 export function GitHubAccountSettings({
   environmentId,
@@ -93,7 +93,7 @@ export function GitHubAccountSettings({
       <div className="flex items-center justify-between gap-3">
         <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
           Choose which <code className="rounded bg-muted px-1 py-px text-2xs">gh</code> login each
-          GitHub host uses, or turn a host off.
+          GitHub host uses, or follow the account selected by gh in each repository’s directory.
         </p>
         <Button
           size="icon-xs"
@@ -110,7 +110,7 @@ export function GitHubAccountSettings({
         const enabled = choice?.enabled ?? true;
         const stalePin =
           choice?.account !== undefined && !group.selectable.includes(choice.account);
-        const pinned = choice?.account !== undefined && !stalePin ? choice.account : ACTIVE_ACCOUNT;
+        const pinned = choice?.account ?? ACTIVE_ACCOUNT;
         return (
           <div key={group.host} className="grid gap-2">
             <div className="flex items-center justify-between gap-3">
@@ -148,19 +148,7 @@ export function GitHubAccountSettings({
                       <SelectValue>
                         {(value: string) =>
                           value === ACTIVE_ACCOUNT ? (
-                            <span className="flex min-w-0 items-center gap-1">
-                              Active gh account
-                              {group.activeAccount ? (
-                                <>
-                                  (
-                                  <RedactedLogin
-                                    revealed={revealed}
-                                    account={group.activeAccount}
-                                  />
-                                  )
-                                </>
-                              ) : null}
-                            </span>
+                            <span>Automatic (per repository)</span>
                           ) : (
                             <RedactedLogin revealed={revealed} account={value} />
                           )
@@ -168,16 +156,12 @@ export function GitHubAccountSettings({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectPopup align="end" alignItemWithTrigger={false}>
-                      <SelectItem value={ACTIVE_ACCOUNT}>
-                        <span className="flex min-w-0 items-center gap-1">
-                          Active gh account
-                          {group.activeAccount ? (
-                            <>
-                              (<RedactedLogin revealed={revealed} account={group.activeAccount} />)
-                            </>
-                          ) : null}
-                        </span>
-                      </SelectItem>
+                      <SelectItem value={ACTIVE_ACCOUNT}>Automatic (per repository)</SelectItem>
+                      {stalePin && choice?.account ? (
+                        <SelectItem value={choice.account} disabled>
+                          <RedactedLogin revealed={revealed} account={choice.account} />
+                        </SelectItem>
+                      ) : null}
                       {group.selectable.map((account, index) => (
                         <SelectItem key={account} value={account}>
                           <RedactedLogin
@@ -195,7 +179,7 @@ export function GitHubAccountSettings({
             {stalePin ? (
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs text-warning">
-                  The chosen login is no longer signed in, so the active gh login is used.
+                  The chosen login is no longer signed in. Sign in again or choose another account.
                 </p>
                 <Button
                   size="xs"
@@ -203,7 +187,7 @@ export function GitHubAccountSettings({
                   disabled={saving}
                   onClick={() => void save(group.host, { account: null })}
                 >
-                  Use active login
+                  Use automatic account
                 </Button>
               </div>
             ) : null}

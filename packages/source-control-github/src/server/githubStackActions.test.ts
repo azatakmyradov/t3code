@@ -6,6 +6,10 @@ import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import * as FileSystem from "effect/FileSystem";
 import * as Redacted from "effect/Redacted";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import * as GitHubCredentials from "./GitHubCredentials.ts";
+import * as GitHubQuota from "./GitHubQuota.ts";
+import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
 import { ChildProcessSpawner } from "effect/process";
 import * as GitHubApi from "./GitHubApi.ts";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
@@ -23,12 +27,16 @@ type Send = (
 
 /** Every git command the cascade ran, in order; none actually runs. */
 let gitCalls: Array<ReadonlyArray<string>> = [];
+let gitPushes: Array<{ readonly cwd: string; readonly authorization: string | undefined }> = [];
 const fakeGit = Layer.mergeAll(
   TestSourceControlHost.layer({
     process: {
       run: (input) =>
         Effect.sync(() => {
           gitCalls.push(input.args);
+          if (input.args[0] === "push") {
+            gitPushes.push({ cwd: input.cwd, authorization: input.env?.GIT_CONFIG_VALUE_0 });
+          }
           const stdout =
             input.args[0] === "rev-parse" || input.args[0] === "merge-base" ? "new-sha\n" : "";
           return {
@@ -50,8 +58,13 @@ const runGitHubStackAction = (send: Send, input: Parameters<typeof runStackActio
       Layer.mergeAll(
         fakeGit,
         Layer.mock(GitHubApi.GitHubApi)({
-          credential: () => Effect.succeed({ token: Redacted.make("token"), fingerprint: "fp" }),
+          credential: (_host, context) =>
+            Effect.succeed({
+              token: Redacted.make(context?.cwd === "/work" ? "work-token" : "personal-token"),
+              fingerprint: context?.cwd ?? "default",
+            }),
           graphql: (request) => {
+            expect(request.credentialContext).toEqual({ cwd: input.cwd });
             // GitHub refuses a document that declares a variable it never uses.
             const declared = [...request.query.matchAll(/\$(\w+)\s*:/g)].map((match) => match[1]!);
             const unused = declared.filter(
@@ -62,8 +75,9 @@ const runGitHubStackAction = (send: Send, input: Parameters<typeof runStackActio
             }
             return send(words(request.query, request.variables), "graphql");
           },
-          rest: (request) =>
-            send(words(request.path, request.body), "rest").pipe(
+          rest: (request) => {
+            expect(request.credentialContext).toEqual({ cwd: input.cwd });
+            return send(words(request.path, request.body), "rest").pipe(
               Effect.map((body) => ({
                 status: 200,
                 headers: {},
@@ -71,7 +85,8 @@ const runGitHubStackAction = (send: Send, input: Parameters<typeof runStackActio
                 truncated: false,
                 invalidUtf8: false,
               })),
-            ),
+            );
+          },
         }),
       ),
     ),
@@ -391,5 +406,67 @@ it.effect("checks every layer's write access before any git runs", () =>
     ]);
     yield* Effect.flip(runGitHubStackAction(api.execute, { ...input, action: "update-branch" }));
     expect(gitCalls).toEqual([]);
+  }),
+);
+
+it.effect("uses each original checkout's credential while rebasing in a scratch clone", () =>
+  Effect.gen(function* () {
+    gitPushes = [];
+    for (const cwd of ["/personal", "/work"]) {
+      const api = fake([stack, access]);
+      yield* runGitHubStackAction(api.execute, { ...input, cwd, action: "update-branch" });
+    }
+    expect(gitPushes).toEqual(
+      ["personal-token", "personal-token", "work-token", "work-token"].map((token) => ({
+        cwd: "/tmp/scratch",
+        authorization: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+      })),
+    );
+  }),
+);
+
+it.effect("keeps the verified stack account for permission reads and scratch-clone pushes", () =>
+  Effect.gen(function* () {
+    gitPushes = [];
+    const authorizations: Array<string | undefined> = [];
+    const api = GitHubApi.layer.pipe(
+      Layer.provide(
+        Layer.succeed(GitHubCredentials.GitHubCredentials, {
+          get: () => Effect.die("A verified operation must not resolve another account"),
+          invalidate: () => Effect.void,
+        }),
+      ),
+      Layer.provide(
+        Layer.succeed(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.sync(() => {
+              authorizations.push(request.headers["authorization"]);
+              return HttpClientResponse.fromWeb(
+                request,
+                new Response(encodeJson(request.url.endsWith("/graphql") ? access : stack)),
+              );
+            }),
+          ),
+        ),
+      ),
+      Layer.provide(GitHubQuota.layer),
+      Layer.provide(SourceControlRateLimit.layer),
+    );
+    yield* runStackAction({ ...input, cwd: "/work", action: "update-branch" }).pipe(
+      Effect.provideService(GitHubApi.PinnedGitHubCredential, {
+        host: "github.com",
+        token: Redacted.make("verified-token"),
+        credentialFingerprint: "verified-account",
+      }),
+      Effect.provide(Layer.mergeAll(api, fakeGit)),
+    );
+    expect(authorizations).toEqual(["Bearer verified-token", "Bearer verified-token"]);
+    expect(gitPushes).toEqual(
+      Array.from({ length: 2 }, () => ({
+        cwd: "/tmp/scratch",
+        authorization: `AUTHORIZATION: basic ${Buffer.from("x-access-token:verified-token").toString("base64")}`,
+      })),
+    );
   }),
 );

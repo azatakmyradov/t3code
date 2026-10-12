@@ -34,7 +34,7 @@ export type GitHubHostChoice = typeof GitHubHostChoice.Type;
 
 /**
  * Per-host choices, keyed by lowercased host such as `github.com`. `hosts` pins one of the logins
- * `gh` holds for a host instead of its active one, or turns the host off; `tokens` holds a token
+ * `gh` holds for a host instead of following its account in each repository directory, or turns the host off; `tokens` holds a token
  * per host, used before `GH_TOKEN` and friends, which win over `gh`. Source Control settings draws
  * both with GitHub's own panels, since the logins come from `gh` at runtime.
  */

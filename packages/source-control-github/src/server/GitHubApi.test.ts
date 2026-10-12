@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
@@ -469,6 +468,46 @@ describe("GitHubCredentials", () => {
         ),
       ),
     ),
+  );
+
+  it.effect.each(["nonzero", "truncated", "empty", "timeout"] as const)(
+    "fails closed on %s repository-account discovery",
+    (failure) => {
+      const calls: Array<ReadonlyArray<string>> = [];
+      return Effect.gen(function* () {
+        const credentials = yield* GitHubCredentials.GitHubCredentials;
+        const error = yield* Effect.flip(
+          credentials.get("git.acme.internal", { cwd: "/repos/project" }),
+        );
+        expect(error._tag).toBe("GitHubAccountResolutionError");
+        expect(error.message).not.toContain("private stderr");
+        expect(calls).toEqual([
+          ["api", "--hostname", "git.acme.internal", "user", "--jq", ".login"],
+        ]);
+      }).pipe(
+        Effect.provide(
+          credentialsWith((input) => {
+            calls.push(input.args);
+            return failure === "timeout"
+              ? Effect.fail(
+                  new VcsProcessTimeoutError({
+                    operation: input.operation,
+                    command: "gh",
+                    cwd: input.cwd,
+                    timeoutMs: 10_000,
+                  }),
+                )
+              : Effect.succeed({
+                  exitCode: ChildProcessSpawner.ExitCode(failure === "nonzero" ? 1 : 0),
+                  stdout: failure === "empty" ? "" : "developer",
+                  stderr: "private stderr",
+                  stdoutTruncated: failure === "truncated",
+                  stderrTruncated: false,
+                });
+          }),
+        ),
+      );
+    },
   );
 
   it.effect("does not cache a gh failure that is not about signing in", () => {

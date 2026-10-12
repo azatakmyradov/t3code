@@ -62,7 +62,7 @@ type ApiAnswer = Effect.Effect<GitHubApi.GitHubRestResponse, GitHubApi.GitHubApi
 const mockedExecute = vi.fn<(call: ApiCall) => ApiAnswer>();
 const defaultCredential = (host: string) =>
   Effect.succeed({ token: Redacted.make("token"), fingerprint: `${host}:token` });
-const mockedCredential = vi.fn(defaultCredential);
+const mockedCredential = vi.fn<GitHubApi.GitHubApi["Service"]["credential"]>(defaultCredential);
 const mockedStackMemberships = vi.fn<(call: ApiCall) => ApiAnswer>(() =>
   Effect.succeed(output('{"data":{}}')),
 );
@@ -92,7 +92,7 @@ const mockApi = Layer.effect(
           Effect.map((answer) => answer.body),
         ),
       rest: (input) => mockedExecute({ kind: "rest", ...input }),
-      credential: (host) => mockedCredential(host),
+      credential: (host, context) => mockedCredential(host, context),
     });
   }),
 );
@@ -465,6 +465,9 @@ const NODE_ID_QUERY = "pullRequest(number: $number) { id }";
 const nodeIdAnswer = (id: string) => ({ data: { repository: { pullRequest: { id } } } });
 
 afterEach(() => {
+  for (const [call] of [...mockedExecute.mock.calls, ...mockedStackMemberships.mock.calls]) {
+    expect(call.credentialContext?.cwd).toBeTruthy();
+  }
   mockedExecute.mockReset();
   mockedStackMemberships.mockReset();
   mockedCredential.mockReset();
@@ -521,6 +524,7 @@ it.effect(
           expect(yield* cli.getViewerLogin(input)).toBe("same-account");
           yield* cli.commentOnPullRequest({
             ...input,
+            cwd: "/other-checkout",
             repository: "owner/repo",
             number: 1,
             body: "comment",
@@ -549,6 +553,79 @@ it.effect(
         viewer: "same-account",
       });
     }),
+);
+
+it.effect("selects each checkout's account for identity, REST, and GraphQL actions", () =>
+  Effect.gen(function* () {
+    const requests: Array<{ readonly url: string; readonly authorization: string | undefined }> =
+      [];
+    const credentials = Layer.succeed(
+      GitHubCredentials.GitHubCredentials,
+      GitHubCredentials.GitHubCredentials.of({
+        get: (host, context) =>
+          Effect.sync(() => {
+            const account = context?.cwd === "/work" ? "work" : "personal";
+            return {
+              host,
+              token: Redacted.make(account),
+              source: "gh" as const,
+              fingerprint: `${host}:${account}`,
+            };
+          }),
+        invalidate: () => Effect.void,
+      }),
+    );
+    const http = Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) =>
+        Effect.sync(() => {
+          const authorization = request.headers["authorization"];
+          requests.push({ url: request.url, authorization });
+          const account = authorization === "Bearer work" ? "work" : "personal";
+          const body = request.url.endsWith("/user")
+            ? { id: account === "work" ? 2 : 1, login: account }
+            : { data: { addPullRequestReviewThreadReply: {} } };
+          return HttpClientResponse.fromWeb(request, new Response(encodeJson(body)));
+        }),
+      ),
+    );
+    const cli = yield* GitHubPullRequestApi.make.pipe(
+      Effect.provide(
+        GitHubApi.layer.pipe(
+          Layer.provide(Layer.mergeAll(credentials, http)),
+          Layer.provide(GitHubQuota.layer),
+          Layer.provide(SourceControlRateLimit.layer),
+          Layer.merge(TestSourceControlHost.layer()),
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+    );
+    for (const account of ["personal", "work"] as const) {
+      const input = { cwd: `/${account}`, host: "github.com", repository: "owner/repo", number: 7 };
+      expect(yield* cli.getRoutingIdentity(input)).toEqual({
+        accountId: account === "work" ? "2" : "1",
+        viewer: account,
+      });
+      yield* cli.setLabels({ ...input, labels: ["reviewed"], applied: true });
+      yield* cli.replyToReviewThread({ ...input, threadId: "THREAD_7", body: "Reviewed" });
+    }
+    expect(requests.map((request) => request.authorization)).toEqual([
+      "Bearer personal",
+      "Bearer personal",
+      "Bearer personal",
+      "Bearer work",
+      "Bearer work",
+      "Bearer work",
+    ]);
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      "/user",
+      "/repos/owner/repo/issues/7/labels",
+      "/graphql",
+      "/user",
+      "/repos/owner/repo/issues/7/labels",
+      "/graphql",
+    ]);
+  }),
 );
 
 layer("GitHubPullRequestApi.layer", (it) => {
@@ -828,6 +905,90 @@ layer("GitHubPullRequestApi.layer", (it) => {
         "w1: repository(owner: $w1_owner, name: $w1_name) { pullRequest(number: $w1_number)",
       );
       expect(varsAt(0)).toMatchObject({ w1_owner: "acme", w1_name: "web", w1_number: 8 });
+    }),
+  );
+
+  it.effect.each([
+    { kind: "summary", pinning: "unverified" },
+    { kind: "summary", pinning: "same-credential" },
+    { kind: "summary", pinning: "different-credentials" },
+    { kind: "watch", pinning: "unverified" },
+    { kind: "watch", pinning: "same-credential" },
+    { kind: "watch", pinning: "different-credentials" },
+  ] as const)("keeps $kind batches scoped across checkouts with $pinning", ({ kind, pinning }) =>
+    Effect.gen(function* () {
+      mockedExecute.mockImplementation((call) =>
+        Effect.gen(function* () {
+          assert.strictEqual(call.kind, "graphql");
+          if (call.kind !== "graphql") return output("");
+          const pinned = yield* GitHubApi.PinnedGitHubCredential;
+          const account =
+            pinned === null ? call.credentialContext?.cwd.slice(1) : Redacted.value(pinned.token);
+          const data = Object.fromEntries(
+            Object.entries(call.variables ?? {}).flatMap(([key, number]) => {
+              const alias = /^([sw]\d+)_number$/.exec(key)?.[1];
+              if (alias === undefined) return [];
+              return [
+                [
+                  alias,
+                  {
+                    pullRequest: {
+                      number,
+                      title: `Pull request ${number}`,
+                      url: `https://github.com/acme/web/pull/${number}`,
+                      headRefName: account,
+                      baseRefName: "main",
+                      state: "OPEN",
+                      updatedAt: "2026-08-24T12:34:56.000Z",
+                      mergeable: "MERGEABLE",
+                      headRefOid: account,
+                      comments: { totalCount: 0, nodes: [] },
+                      reviews: { totalCount: 0, nodes: [] },
+                      reviewThreads: { totalCount: 0 },
+                      commits: { nodes: [] },
+                    },
+                  },
+                ],
+              ];
+            }),
+          );
+          return output(encodeJson({ data }));
+        }),
+      );
+      const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+      const accounts = ["personal", "personal", "work", "work"];
+      const reads = yield* Effect.forEach(
+        accounts,
+        (account, index) => {
+          const input = {
+            cwd: `/${account}`,
+            host: "github.com",
+            repository: "acme/web",
+            number: index + 7,
+          };
+          const read =
+            kind === "summary"
+              ? cli.getPullRequestSummary(input).pipe(Effect.map((summary) => summary.headBranch))
+              : cli
+                  .getPullRequestWatchFingerprint(input)
+                  .pipe(Effect.map((fingerprint) => fingerprint?.status.split(" ")[2]));
+          if (pinning === "unverified") return read;
+          const selected = pinning === "same-credential" ? "shared" : account;
+          return read.pipe(
+            Effect.provideService(GitHubApi.PinnedGitHubCredential, {
+              host: input.host,
+              token: Redacted.make(selected),
+              credentialFingerprint: selected,
+            }),
+          );
+        },
+        { concurrency: "unbounded" },
+      ).pipe(Effect.forkChild);
+      yield* TestClock.adjust("10 millis");
+      expect(yield* Fiber.join(reads)).toEqual(
+        pinning === "same-credential" ? accounts.map(() => "shared") : accounts,
+      );
+      expect(mockedExecute).toHaveBeenCalledTimes(pinning === "same-credential" ? 1 : 2);
     }),
   );
 
@@ -3273,7 +3434,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
       const login = yield* cli.getViewerLogin({ cwd: "/w", host: "github.acme.com" });
 
       expect(login).toBe("enterprise-user");
-      expect(mockedCredential).toHaveBeenCalledWith("github.acme.com");
+      expect(mockedCredential).toHaveBeenCalledWith("github.acme.com", { cwd: "/w" });
       expect(callAt(0)).toMatchObject({ kind: "rest", host: "github.acme.com", path: "user" });
     }),
   );
