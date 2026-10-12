@@ -96,7 +96,7 @@ function ProviderQuotaGroup({
           `${label} subscription quota remaining.`,
           ...quota.windows.map(
             (window) =>
-              `${window.label}: ${window.remainingPercent === null ? "awaiting refreshed usage" : `${formatStatusPercent(window.remainingPercent)} left`}.`,
+              `${window.label}: ${window.remainingPercent === null ? "awaiting refreshed usage" : `${formatStatusPercent(window.remainingPercent)} remaining`}.`,
           ),
           quota.stale ? "Last reported usage; refresh failed." : "",
         ]
@@ -140,9 +140,6 @@ function ProviderQuotaGroup({
                   }
                 >
                   {formatStatusPercent(window.remainingPercent)}
-                  {window.remainingPercent !== null ? (
-                    <span className="ml-0.5 text-3xs font-normal text-muted-foreground">left</span>
-                  ) : null}
                 </span>
               ))
             )}
@@ -169,17 +166,14 @@ function ProviderQuotaGroup({
               <p className="text-muted-foreground">{unavailable}</p>
             ) : (
               <>
-                <p className="text-2xs text-muted-foreground">Subscription quota left</p>
+                <p className="text-2xs text-muted-foreground">Subscription quota remaining</p>
                 {quota.windows.map((window) => {
                   const percent = formatStatusPercent(window.remainingPercent);
                   return (
                     <div key={window.id} className="space-y-1">
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-medium">{window.label}</span>
-                        <span className="font-semibold tabular-nums">
-                          {percent}
-                          {window.remainingPercent !== null ? " left" : ""}
-                        </span>
+                        <span className="font-semibold tabular-nums">{percent}</span>
                       </div>
                       <span
                         role="progressbar"
@@ -190,7 +184,7 @@ function ProviderQuotaGroup({
                         aria-valuetext={
                           window.remainingPercent === null
                             ? "Awaiting refreshed usage"
-                            : `${percent} left`
+                            : `${percent} remaining`
                         }
                         className="block h-1 w-full overflow-hidden rounded-full bg-muted-foreground/15"
                       >

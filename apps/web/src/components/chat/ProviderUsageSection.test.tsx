@@ -156,9 +156,9 @@ it("shows every account and model-specific quota bucket independently of model s
   expect(group("codex").textContent).toContain("88%");
   expect(group("codex-personal").textContent).toContain("66%");
   expect(trigger("claude-work").getAttribute("aria-label")).toContain(
-    "Weekly · Opus: 29% left. Weekly · Sonnet: 16% left.",
+    "Weekly · Opus: 29% remaining. Weekly · Sonnet: 16% remaining.",
   );
-  expect(group("claude-work").textContent).toContain("44%left29%left+1");
+  expect(group("claude-work").textContent).toContain("44%29%+1");
   expect(group("claude-work").textContent).not.toContain("16%");
   expect(threadUsage()?.textContent).toContain("Context5%");
   for (const element of host.querySelectorAll("[data-provider-usage-instance]")) {
@@ -175,9 +175,9 @@ it("shows every account and model-specific quota bucket independently of model s
   await render({ selectedModel: { ...selectedModel, model: "claude-sonnet-5-5" } });
   expect(threadUsage()).toBeNull();
   expect(trigger("claude-work").getAttribute("aria-label")).toContain(
-    "Weekly · Opus: 29% left. Weekly · Sonnet: 16% left.",
+    "Weekly · Opus: 29% remaining. Weekly · Sonnet: 16% remaining.",
   );
-  expect(group("claude-work").textContent).toContain("44%left29%left+1");
+  expect(group("claude-work").textContent).toContain("44%29%+1");
   expect(group("claude-work").textContent).not.toContain("16%");
   await render();
   expect(threadUsage()?.textContent).toContain("Context5%");
@@ -205,18 +205,19 @@ it.each([
   [-5, 100],
   [105, 0],
 ])(
-  "shows %s used as %s left consistently in the summary and accessible meter",
+  "shows %s used as %s remaining consistently in the summary and accessible meter",
   async (used, remaining) => {
     await render({ providers: deriveProviderInstanceEntries([provider("codex", "Codex", used!)]) });
-    expect(trigger("codex").textContent).toBe(`${remaining}%left`);
-    expect(trigger("codex").getAttribute("aria-label")).toContain(`${remaining}% left`);
+    expect(trigger("codex").textContent).toBe(`${remaining}%`);
+    expect(group("codex").textContent).not.toContain("left");
+    expect(trigger("codex").getAttribute("aria-label")).toContain(`${remaining}% remaining`);
     expect(trigger("codex").querySelector(".text-warning") !== null).toBe(remaining! <= 10);
     const popup = await openDetails("codex");
-    expect(popup.textContent).toContain(`${remaining}% left`);
+    expect(popup.textContent).toContain(`${remaining}%`);
     const meter = popup.querySelector<HTMLElement>('[role="progressbar"]')!;
     expect(meter.getAttribute("aria-label")).toBe("Codex · Session quota remaining");
     expect(meter.getAttribute("aria-valuenow")).toBe(String(remaining));
-    expect(meter.getAttribute("aria-valuetext")).toBe(`${remaining}% left`);
+    expect(meter.getAttribute("aria-valuetext")).toBe(`${remaining}% remaining`);
     expect((meter.firstElementChild as HTMLElement).style.width).toBe(`${remaining}%`);
   },
 );
@@ -259,20 +260,20 @@ it("keeps duplicate labels and same-driver accounts distinct through updates and
   const sameName = { ...personal, displayName: "Codex" };
   await render({ providers: deriveProviderInstanceEntries([codex, sameName]) });
   expect(trigger("codex").getAttribute("aria-label")).toContain(
-    "Codex subscription quota remaining. Session: 88% left.",
+    "Codex subscription quota remaining. Session: 88% remaining.",
   );
   // Instance display resolution humanizes a custom id when the server only gives the driver label.
   expect(trigger("codex-personal").getAttribute("aria-label")).toContain(
-    "Codex Personal subscription quota remaining. Session: 66% left.",
+    "Codex Personal subscription quota remaining. Session: 66% remaining.",
   );
   const renamed = { ...codex, displayName: "Shared name" };
   const renamedPersonal = { ...personal, displayName: "Shared name" };
   await render({ providers: deriveProviderInstanceEntries([renamedPersonal, renamed]) });
   expect(trigger("codex").getAttribute("aria-label")).toContain(
-    "Shared name (codex) subscription quota remaining. Session: 88% left.",
+    "Shared name (codex) subscription quota remaining. Session: 88% remaining.",
   );
   expect(trigger("codex-personal").getAttribute("aria-label")).toContain(
-    "Shared name (codex-personal) subscription quota remaining. Session: 66% left.",
+    "Shared name (codex-personal) subscription quota remaining. Session: 66% remaining.",
   );
   await render({
     providers: deriveProviderInstanceEntries([{ ...personal, usageLimits: undefined }]),
@@ -340,9 +341,9 @@ it("keeps every bucket, reset and report time in the compact summary's details",
   await render();
   const popup = await openDetails("claude-work");
   expect(popup.textContent).toContain("Claude Work");
-  expect(popup.textContent).toContain("Subscription quota left");
-  expect(popup.textContent).toContain("Weekly · Opus29% left");
-  expect(popup.textContent).toContain("Weekly · Sonnet16% left");
+  expect(popup.textContent).toContain("Subscription quota remaining");
+  expect(popup.textContent).toContain("Weekly · Opus29%");
+  expect(popup.textContent).toContain("Weekly · Sonnet16%");
   expect(popup.querySelectorAll('[role="progressbar"]')).toHaveLength(3);
   expect(popup.textContent).toContain("Last reported");
   expect(popup.textContent).toContain(
@@ -598,7 +599,7 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     const inner = () =>
       document.querySelector<HTMLElement>('[aria-label="Claude Work usage details"][data-open]');
     expect(outer()).not.toBeNull();
-    expect(inner()?.textContent).toContain("Weekly · Sonnet16% left");
+    expect(inner()?.textContent).toContain("Weekly · Sonnet16%");
     await act(async () => inner()!.click());
     expect(outer()).not.toBeNull();
     await act(async () =>
