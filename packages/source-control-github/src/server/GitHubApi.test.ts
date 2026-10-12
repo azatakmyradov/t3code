@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
@@ -471,8 +470,9 @@ describe("GitHubCredentials", () => {
     ),
   );
 
-  for (const failure of ["nonzero", "truncated", "empty", "timeout"] as const) {
-    it.effect(`fails closed on ${failure} repository-account discovery`, () => {
+  it.effect.each(["nonzero", "truncated", "empty", "timeout"] as const)(
+    "fails closed on %s repository-account discovery",
+    (failure) => {
       const calls: Array<ReadonlyArray<string>> = [];
       return Effect.gen(function* () {
         const credentials = yield* GitHubCredentials.GitHubCredentials;
@@ -507,8 +507,8 @@ describe("GitHubCredentials", () => {
           }),
         ),
       );
-    });
-  }
+    },
+  );
 
   it.effect("does not cache a gh failure that is not about signing in", () => {
     let calls = 0;
