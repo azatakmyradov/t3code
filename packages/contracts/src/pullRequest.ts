@@ -530,6 +530,8 @@ export const PullRequestListEntry = Schema.Struct({
    * than one account — github.com and a GitHub Enterprise install are different identities.
    */
   host: TrimmedNonEmptyString,
+  /** The account that read this row; repositories on one host can use different accounts. */
+  viewer: Schema.optional(TrimmedNonEmptyString),
   projectId: ProjectId,
   projectTitle: TrimmedNonEmptyString,
   repository: TrimmedNonEmptyString,
@@ -656,9 +658,8 @@ export type PullRequestListProjectError = typeof PullRequestListProjectError.Typ
 
 export const PullRequestListResult = Schema.Struct({
   /**
-   * The signed-in account per host, which is what involvement filtering compares. Keyed by
-   * host rather than by provider kind: two GitHub hosts are two accounts. A host that could
-   * not be read is absent rather than present-and-undefined, because an open-keyed record
+   * Legacy signed-in account per host; a row's optional viewer takes precedence. A host that
+   * could not be read is absent rather than present-and-undefined, because an open-keyed record
    * cannot carry an optional value through the JSON codec.
    */
   viewers: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString),
@@ -704,6 +705,8 @@ export type PullRequestRef = typeof PullRequestRef.Type;
 /** Account discovery never needs the originating project's private repository metadata. */
 export const PullRequestRoutingIdentityInput = Schema.Struct({
   host: TrimmedNonEmptyString,
+  /** Find this account among the destination environment's project credentials. */
+  expectedAccountId: Schema.optional(TrimmedNonEmptyString),
 });
 export type PullRequestRoutingIdentityInput = typeof PullRequestRoutingIdentityInput.Type;
 

@@ -44,6 +44,7 @@ import {
   parseRemoteRefWithRemoteNames,
 } from "../git/remoteRefs.ts";
 import * as ServerConfig from "../config.ts";
+import { gitHubCredentialFallback } from "./gitHubCredentialHelper.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const gitProcesses = Semaphore.makeUnsafe(8);
@@ -1089,7 +1090,30 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   );
 
   const execute: GitVcsDriver.GitVcsDriver["Service"]["execute"] = (input) =>
-    executeRaw(input).pipe(
+    Effect.gen(function* () {
+      const fallback = yield* gitHubCredentialFallback(input.args, (args) =>
+        executeRaw({
+          operation: "GitVcsDriver.credentials.readConfig",
+          cwd: input.cwd,
+          args,
+          ...(input.env === undefined ? {} : { env: input.env }),
+          allowNonZeroExit: true,
+          timeoutMs: 5_000,
+        }).pipe(
+          Effect.map((result) => (result.stdoutTruncated ? { exitCode: 1, stdout: "" } : result)),
+          Effect.orElseSucceed(() => ({ exitCode: 1, stdout: "" })),
+        ),
+      );
+      return yield* executeRaw(
+        fallback === null
+          ? input
+          : {
+              ...input,
+              args: fallback.args,
+              env: { ...input.env, ...fallback.env },
+            },
+      );
+    }).pipe(
       withMetrics({
         counter: gitCommandsTotal,
         timer: gitCommandDuration,

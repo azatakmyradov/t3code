@@ -96,8 +96,7 @@ export function effectiveGitHubAccount(
   return (
     usable.find((account) => account.environmentVariable !== null) ??
     (choice?.account === undefined
-      ? undefined
-      : usable.find((account) => account.account === choice.account)) ??
-    findAuthenticatedGitHubAccount(usable)
+      ? findAuthenticatedGitHubAccount(usable)
+      : usable.find((account) => account.account === choice.account))
   );
 }

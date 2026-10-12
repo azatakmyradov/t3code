@@ -121,7 +121,13 @@ export function parseGitHubAuth(
       ...providerAuth({
         status: "unauthenticated",
         host: fallback.host,
-        detail: "Every GitHub host gh is signed in to is turned off in Settings → Source Control.",
+        detail: hosts.every(
+          (host) =>
+            settings.hosts[host]?.enabled === false ||
+            !authStatus.accounts.some((account) => account.host === host && account.authenticated),
+        )
+          ? "Every GitHub host gh is signed in to is turned off in Settings → Source Control."
+          : "The GitHub account chosen in Settings is no longer signed in. Sign in again or choose another account in Settings → Source Control.",
       }),
       ...accounts,
     };
@@ -329,6 +335,7 @@ function fromGitHubApiError(
       );
     case "GitHubApiNotFoundError":
       return failure(notFound, error);
+    case "GitHubAccountResolutionError":
     case "GitHubCliFailedError":
     case "GitHubApiResponseError":
     case "GitHubApiRequestError":
@@ -396,6 +403,7 @@ const OWNER_HEAD_SCAN_LIMIT = 100;
 
 class PullRequestsByHeadRead extends Request.Class<
   {
+    readonly cwd: string;
     readonly host: string;
     readonly owner: string;
     readonly name: string;
@@ -563,6 +571,9 @@ export const make = Effect.gen(function* () {
         request.host,
         request.owner,
         request.name,
+        Context.getOrElse(context, GitHubApi.PinnedGitHubCredential, () => null) === null
+          ? request.cwd
+          : "",
         String(request.allowReserve),
         Context.getOrElse(context, GitHubApi.PinnedGitHubCredential, () => null)
           ?.credentialFingerprint ?? "",
@@ -570,12 +581,13 @@ export const make = Effect.gen(function* () {
       ].join("\0"),
     resolver: (entries) => {
       const [first] = entries;
-      const { host, owner, name, allowReserve } = first.request;
+      const { host, owner, name, allowReserve, cwd } = first.request;
       const query = buildPullRequestsByHeadQuery(entries.map((entry) => entry.request));
       return graphqlJson(
         {
           host,
           operation: "listPullRequestsByHead",
+          credentialContext: { cwd },
           query: query.document,
           variables: { owner, name, ...query.variables },
           allowReserve,
@@ -637,6 +649,7 @@ export const make = Effect.gen(function* () {
     const headRefName = ownerMatch?.[2] ?? input.headSelector.trim();
     const rows = yield* Effect.request(
       new PullRequestsByHeadRead({
+        cwd: input.cwd,
         ...locator,
         headRefName,
         state: input.state,
@@ -683,6 +696,7 @@ export const make = Effect.gen(function* () {
         {
           host: locator.host,
           operation: "getPullRequest",
+          credentialContext: { cwd: input.cwd },
           query: PULL_REQUEST_BY_NUMBER_QUERY,
           variables: { owner: locator.owner, name: locator.name, number: parsed.number },
           allowReserve: true,
@@ -701,11 +715,13 @@ export const make = Effect.gen(function* () {
 
   const readRepository = Effect.fn("GitHubSourceControlProvider.readRepository")(function* (
     locator: GitHubRepositoryLocator,
+    cwd: string,
   ) {
     const response = yield* rest(
       {
         host: locator.host,
         operation: "getRepository",
+        credentialContext: { cwd },
         path: `repos/${encodeURIComponent(locator.owner)}/${encodeURIComponent(locator.name)}`,
         allowReserve: true,
       },
@@ -720,10 +736,12 @@ export const make = Effect.gen(function* () {
 
   const readViewerLogin = Effect.fn("GitHubSourceControlProvider.readViewerLogin")(function* (
     host: string,
+    cwd: string,
   ) {
     const response = yield* rest({
       host,
       operation: "getViewer",
+      credentialContext: { cwd },
       path: "user",
       allowReserve: true,
     });
@@ -790,7 +808,7 @@ export const make = Effect.gen(function* () {
       // prefix. Without the default branch that collision cannot be ruled out, and the checkout
       // would reset the local default branch to the fork's commit, so it fails instead.
       const defaultBranch = isCrossRepository
-        ? yield* readRepository(base).pipe(
+        ? yield* readRepository(base, input.cwd).pipe(
             Effect.map((repository) => repository.default_branch ?? null),
           )
         : null;
@@ -808,7 +826,10 @@ export const make = Effect.gen(function* () {
         const known = remoteFor(headNameWithOwner);
         if (known !== null) return known;
         const [owner, name] = headNameWithOwner.split("/");
-        const fork = yield* readRepository({ host: base.host, owner: owner!, name: name! });
+        const fork = yield* readRepository(
+          { host: base.host, owner: owner!, name: name! },
+          input.cwd,
+        );
         const originUrl = yield* git.readConfigValue(input.cwd, "remote.origin.url");
         return yield* git.ensureRemote({
           cwd: input.cwd,
@@ -912,6 +933,7 @@ export const make = Effect.gen(function* () {
       .rest({
         host: input.url.host,
         operation: "resolveLink",
+        credentialContext: { cwd: input.cwd },
         path: endpoint,
         maxResponseBytes: 1_000_000,
       })
@@ -1005,6 +1027,7 @@ export const make = Effect.gen(function* () {
         yield* rest({
           host: locator.host,
           operation: "createPullRequest",
+          credentialContext: { cwd: input.cwd },
           method: "POST",
           // A user's own write may spend the reserve the background leaves for it.
           allowReserve: true,
@@ -1035,10 +1058,14 @@ export const make = Effect.gen(function* () {
         const locator =
           parseGitHubRepositorySelector(input.repository, fallbackHost) ??
           (/^[^/\s]+$/.test(bareName)
-            ? { host: fallbackHost, owner: yield* readViewerLogin(fallbackHost), name: bareName }
+            ? {
+                host: fallbackHost,
+                owner: yield* readViewerLogin(fallbackHost, input.cwd),
+                name: bareName,
+              }
             : null);
         if (locator === null) return yield* failure("Repositories are named owner/name.");
-        return repositoryCloneUrls(yield* readRepository(locator));
+        return repositoryCloneUrls(yield* readRepository(locator, input.cwd));
       }).pipe(
         Effect.mapError(
           providerError("getRepositoryCloneUrls", input.cwd, { repository: input.repository }),
@@ -1050,7 +1077,7 @@ export const make = Effect.gen(function* () {
           input.repository,
           (environment.GH_HOST ?? "github.com").toLowerCase(),
         );
-        const viewer = locator === null ? null : yield* readViewerLogin(locator.host);
+        const viewer = locator === null ? null : yield* readViewerLogin(locator.host, input.cwd);
         const owner = locator?.owner ?? viewer;
         const name = locator?.name ?? input.repository.trim();
         const host = locator?.host ?? (environment.GH_HOST?.trim().toLowerCase() || "github.com");
@@ -1059,6 +1086,7 @@ export const make = Effect.gen(function* () {
           {
             host,
             operation: "createRepository",
+            credentialContext: { cwd: input.cwd },
             method: "POST",
             allowReserve: true,
             path:
@@ -1085,7 +1113,7 @@ export const make = Effect.gen(function* () {
           host: contextHost(input.context),
           context: input.context,
         });
-        const repository = yield* readRepository(locator);
+        const repository = yield* readRepository(locator, input.cwd);
         const branch = repository.default_branch?.trim() ?? "";
         return branch.length > 0 ? branch : null;
       }).pipe(Effect.mapError(providerError("getDefaultBranch", input.cwd))),

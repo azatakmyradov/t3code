@@ -29,7 +29,26 @@ order of precedence:
 
 If `gh` is signed in to several accounts or hosts, expand **GitHub** in the same place to pick
 the account each host uses or turn a host off. A saved token or `GH_TOKEN` takes precedence
-over that choice; a host turned off stays off either way.
+over that choice; a host turned off stays off either way. If the chosen account is signed out,
+T3 Code stops and asks you to sign in or choose another account. It never switches to a different
+stored account on your behalf.
+
+**Automatic (per repository)** asks `gh` for the authenticated login from the repository’s own
+directory, then uses that exact stored account for API operations. This honors directory-aware
+CLI wrappers without changing gh’s global active account. Each checkout’s credentials, pull-request
+viewer, and cached results stay separate, including organization repositories where the owner is
+not the login. A host-wide account choice, saved token, or environment token still overrides this
+automatic selection. If the identity lookup fails, the action stops rather than trying another
+account. A changed CLI account is picked up within five minutes, or after a rejected credential.
+
+Git push and pull use Git's own authentication, separately from the account selected for GitHub
+API actions. SSH remotes keep using your SSH keys and host aliases. For HTTPS remotes that use
+`gh auth git-credential`, select the account in that repository with
+`git config --local credential.https://github.com.username YOUR_LOGIN` (replace the hostname for
+GitHub Enterprise). T3 Code can then use that stored gh login even when another login is active,
+without running `gh auth switch`. Existing credential helpers and environment tokens still take
+precedence. Remove the repository override with
+`git config --local --unset credential.https://github.com.username`.
 
 For GitHub Enterprise, sign in with `gh auth login --hostname YOUR_HOST`. T3 Code treats a
 custom server name as GitHub once it has a credential for that host.

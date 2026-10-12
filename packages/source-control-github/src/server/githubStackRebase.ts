@@ -50,6 +50,7 @@ function remoteUrl(host: string, repository: string): string {
  * rather than overwritten. The stacks API has no rebase endpoint to call instead.
  */
 export const cascadeRebaseStack = Effect.fn("cascadeRebaseStack")(function* (input: {
+  readonly cwd: string;
   readonly host: string;
   readonly repository: string;
   readonly base: string;
@@ -60,7 +61,7 @@ export const cascadeRebaseStack = Effect.fn("cascadeRebaseStack")(function* (inp
   const api = yield* GitHubApi.GitHubApi;
   const { process } = yield* SourceControlHost.SourceControlHost;
   const fileSystem = yield* FileSystem.FileSystem;
-  const { token } = yield* api.credential(input.host);
+  const { token } = yield* api.credential(input.host, { cwd: input.cwd });
   const first = input.layers[0];
   if (first === undefined) return 0;
   const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-stack-rebase-" }).pipe(

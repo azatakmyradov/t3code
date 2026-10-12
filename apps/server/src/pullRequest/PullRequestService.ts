@@ -195,9 +195,15 @@ const VIEWER_CACHE_CAPACITY = 32;
 export type PullRequestError = PullRequestUnavailableError | PullRequestOperationError;
 
 const routingCredential = Context.Reference<{
+  readonly accountId: string;
   readonly credentialFingerprint: string;
   readonly viewer: string;
 } | null>("t3/PullRequestService/routingCredential", { defaultValue: () => null });
+// The checkout chosen before verifying a routed operation stays fixed while its token is pinned.
+const routedProject = Context.Reference<{
+  readonly referenceProjectId: ProjectId;
+  readonly project: SupportedProject;
+} | null>("t3/PullRequestService/routedProject", { defaultValue: () => null });
 // Internal only: the client cannot choose its cache's credential namespace.
 const credentialNamespace = Symbol("pullRequestCredentialNamespace");
 type CredentialRef = PullRequestRef & { readonly [credentialNamespace]?: string };
@@ -372,7 +378,7 @@ export interface SupportedProject {
   readonly project: OrchestrationProjectShell;
   readonly api: PullRequestProviderApi;
   readonly repository: string;
-  /** The host the repository lives on, which is the account boundary rather than the kind. */
+  /** The host the repository lives on. A checkout can select its own account on that host. */
   readonly host: string;
   /**
    * The identity's canonical key, which is what this environment's own records are keyed by.
@@ -400,10 +406,8 @@ interface WorkspaceProjects {
     { readonly kind: SourceControlProviderKind; readonly projectCount: number }
   >;
   /**
-   * Every checkout on a host, including the ones the listing de-duplicated away. Asking who is
-   * signed in is a question about the host rather than about a repository, and any checkout can
-   * answer it — so a broken worktree is not allowed to take the host down with it just because
-   * it happened to be the one the listing kept.
+   * Alternate checkouts for providers with host-wide credentials. Credential-aware providers
+   * resolve each checkout separately and only de-duplicate after verifying its account.
    */
   readonly viewerRoots: ReadonlyMap<string, ReadonlyArray<string>>;
 }
@@ -874,7 +878,12 @@ export const make = Effect.gen(function* () {
           }
           const repositoryKey =
             api?.repositoryKey?.({ canonicalKey: identity.canonicalKey }) ?? null;
-          const key = listCursorKey(host, repositoryKey ?? repository);
+          const repositoryCursorKey = listCursorKey(host, repositoryKey ?? repository);
+          // Credential-aware providers can use different accounts in two checkouts of one repo.
+          const key =
+            api?.withVerifiedCredential === undefined
+              ? repositoryCursorKey
+              : `${repositoryCursorKey}\n${project.id}`;
           if (seen.has(key)) continue;
           seen.add(key);
           if (api === null) {
@@ -898,75 +907,121 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  /**
-   * The project whose checkout and credentials serve a reference. The project's own
-   * repository is the default; a reference that names a `host` may instead point at any
-   * repository on that host. Prefer its own checkout; providers with explicit repository
-   * targeting can fall back to another checkout on the host. Azure derives its organization
-   * from the checkout, so it requires a matching repository.
-   */
-  const requireProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
-    listWorkspaceProjects({ projectId: ref.projectId }).pipe(
-      Effect.flatMap(({ supported }): Effect.Effect<SupportedProject, PullRequestError> => {
-        const own = supported[0];
-        const repository = ref.repository.trim();
-        const host = ref.host?.trim().toLowerCase();
-        if (own !== undefined && own.repository.toLowerCase() === repository.toLowerCase()) {
-          // Hostless references only ever meant the project's own repository, and a hosted one
-          // naming it still is; either way the project serves itself.
-          if (host === undefined || host === own.host) return Effect.succeed(own);
-        }
-        if (host === undefined) {
-          if (own === undefined) {
-            return Effect.fail(new PullRequestUnavailableError({ reason: "provider-unsupported" }));
-          }
-          // The repository travels through the client, so it is checked against the project's
-          // own remote rather than being handed to a provider verbatim.
-          return Effect.fail(
-            new PullRequestOperationError({
-              operation: "resolveRepository",
-              detail: "The change request does not belong to the selected project.",
-            }),
-          );
-        }
-        const repositoryKey = canonicalRepositoryKey(`${host}/${repository}`.toLowerCase());
-        // Azure SSH and legacy clone hosts differ from the browser URL's host. Compare
-        // the complete repository identity before narrowing those checkouts by host.
-        return listWorkspaceProjects(
-          repositoryKey.startsWith("dev.azure.com/") ? {} : { host },
-        ).pipe(
-          Effect.flatMap(({ supported }) => {
-            const onHost = supported.filter((candidate) => candidate.host === host);
-            const route =
-              supported.find(
-                (candidate) =>
-                  candidate.repositoryKey !== null && candidate.repositoryKey === repositoryKey,
-              ) ??
-              onHost.find(
-                (candidate) =>
-                  candidate.repositoryKey === null &&
-                  candidate.repository.toLowerCase() === repository.toLowerCase(),
-              ) ??
-              onHost.find((candidate) => candidate.repositoryKey === null);
-            if (route === undefined) {
-              return Effect.fail(
-                new PullRequestUnavailableError({ reason: "provider-unsupported" }),
-              );
-            }
-            return Effect.succeed(
-              route.repositoryKey !== null ||
-                route.repository.toLowerCase() === repository.toLowerCase()
-                ? route
-                : {
-                    ...route,
-                    repository,
-                    remote: normalizeGitRemoteUrl(`https://${host}/${repository}`),
-                  },
-            );
-          }),
-        );
-      }),
+  /** Finds a checkout using the requested account without reading any target repository. */
+  const projectForAccount = Effect.fn("PullRequestService.projectForAccount")(function* (
+    candidates: ReadonlyArray<SupportedProject>,
+    expectedAccountId: string,
+  ) {
+    const rejected = new PullRequestOperationError({
+      operation: "routeIdentity",
+      detail: "The requested GitHub account could not be verified on this environment.",
+    });
+    const checkouts = candidates.flatMap((project) => {
+      const identity = registry.get(project.api.kind)?.getRoutingIdentity;
+      return identity === undefined ? [] : [{ project, identity }];
+    });
+    if (checkouts.length === 0) return yield* rejected;
+    const pending = checkouts.values();
+    // A stalled first checkout must not hide a healthy later account. A small shared queue
+    // bounds probes, and the first match interrupts the remaining workers.
+    const next: Effect.Effect<
+      {
+        project: SupportedProject;
+        identity: { readonly accountId: string; readonly viewer: string };
+      },
+      PullRequestOperationError
+    > = Effect.suspend(() => {
+      const entry = pending.next();
+      if (entry.done) return Effect.fail(rejected);
+      const { project, identity } = entry.value;
+      return identity({ cwd: project.project.workspaceRoot, host: project.host }).pipe(
+        Effect.option,
+        Effect.flatMap((resolved) =>
+          Option.isSome(resolved) && resolved.value.accountId === expectedAccountId
+            ? Effect.succeed({ project, identity: resolved.value })
+            : next,
+        ),
+      );
+    });
+    return yield* Effect.raceAll(
+      Array.from({ length: Math.min(REPOSITORY_CONCURRENCY, checkouts.length) }, () => next),
     );
+  });
+
+  /**
+   * An explicitly selected checkout serves itself; its account is checked before dispatch.
+   * A foreign reference can use another checkout on the host, but a routed request must find
+   * the expected account first. Providers with checkout-specific repository keys still require
+   * the repository to match, as they cannot address an arbitrary repository on their host.
+   */
+  const requireProject = Effect.fn("PullRequestService.requireProject")(function* (
+    ref: PullRequestRef,
+  ): Effect.fn.Return<SupportedProject, PullRequestError> {
+    const repository = ref.repository.trim();
+    const host = ref.host?.trim().toLowerCase();
+    const pinned = yield* routedProject;
+    if (
+      pinned !== null &&
+      (ref.projectId === pinned.referenceProjectId ||
+        ref.projectId === pinned.project.project.id) &&
+      (host === undefined || host === pinned.project.host) &&
+      repository.toLowerCase() === pinned.project.repository.toLowerCase()
+    )
+      return pinned.project;
+
+    const { supported: ownProjects } = yield* listWorkspaceProjects({ projectId: ref.projectId });
+    const own = ownProjects[0];
+    if (
+      own !== undefined &&
+      own.repository.toLowerCase() === repository.toLowerCase() &&
+      (host === undefined || host === own.host)
+    )
+      return own;
+    if (host === undefined) {
+      if (own === undefined) {
+        return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
+      }
+      return yield* new PullRequestOperationError({
+        operation: "resolveRepository",
+        detail: "The change request does not belong to the selected project.",
+      });
+    }
+    const repositoryKey = canonicalRepositoryKey(`${host}/${repository}`.toLowerCase());
+    const { supported } = yield* listWorkspaceProjects(
+      repositoryKey.startsWith("dev.azure.com/") ? {} : { host },
+    );
+    const exact = supported.filter((candidate) =>
+      candidate.repositoryKey !== null
+        ? candidate.repositoryKey === repositoryKey
+        : candidate.host === host &&
+          candidate.repository.toLowerCase() === repository.toLowerCase(),
+    );
+    const alternatives = supported.filter(
+      (candidate) =>
+        candidate.host === host && candidate.repositoryKey === null && !exact.includes(candidate),
+    );
+    const candidates = [...exact, ...alternatives];
+    if (candidates.length === 0) {
+      return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
+    }
+    const expectedAccountId = ref.expectedAccountId;
+    const route =
+      expectedAccountId === undefined
+        ? candidates[0]!
+        : (yield* exact.length === 0
+            ? projectForAccount(alternatives, expectedAccountId)
+            : projectForAccount(exact, expectedAccountId).pipe(
+                Effect.catch((error) =>
+                  alternatives.length === 0
+                    ? Effect.fail(error)
+                    : projectForAccount(alternatives, expectedAccountId),
+                ),
+              )).project;
+    return route.repositoryKey !== null ||
+      route.repository.toLowerCase() === repository.toLowerCase()
+      ? route
+      : { ...route, repository, remote: normalizeGitRemoteUrl(`https://${host}/${repository}`) };
+  });
 
   const canonicalRef = Effect.fn("PullRequestService.canonicalRef")(function* <
     I extends PullRequestRef,
@@ -1028,19 +1083,34 @@ export const make = Effect.gen(function* () {
   };
 
   /**
-   * One viewer lookup per host, tried across that host's workspaces so a single broken checkout
-   * cannot hide every healthy repository on it. Per host and not per provider kind: two GitHub
-   * hosts are two accounts, and the wrong login would misattribute every review request.
-   *
-   * Its failure doubles as the answer to "is this host set up", which is what the provider
-   * switcher shows.
+   * Legacy providers resolve one viewer per host, trying alternate checkouts on failure.
+   * Providers that can pin a verified credential resolve per checkout below instead.
    */
   type ResolvedViewer = {
     readonly host: string;
     readonly kind: SourceControlProviderKind;
     readonly viewer: string | null;
     readonly error: PullRequestProviderError | null;
+    readonly projectId?: ProjectId;
+    readonly accountId?: string;
+    readonly credentialFingerprint?: string;
+    readonly context?: Context.Context<never>;
   };
+  const listingSnapshot = Context.Reference<{
+    readonly workspace: WorkspaceProjects;
+    readonly viewers: ReadonlyArray<ResolvedViewer>;
+  } | null>("t3/PullRequestService/listingSnapshot", { defaultValue: () => null });
+  const viewerFor = (project: SupportedProject, viewers: ReadonlyArray<ResolvedViewer>) =>
+    viewers.find((viewer) => viewer.projectId === project.project.id) ??
+    viewers.find((viewer) => viewer.projectId === undefined && viewer.host === project.host);
+  const withViewerContext = <A, E>(
+    viewer: ResolvedViewer | undefined,
+    read: Effect.Effect<A, E>,
+  ): Effect.Effect<A, E> =>
+    viewer?.context === undefined ? read : read.pipe(Effect.provideContext(viewer.context));
+  const hasScopedCredentials = registry.kinds.some(
+    (kind) => registry.get(kind)?.withVerifiedCredential !== undefined,
+  );
   // Who is signed in moves on the timescale of `gh auth login`, not of a page visit, yet every
   // list read was asking each host's CLI again — a subprocess and a network round trip per host
   // per read, three reads per page. Only a success is believed for a while: a failure is the
@@ -1091,7 +1161,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  const resolveViewers = (
+  const resolveHostViewers = (
     projects: ReadonlyArray<SupportedProject>,
     viewerRoots: WorkspaceProjects["viewerRoots"],
     options?: { readonly allowPaused: boolean },
@@ -1140,6 +1210,52 @@ export const make = Effect.gen(function* () {
         }),
       { concurrency: REPOSITORY_CONCURRENCY },
     );
+
+  // A provider that can verify credentials resolves each checkout independently. Capture the
+  // pinned context so the viewer, its cache key, and the ensuing requests use the same token.
+  const resolveViewers = (
+    projects: ReadonlyArray<SupportedProject>,
+    viewerRoots: WorkspaceProjects["viewerRoots"],
+    options?: { readonly allowPaused: boolean },
+  ): Effect.Effect<ReadonlyArray<ResolvedViewer>> =>
+    Effect.all([
+      resolveHostViewers(
+        projects.filter((project) => project.api.withVerifiedCredential === undefined),
+        viewerRoots,
+        options,
+      ),
+      Effect.forEach(
+        projects.filter((project) => project.api.withVerifiedCredential !== undefined),
+        (project) => {
+          const verify = project.api.withVerifiedCredential!;
+          return verify({ cwd: project.project.workspaceRoot, host: project.host }, (identity) =>
+            Effect.context<never>().pipe(
+              Effect.map((context): ResolvedViewer => ({
+                host: project.host,
+                kind: project.api.kind,
+                projectId: project.project.id,
+                accountId: identity.accountId,
+                viewer: identity.viewer,
+                error: null,
+                credentialFingerprint: identity.credentialFingerprint,
+                context: Context.add(context, routingCredential, identity),
+              })),
+            ),
+          ).pipe(
+            Effect.catch((error) =>
+              Effect.succeed<ResolvedViewer>({
+                host: project.host,
+                kind: project.api.kind,
+                projectId: project.project.id,
+                viewer: null,
+                error,
+              }),
+            ),
+          );
+        },
+        { concurrency: REPOSITORY_CONCURRENCY },
+      ),
+    ]).pipe(Effect.map(([legacy, scoped]) => [...legacy, ...scoped]));
 
   /**
    * The narrowings a row can be judged by from its own fields, applied here rather than trusted
@@ -1209,6 +1325,7 @@ export const make = Effect.gen(function* () {
       ...(input.item.checksState === undefined || input.item.checksState === null
         ? {}
         : { checksState: input.item.checksState }),
+      ...(input.project.api.withVerifiedCredential === undefined ? {} : { viewer: input.viewer }),
       viewerReviewRequested:
         input.item.author?.login.toLowerCase() !== viewer &&
         input.item.reviewRequestLogins.some((login) => login.toLowerCase() === viewer),
@@ -1223,8 +1340,8 @@ export const make = Effect.gen(function* () {
   // authored/reviewing searches for that same repository are therefore real empty answers, not
   // a reason to issue the two-command per-repository fallback again.
   const searchVisibleAt = new Map<string, number>();
-  const searchVisibilityKey = (host: string, repository: string) =>
-    `${host}\n${repository.trim().toLowerCase()}`;
+  const searchVisibilityKey = (host: string, repository: string, fingerprint?: string) =>
+    `${host}\n${repository.trim().toLowerCase()}\n${fingerprint ?? ""}`;
 
   const listUncached: PullRequestService["Service"]["list"] = (input) =>
     Effect.gen(function* () {
@@ -1233,17 +1350,15 @@ export const make = Effect.gen(function* () {
       // issued, so one that does not read as one means the page is sending something it made up,
       // and reading part of the listing under that assumption would quietly lose rows.
       const continuation = yield* decodeCursors(input.cursors);
-      const {
-        supported: projects,
-        unimplemented,
-        viewerRoots,
-      } = yield* listWorkspaceProjects(input);
+      const snapshot = yield* listingSnapshot;
+      const workspace = snapshot?.workspace ?? (yield* listWorkspaceProjects(input));
+      const { supported: projects, unimplemented, viewerRoots } = workspace;
       const projectCounts = new Map<string, number>();
       for (const { host } of projects) {
         projectCounts.set(host, (projectCounts.get(host) ?? 0) + 1);
       }
 
-      const viewerResults = yield* resolveViewers(projects, viewerRoots);
+      const viewerResults = snapshot?.viewers ?? (yield* resolveViewers(projects, viewerRoots));
       const viewers: Record<string, string> = {};
       for (const result of viewerResults) {
         if (result.viewer !== null) viewers[result.host] = result.viewer;
@@ -1252,15 +1367,16 @@ export const make = Effect.gen(function* () {
       // One summary per host, which is what the viewer lookup already answers for: two GitHub
       // hosts sign in separately, so collapsing them by kind would report one as the other.
       const providers: ReadonlyArray<PullRequestProviderSummary> = [
-        ...viewerResults.map((result) => {
-          const capabilities = projects.find((project) => project.host === result.host)?.api
-            .capabilities;
+        ...[...new Set(viewerResults.map((result) => result.host))].map((host) => {
+          const onHost = viewerResults.filter((result) => result.host === host);
+          const result = onHost.find((result) => result.viewer !== null) ?? onHost[0]!;
+          const capabilities = projects.find((project) => project.host === host)?.api.capabilities;
           return {
-            host: result.host,
+            host,
             kind: result.kind,
             searchesOnHost: capabilities?.search ?? false,
             actions: capabilities?.actions ?? [],
-            projectCount: projectCounts.get(result.host) ?? 1,
+            projectCount: projectCounts.get(host) ?? 1,
             configured: result.viewer !== null,
             detail: result.error === null ? null : providerDetail(result.error),
           };
@@ -1284,11 +1400,13 @@ export const make = Effect.gen(function* () {
         continuation === null
           ? projects
           : projects.filter(({ cursorKey }) => continuation.has(cursorKey));
-      const readable = selected.filter(({ host }) => viewers[host] !== undefined);
+      const readable = selected.filter(
+        (project) => viewerFor(project, viewerResults)?.viewer != null,
+      );
       // A host that could not be read still has projects, and they are absent from the list.
       // Reporting them keeps "N repositories were unavailable" honest instead of dropping them.
       const unreadable = selected
-        .filter(({ host }) => viewers[host] === undefined)
+        .filter((project) => viewerFor(project, viewerResults)?.viewer == null)
         .map(({ project, repository }) => ({
           projectId: project.id,
           projectTitle: project.title,
@@ -1333,7 +1451,8 @@ export const make = Effect.gen(function* () {
        */
       const readRepository = (project: SupportedProject): Effect.Effect<RepositoryBatch> => {
         {
-          const viewer = viewers[project.host]!;
+          const resolved = viewerFor(project, viewerResults);
+          const viewer = resolved!.viewer!;
           const key = project.cursorKey;
           const cursor = cursorOf(project);
           return project.api
@@ -1358,6 +1477,7 @@ export const make = Effect.gen(function* () {
                   }),
             })
             .pipe(
+              (read) => withViewerContext(resolved, read),
               observeRead,
               Effect.map(({ value: page, observedAt }): RepositoryBatch => {
                 // The boundary instant was asked for inclusively, so the rows already sent at it
@@ -1420,7 +1540,8 @@ export const make = Effect.gen(function* () {
         const separately = () =>
           Effect.forEach(chunk, readRepository, { concurrency: REPOSITORY_CONCURRENCY });
         if (readAcross === undefined) return separately();
-        const viewer = viewers[first.host]!;
+        const resolved = viewerFor(first, viewerResults);
+        const viewer = resolved!.viewer!;
         const cursor = cursorOf(first);
         return readAcross({
           cwd: first.project.workspaceRoot,
@@ -1436,6 +1557,7 @@ export const make = Effect.gen(function* () {
             ? {}
             : { cursor: { updatedBefore: cursor.updatedBefore, delivered: cursor.delivered } }),
         }).pipe(
+          (read) => withViewerContext(resolved, read),
           observeRead,
           Effect.flatMap(({ value: page, observedAt }) =>
             Effect.flatMap(Clock.currentTimeMillis, (now) => {
@@ -1450,7 +1572,10 @@ export const make = Effect.gen(function* () {
                 const held = rows.get(key);
                 if (held === undefined) rows.set(key, [item]);
                 else held.push(item);
-                searchVisibleAt.set(searchVisibilityKey(first.host, item.repository), now);
+                searchVisibleAt.set(
+                  searchVisibilityKey(first.host, item.repository, resolved?.credentialFingerprint),
+                  now,
+                );
               }
               // The oldest row of the whole slice, which is how far every repository in it has now
               // been read — including the ones that contributed nothing to it.
@@ -1472,7 +1597,11 @@ export const make = Effect.gen(function* () {
                   // price of one request per repository with nothing in the first slice — which
                   // run together, and only there.
                   const lastVisible = searchVisibleAt.get(
-                    searchVisibilityKey(project.host, project.repository),
+                    searchVisibilityKey(
+                      project.host,
+                      project.repository,
+                      resolved?.credentialFingerprint,
+                    ),
                   );
                   const searchIsKnownVisible =
                     !page.truncated &&
@@ -1525,7 +1654,7 @@ export const make = Effect.gen(function* () {
           separate.push(project);
           continue;
         }
-        const key = `${project.host}\n${cursorOf(project)?.updatedBefore ?? ""}`;
+        const key = `${project.host}\n${viewerFor(project, viewerResults)?.credentialFingerprint ?? ""}\n${cursorOf(project)?.updatedBefore ?? ""}`;
         const group = together.get(key);
         if (group === undefined) together.set(key, [project]);
         else group.push(project);
@@ -1558,9 +1687,8 @@ export const make = Effect.gen(function* () {
     });
 
   /**
-   * Who this project's host says the reader is. Shared with the listing's own lookup — the same
-   * ten-minute answer per host — so a page that has already listed anything pays nothing for it,
-   * and a host that cannot say leaves it null rather than failing the read it decorates.
+   * The pinned account for this read, or the provider's viewer lookup for legacy callers.
+   * An unavailable viewer leaves the decoration empty rather than failing the PR read.
    */
   const viewerOf = (project: SupportedProject): Effect.Effect<string | null> =>
     routingCredential.pipe(
@@ -1578,6 +1706,11 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     const host = input.host.toLowerCase();
     const { supported } = yield* listWorkspaceProjects({ host });
+    if (input.expectedAccountId !== undefined) {
+      const { identity } = yield* projectForAccount(supported, input.expectedAccountId);
+      // The probe receives and returns account metadata only, never the private repository.
+      return { ...identity, host, provider: "github" as const };
+    }
     const project = supported.find(
       (candidate) => registry.get(candidate.api.kind)?.getRoutingIdentity !== undefined,
     );
@@ -1586,12 +1719,8 @@ export const make = Effect.gen(function* () {
       return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
     }
     const identity = yield* api
-      .getRoutingIdentity({
-        cwd: project.project.workspaceRoot,
-        host,
-      })
+      .getRoutingIdentity({ cwd: project.project.workspaceRoot, host })
       .pipe(Effect.mapError(toPullRequestError("routeIdentity")));
-    // Only GitHub reports a routing identity, and the contract names it.
     return { ...identity, host, provider: "github" as const };
   });
 
@@ -1619,7 +1748,14 @@ export const make = Effect.gen(function* () {
           { cwd: project.project.workspaceRoot, host: project.host },
           (identity) =>
             identity.accountId === input.expectedAccountId
-              ? operation.pipe(Effect.provideService(routingCredential, identity), Effect.result)
+              ? operation.pipe(
+                  Effect.provideService(routingCredential, identity),
+                  Effect.provideService(routedProject, {
+                    referenceProjectId: input.projectId,
+                    project,
+                  }),
+                  Effect.result,
+                )
               : Effect.fail(rejected()),
         )
         .pipe(Effect.catchTags({ PullRequestProviderError: () => Effect.fail(rejected()) }));
@@ -1638,7 +1774,11 @@ export const make = Effect.gen(function* () {
         host: project.host,
       })
       .pipe(Effect.mapError(toPullRequestError("routeIdentity")));
-    if (!identity.viewer.trim() || !identity.accountId.trim()) {
+    if (
+      !identity.viewer.trim() ||
+      !identity.accountId.trim() ||
+      (input.expectedAccountId !== undefined && identity.accountId !== input.expectedAccountId)
+    ) {
       return yield* new PullRequestOperationError({
         operation: "routeIdentity",
         detail: "The signed-in account could not be verified.",
@@ -1961,13 +2101,19 @@ export const make = Effect.gen(function* () {
     project: SupportedProject,
     operation: string,
   ): Effect.Effect<string | null, PullRequestError> =>
-    resolveViewers([project], new Map(), { allowPaused: true }).pipe(
-      Effect.flatMap(([resolved]) => {
-        const error = resolved?.error ?? null;
-        return error === null
-          ? Effect.succeed(resolved?.viewer ?? null)
-          : Effect.fail(toPullRequestError(operation)(error));
-      }),
+    routingCredential.pipe(
+      Effect.flatMap((credential) =>
+        credential !== null
+          ? Effect.succeed(credential.viewer)
+          : resolveViewers([project], new Map(), { allowPaused: true }).pipe(
+              Effect.flatMap(([resolved]) => {
+                const error = resolved?.error ?? null;
+                return error === null
+                  ? Effect.succeed(resolved?.viewer ?? null)
+                  : Effect.fail(toPullRequestError(operation)(error));
+              }),
+            ),
+      ),
     );
 
   const setFilesViewed: PullRequestService["Service"]["setFilesViewed"] = (input) =>
@@ -2964,8 +3110,11 @@ export const make = Effect.gen(function* () {
       timeToLive: (exit) => (Exit.isSuccess(exit) ? LIST_CACHE_TTL : Duration.zero),
     },
   );
-  const list: PullRequestService["Service"]["list"] = (input) => {
-    const key = JSON.stringify([
+  const listCacheKey = (
+    input: PullRequestListInput,
+    scopedViewers?: ReadonlyArray<ResolvedViewer>,
+  ) =>
+    JSON.stringify([
       listingsEpoch,
       input.state,
       input.involvement ?? null,
@@ -2989,14 +3138,54 @@ export const make = Effect.gen(function* () {
       input.cursors === undefined
         ? null
         : Object.entries(input.cursors).toSorted(([left], [right]) => left.localeCompare(right)),
+      scopedViewers?.map((viewer) => [viewer.projectId, viewer.credentialFingerprint ?? null]) ??
+        null,
     ]);
-    // A replacement reader can join a lookup still finishing its previous reader's cancellation.
-    return Cache.get(listCache, key).pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause) ? Cache.get(listCache, key) : Effect.failCause(cause),
-      ),
-    );
-  };
+
+  const list: PullRequestService["Service"]["list"] = (input) =>
+    Effect.gen(function* () {
+      let snapshot: {
+        workspace: WorkspaceProjects;
+        viewers: ReadonlyArray<ResolvedViewer>;
+      } | null = null;
+      if (hasScopedCredentials) {
+        const workspace = yield* listWorkspaceProjects(input);
+        const viewers = yield* resolveViewers(workspace.supported, workspace.viewerRoots);
+        const seen = new Set<string>();
+        const supported = workspace.supported.filter((project) => {
+          const fingerprint = viewerFor(project, viewers)?.credentialFingerprint;
+          if (fingerprint === undefined) return true;
+          const key = `${project.host}\n${project.repositoryKey ?? project.repository}\n${fingerprint}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        snapshot = {
+          workspace: {
+            ...workspace,
+            supported: supported.map((project) => {
+              const accountId = viewerFor(project, viewers)?.accountId;
+              // A continuation from a previous account must not be reused for this account.
+              return accountId === undefined
+                ? project
+                : {
+                    ...project,
+                    cursorKey: `${project.cursorKey}\n${accountId}`,
+                  };
+            }),
+          },
+          viewers,
+        };
+      }
+      const key = listCacheKey(input, snapshot?.viewers);
+      // A replacement reader can join a lookup still finishing its previous reader's cancellation.
+      return yield* Cache.get(listCache, key).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause) ? Cache.get(listCache, key) : Effect.failCause(cause),
+        ),
+        Effect.provideService(listingSnapshot, snapshot),
+      );
+    });
 
   const checksCache = yield* Cache.makeWith(
     (key: string) => {
@@ -3288,9 +3477,17 @@ export const make = Effect.gen(function* () {
 
   const listStatsCache = yield* Cache.makeWith(
     (key: string) => {
-      const [, refs] = JSON.parse(key) as [number, ReadonlyArray<[string, string, number, number]>];
+      const [, refs] = JSON.parse(key) as [
+        number,
+        ReadonlyArray<[string, string, number, number, string | null]>,
+      ];
       return listStatsUncached({
-        refs: refs.map(([projectId, repository, number]) => ({ projectId, repository, number })),
+        refs: refs.map(([projectId, repository, number, , fingerprint]) => ({
+          projectId,
+          repository,
+          number,
+          ...(fingerprint === null ? {} : { [credentialNamespace]: fingerprint }),
+        })),
       } as unknown as PullRequestListStatsInput).pipe(
         Effect.flatMap((result) =>
           Clock.currentTimeMillis.pipe(Effect.map((at) => ({ result, at }))),
@@ -3302,11 +3499,20 @@ export const make = Effect.gen(function* () {
       timeToLive: (exit) => (Exit.isSuccess(exit) ? LIST_STATS_CACHE_TTL : Duration.zero),
     },
   );
-  const statsBatchKey = (refs: Iterable<PullRequestRef>) =>
+  const statsBatchKey = (refs: Iterable<CredentialRef>) =>
     JSON.stringify([
       listingsEpoch,
       [...refs]
-        .map((ref) => [ref.projectId, ref.repository, ref.number, refEpoch(ref)] as const)
+        .map(
+          (ref) =>
+            [
+              ref.projectId,
+              ref.repository,
+              ref.number,
+              refEpoch(ref),
+              ref[credentialNamespace] ?? null,
+            ] as const,
+        )
         .toSorted((left, right) =>
           `${left[0]} ${left[1]} ${left[2]}`.localeCompare(`${right[0]} ${right[1]} ${right[2]}`),
         ),
@@ -3452,13 +3658,51 @@ export const make = Effect.gen(function* () {
     ) =>
     (input: I, ...args: Args) =>
       Effect.gen(function* () {
-        const ref = yield* canonicalRef(input);
-        const credential = yield* routingCredential;
-        return yield* read(
-          credential === null
-            ? ref
-            : { ...ref, [credentialNamespace]: credential.credentialFingerprint },
-          ...args,
+        const project = yield* requireProject(input);
+        const ref = {
+          ...input,
+          projectId: project.project.id,
+          host: project.host,
+          repository: project.repository,
+        };
+        const held = yield* routingCredential;
+        const use = (credential: typeof held) =>
+          read(
+            credential === null
+              ? ref
+              : { ...ref, [credentialNamespace]: credential.credentialFingerprint },
+            ...args,
+          );
+        const matches = (identity: { readonly accountId: string }) =>
+          input.expectedAccountId === undefined || identity.accountId === input.expectedAccountId;
+        const rejected = () =>
+          new PullRequestOperationError({
+            operation: "routeIdentity",
+            detail: "The GitHub account could not be verified before starting the operation.",
+          });
+        if (held !== null) return yield* matches(held) ? use(held) : Effect.fail(rejected());
+        const verify = project.api.withVerifiedCredential;
+        if (verify === undefined)
+          return yield* input.expectedAccountId === undefined ? use(null) : Effect.fail(rejected());
+        return yield* verify(
+          { cwd: project.project.workspaceRoot, host: project.host },
+          (identity) =>
+            matches(identity)
+              ? use(identity).pipe(
+                  Effect.provideService(routingCredential, identity),
+                  Effect.provideService(routedProject, {
+                    referenceProjectId: input.projectId,
+                    project,
+                  }),
+                  Effect.result,
+                )
+              : Effect.fail(rejected()),
+        ).pipe(
+          Effect.catchTags({
+            PullRequestProviderError: (error) =>
+              Effect.fail(toPullRequestError("verifyCredential")(error)),
+          }),
+          Effect.flatMap(Effect.fromResult),
         );
       });
 
@@ -3469,7 +3713,31 @@ export const make = Effect.gen(function* () {
     list,
     listStats: (input) =>
       Effect.forEach(input.refs, (ref) => canonicalRef(ref).pipe(Effect.option)).pipe(
-        Effect.flatMap((refs) => listStats({ ...input, refs: refs.flatMap(Option.toArray) })),
+        Effect.flatMap((resolved) => {
+          const refs = resolved.flatMap(Option.toArray);
+          if (!hasScopedCredentials) return listStats({ ...input, refs });
+          // Each checkout resolves its identity before consulting the stats cache. Capturing a
+          // single account for a host-wide batch would hide other checkouts' private PRs.
+          const groups = new Map<ProjectId, PullRequestRef[]>();
+          for (const ref of refs) {
+            const group = groups.get(ref.projectId) ?? [];
+            group.push(ref);
+            groups.set(ref.projectId, group);
+          }
+          return Effect.forEach(
+            groups.values(),
+            (group) =>
+              credentialCached((first: CredentialRef) =>
+                listStats({
+                  refs: group.map((ref) => ({
+                    ...ref,
+                    [credentialNamespace]: first[credentialNamespace],
+                  })),
+                }),
+              )(group[0]!).pipe(Effect.orElseSucceed(() => ({ stats: [] }))),
+            { concurrency: REPOSITORY_CONCURRENCY },
+          ).pipe(Effect.map((results) => ({ stats: results.flatMap((result) => result.stats) })));
+        }),
       ),
     summary: credentialCached(summary),
     stack: credentialCached(stack),
@@ -3491,24 +3759,24 @@ export const make = Effect.gen(function* () {
     ),
     activity: credentialCached(activity),
     preview: credentialCached(preview),
-    threadComments,
+    threadComments: credentialCached(threadComments),
     diff: credentialCached(diff),
-    diffFileContents,
+    diffFileContents: credentialCached(diffFileContents),
     filesViewed: credentialCached(filesViewed),
-    setFilesViewed,
-    runAction: runActionAndInvalidate,
-    update: invalidatedByMutation(update),
-    comment: invalidatedByMutation(comment),
-    updateComment: invalidatedByMutation(updateComment),
-    submitReview: invalidatedByMutation(submitReview),
-    replyToThread: invalidatedByMutation(replyToThread),
-    setThreadResolution: invalidatedByMutation(setThreadResolution),
-    setReaction: invalidatedByMutation(setReaction),
+    setFilesViewed: credentialCached(setFilesViewed),
+    runAction: credentialCached(runActionAndInvalidate),
+    update: credentialCached(invalidatedByMutation(update)),
+    comment: credentialCached(invalidatedByMutation(comment)),
+    updateComment: credentialCached(invalidatedByMutation(updateComment)),
+    submitReview: credentialCached(invalidatedByMutation(submitReview)),
+    replyToThread: credentialCached(invalidatedByMutation(replyToThread)),
+    setThreadResolution: credentialCached(invalidatedByMutation(setThreadResolution)),
+    setReaction: credentialCached(invalidatedByMutation(setReaction)),
     // The candidate list is deliberately read fresh per menu-open, so it stays uncached.
-    reviewerCandidates,
-    requestReviewers: invalidatedByMutation(requestReviewers),
-    labelCandidates,
-    setLabels: invalidatedByMutation(setLabels),
+    reviewerCandidates: credentialCached(reviewerCandidates),
+    requestReviewers: credentialCached(invalidatedByMutation(requestReviewers)),
+    labelCandidates: credentialCached(labelCandidates),
+    setLabels: credentialCached(invalidatedByMutation(setLabels)),
     invalidate,
   });
 });

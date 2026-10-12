@@ -292,6 +292,39 @@ describe("GitHubSourceControlProvider change request lookups by head", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("keeps two checkouts on the same repository in separate account batches", () => {
+    const directories: string[] = [];
+    const { layer } = harness({
+      remotes,
+      api: {
+        graphql: (input) =>
+          Effect.sync(() => {
+            const cwd = input.credentialContext?.cwd ?? "missing";
+            directories.push(cwd);
+            return encodeJson({
+              data: {
+                repository: { h0: { nodes: [node(cwd === "/personal" ? 1 : 2, "feature")] } },
+              },
+            });
+          }),
+      },
+    });
+    return Effect.gen(function* () {
+      const provider = yield* GitHubSourceControlProvider.make;
+      const lookups = yield* Effect.forEach(
+        ["/personal", "/work"],
+        (cwd) => provider.listChangeRequests({ cwd, headSelector: "feature", state: "open" }),
+        { concurrency: "unbounded" },
+      ).pipe(Effect.forkChild);
+      yield* TestClock.adjust("50 millis");
+      assert.deepStrictEqual(
+        (yield* Fiber.join(lookups)).map((rows) => rows[0]?.number),
+        [1, 2],
+      );
+      assert.deepStrictEqual(directories.toSorted(), ["/personal", "/work"]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("caps a background document at twenty-five heads", () => {
     const headCounts: Array<number> = [];
     const { layer } = harness({
@@ -472,6 +505,7 @@ describe("GitHubSourceControlProvider writes", () => {
         bodyFile,
       });
       assert.strictEqual(requests[0]!.method, "POST");
+      assert.deepStrictEqual(requests[0]!.credentialContext, { cwd: "/repo" });
       assert.strictEqual(requests[0]!.path, "repos/acme/web/pulls");
       // A user's own write, so the background's reserve is not held against it.
       assert.strictEqual(requests[0]!.allowReserve, true);
@@ -978,12 +1012,19 @@ it("reports every gh login and leads with the account Settings pin", () => {
   ]);
 });
 
-it("falls back to gh's active login when the pinned account is gone", () => {
+it("reports a missing pinned account without selecting gh's active login", () => {
   const auth = GitHubSourceControlProvider.parseGitHubAuth(multiAccountStatus(), {
     hosts: { "github.com": { account: "former-job", enabled: true } },
     tokens: {},
   });
-  assert.deepStrictEqual(auth.account, Option.some("personal"));
+  assert.deepStrictEqual(auth.account, Option.none());
+  assert.strictEqual(auth.status, "unauthenticated");
+  assert.deepStrictEqual(
+    auth.detail,
+    Option.some(
+      "The GitHub account chosen in Settings is no longer signed in. Sign in again or choose another account in Settings → Source Control.",
+    ),
+  );
 });
 
 it("reports unauthenticated when Settings turn off every signed-in host", () => {

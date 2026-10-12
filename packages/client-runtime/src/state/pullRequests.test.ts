@@ -109,7 +109,7 @@ for (const scenario of [
               input: unknown,
             ) =>
               Effect.gen(function* () {
-                if (local) expect(input).toEqual({ host: "github.com" });
+                if (local) expect(input).toEqual({ host: "github.com", expectedAccountId: "123" });
                 calls.push(`${name}:identity`);
                 if (
                   local &&
@@ -309,6 +309,75 @@ it.effect("shares active read identity probes while keeping later reads and muta
         Effect.provideService(GitHubRoutingPermissions, trustedRouting),
         Effect.provideService(RpcPermissionGuard, { authorize: () => Effect.void }),
       );
+    }),
+  ),
+);
+
+it.effect("keeps concurrent account probes separate without sharing source project metadata", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const firstStarted = yield* Deferred.make<void>();
+      const secondStarted = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const probes: unknown[] = [];
+      const reads: string[] = [];
+      const origin = {
+        [WS_METHODS.pullRequestsRouting]: (input: { projectId: string }) =>
+          Effect.succeed({
+            host: "github.com",
+            provider: "github",
+            viewer: `viewer-${input.projectId}`,
+            accountId: input.projectId === "private-project-1" ? "123" : "456",
+            projectTitle: `Private ${input.projectId}`,
+            workspaceRoot: `/private/${input.projectId}`,
+          }),
+        [WS_METHODS.pullRequestsSummary]: () => Effect.die("read unexpectedly stayed on origin"),
+      } as unknown as WsRpcProtocolClient;
+      const alternate = {
+        [WS_METHODS.pullRequestsRoutingIdentity]: (input: {
+          host: string;
+          expectedAccountId: string;
+        }) =>
+          Effect.gen(function* () {
+            probes.push(input);
+            yield* Deferred.succeed(probes.length === 1 ? firstStarted : secondStarted, undefined);
+            yield* Deferred.await(release);
+            return {
+              host: input.host,
+              provider: "github",
+              viewer: `viewer-${input.expectedAccountId}`,
+              accountId: input.expectedAccountId,
+            };
+          }),
+        [WS_METHODS.pullRequestsSummary]: (input: { expectedAccountId: string }) =>
+          Effect.sync(() => {
+            reads.push(input.expectedAccountId);
+            return null;
+          }),
+      } as unknown as WsRpcProtocolClient;
+      const { environmentRegistry, supervisor } = yield* makeTestRuntime(origin, alternate);
+      const read = (index: number) =>
+        createPullRequestRouter()(WS_METHODS.pullRequestsSummary, {
+          projectId: ProjectId.make(`private-project-${index}`),
+          repository: `private/repository-${index}`,
+          number: index,
+        }).pipe(
+          Effect.provideService(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.provideService(GitHubRoutingPermissions, trustedRouting),
+        );
+      const first = yield* read(1).pipe(Effect.forkChild);
+      yield* Deferred.await(firstStarted);
+      const second = yield* read(2).pipe(Effect.forkChild);
+      yield* Deferred.await(secondStarted);
+      expect(probes).toEqual([
+        { host: "github.com", expectedAccountId: "123" },
+        { host: "github.com", expectedAccountId: "456" },
+      ]);
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(first)).toBeNull();
+      expect(yield* Fiber.join(second)).toBeNull();
+      expect(reads.toSorted()).toEqual(["123", "456"]);
     }),
   ),
 );

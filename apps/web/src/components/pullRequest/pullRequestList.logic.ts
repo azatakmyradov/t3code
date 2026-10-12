@@ -59,10 +59,8 @@ export interface PullRequestLabelFacet extends PullRequestLabel {
 }
 
 /**
- * The signed-in account per host. Keyed `"<environmentId> <host>"` once a listing spans more than
- * one environment: two machines can both reach github.com signed in as different people, and a
- * single host-keyed record would let whichever answered last decide who "I" am — which is how
- * every row of somebody's own work came to be filed under Others.
+ * Legacy account fallback for rows without their own viewer. Keyed `"<environmentId> <host>"`
+ * once a listing spans environments, so one server's account cannot replace another's.
  */
 export type PullRequestViewers = PullRequestListResult["viewers"];
 
@@ -137,22 +135,20 @@ export function collectPullRequestListFacets(
 }
 
 /**
- * The signed-in login for the host a row came from, or null where none was given. Shared by
+ * The signed-in login that read a row, or null where none was given. Shared by
  * authorship matching here and by `author:me` resolution wherever a row's own viewer is needed.
  */
 export function pullRequestEntryViewer(
   entry: ScopedEntry,
   viewers: PullRequestViewers,
 ): string | null {
-  // The environment's own answer first; a plain host key is what a single-environment listing
-  // still writes, and what the snapshot from one carries.
-  return normalize(viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
+  // Repositories on one host can use different accounts. Older servers and snapshots only
+  // carry the environment/host map, so keep reading it when the row has no account of its own.
+  return normalize(entry.viewer ?? viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
 }
 
 /**
- * Authorship is per host, not per provider kind: the same list can hold change requests from
- * GitHub, GitLab and a GitHub Enterprise install, and the account that owns one says nothing
- * about the others.
+ * Authorship follows the account that read each repository, which may differ even on one host.
  */
 function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {
   const viewer = pullRequestEntryViewer(entry, viewers);
@@ -374,8 +370,8 @@ export function narrowPullRequestsToFilters<Entry extends PullRequestListEntry>(
  * `checks` is absent because no listed row carries its check state: that one filter is the
  * host's alone, and a row a host did not narrow stays rather than being guessed at.
  *
- * `viewer` is the row's own host's signed-in login, so `author:me` resolves against it rather
- * than being compared as the literal name "me". Optional, and left unresolved without one.
+ * `viewer` is the legacy fallback when the row has no signed-in login. `author:me` resolves
+ * against that identity rather than the literal name "me", and stays unresolved without one.
  */
 export function matchesPullRequestFilters(
   entry: PullRequestListEntry,
@@ -394,7 +390,7 @@ export function matchesPullRequestFilters(
     (filters.excludedLabels === undefined || !filters.excludedLabels.some(holds)) &&
     (filters.author === undefined ||
       entry.author?.login.toLowerCase() ===
-        resolvePullRequestAuthorFilter(filters.author, viewer).toLowerCase())
+        resolvePullRequestAuthorFilter(filters.author, entry.viewer ?? viewer).toLowerCase())
   );
 }
 
@@ -426,13 +422,12 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
 }
 
 /**
- * Repository plus number is unique on one host, so the host makes the key unique overall — and
- * the environment on top of that, because two connected machines can hold the same repository and
- * would otherwise contribute two rows under one key.
+ * The same change request can be read through different projects and accounts, so neither
+ * another workspace's row nor another environment's row can replace its viewer or action target.
  */
 export function pullRequestEntryKey(entry: ScopedEntry): string {
   const scope = entry.environmentId === undefined ? "" : `${entry.environmentId}:`;
-  return `${scope}${entry.host}:${entry.repository}#${entry.number}`;
+  return `${scope}${entry.projectId}:${entry.host}:${entry.repository}#${entry.number}`;
 }
 
 export interface PullRequestStatsTarget {
@@ -676,11 +671,11 @@ export const pullRequestDiffStatKey = (row: {
  * Every connected environment's listing, read as one list.
  *
  * `nextCursors` is keyed by environment rather than by repository: a cursor only means anything
- * to the host that issued it, and two machines can hold the same repository. `viewers` is not —
- * a host names one account, and the same host reached from two machines is the same account.
+ * to the host that issued it, and two machines can hold the same repository. Legacy `viewers`
+ * keys are scoped by environment and host; rows may carry their own repository-specific viewer.
  */
 export interface MergedPullRequestList {
-  /** Keyed `"<environmentId> <host>"`, so one host's two accounts stay two accounts. */
+  /** Legacy fallback keyed `"<environmentId> <host>"`; each row's viewer takes precedence. */
   readonly viewers: PullRequestViewers;
   readonly providers: PullRequestListResult["providers"];
   readonly entries: ReadonlyArray<EnvironmentPullRequestEntry>;

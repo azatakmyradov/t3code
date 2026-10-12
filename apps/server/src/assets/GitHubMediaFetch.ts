@@ -58,11 +58,12 @@ const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inlin
  * The github.com credential, or null without one: a public asset still loads, and a private one
  * fails the way it does in a browser that is not signed in.
  */
-const githubToken = GitHubCredentials.GitHubCredentials.pipe(
-  Effect.flatMap((credentials) => credentials.get("github.com")),
-  Effect.map((credential) => credential.token),
-  Effect.orElseSucceed(() => null),
-);
+const githubToken = (cwd: string) =>
+  GitHubCredentials.GitHubCredentials.pipe(
+    Effect.flatMap((credentials) => credentials.get("github.com", { cwd })),
+    Effect.map((credential) => credential.token),
+    Effect.orElseSucceed(() => null),
+  );
 
 /**
  * Follows GitHub's redirect to the signed object itself, and never carries the credential off
@@ -113,7 +114,7 @@ export const githubMediaResponse = Effect.fn("GitHubMediaFetch.githubMediaRespon
   requestHeaders: Record<string, string | undefined>,
 ) {
   // Both media hosts are served by github.com's account, which is the host `gh` stores it under.
-  const token = yield* githubToken;
+  const token = yield* githubToken(asset.cwd);
   const forwarded: Record<string, string> = {};
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = requestHeaders[name];

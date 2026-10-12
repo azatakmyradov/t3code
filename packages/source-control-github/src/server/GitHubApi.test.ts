@@ -471,6 +471,45 @@ describe("GitHubCredentials", () => {
     ),
   );
 
+  for (const failure of ["nonzero", "truncated", "empty", "timeout"] as const) {
+    it.effect(`fails closed on ${failure} repository-account discovery`, () => {
+      const calls: Array<ReadonlyArray<string>> = [];
+      return Effect.gen(function* () {
+        const credentials = yield* GitHubCredentials.GitHubCredentials;
+        const error = yield* Effect.flip(
+          credentials.get("git.acme.internal", { cwd: "/repos/project" }),
+        );
+        expect(error._tag).toBe("GitHubAccountResolutionError");
+        expect(error.message).not.toContain("private stderr");
+        expect(calls).toEqual([
+          ["api", "--hostname", "git.acme.internal", "user", "--jq", ".login"],
+        ]);
+      }).pipe(
+        Effect.provide(
+          credentialsWith((input) => {
+            calls.push(input.args);
+            return failure === "timeout"
+              ? Effect.fail(
+                  new VcsProcessTimeoutError({
+                    operation: input.operation,
+                    command: "gh",
+                    cwd: input.cwd,
+                    timeoutMs: 10_000,
+                  }),
+                )
+              : Effect.succeed({
+                  exitCode: ChildProcessSpawner.ExitCode(failure === "nonzero" ? 1 : 0),
+                  stdout: failure === "empty" ? "" : "developer",
+                  stderr: "private stderr",
+                  stdoutTruncated: failure === "truncated",
+                  stderrTruncated: false,
+                });
+          }),
+        ),
+      );
+    });
+  }
+
   it.effect("does not cache a gh failure that is not about signing in", () => {
     let calls = 0;
     return Effect.gen(function* () {

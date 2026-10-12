@@ -9,6 +9,7 @@ import {
   PullRequestListInput,
   PullRequestListResult,
   PullRequestReviewerRequestInput,
+  PullRequestRoutingIdentityInput,
   PullRequestSetFilesViewedInput,
   pullRequestHostOf,
   resolvePullRequestAuthorFilter,
@@ -20,6 +21,26 @@ const decodeReviewerRequest = Schema.decodeUnknownSync(PullRequestReviewerReques
 const decodeAction = Schema.decodeUnknownSync(PullRequestActionInput);
 const decodeSetFilesViewed = Schema.decodeUnknownSync(PullRequestSetFilesViewedInput);
 const decodeFilesViewed = Schema.decodeUnknownSync(PullRequestFilesViewedResult);
+
+describe("PullRequestRoutingIdentityInput", () => {
+  const decode = Schema.decodeUnknownSync(PullRequestRoutingIdentityInput);
+
+  it("accepts legacy host-only probes", () => {
+    expect(decode({ host: "github.com" })).toEqual({ host: "github.com" });
+  });
+
+  it("round-trips a requested account through the RPC JSON codec", () => {
+    const codec = Schema.toCodecJson(PullRequestRoutingIdentityInput);
+    const input = { host: "github.com", expectedAccountId: "123" };
+
+    expect(Schema.decodeSync(codec)(Schema.encodeUnknownSync(codec)(input))).toEqual(input);
+    expect(decode({ host: "github.com", expectedAccountId: " 123 " })).toEqual(input);
+  });
+
+  it.each(["", "   "])("rejects an empty requested account %j", (expectedAccountId) => {
+    expect(() => decode({ host: "github.com", expectedAccountId })).toThrow();
+  });
+});
 
 const LIST_RESULT: PullRequestListResult = {
   viewers: { "github.com": "bilal", "gitlab.com": "bilal.hassan" },
@@ -110,6 +131,29 @@ describe("PullRequestListResult", () => {
 
     expect(decoded.viewers["github.com"]).toBe("bilal");
     expect(decoded.viewers["github.acme.dev"]).toBe("b.hassan");
+  });
+
+  it("round-trips different row viewers on one host while accepting legacy rows", () => {
+    const codec = Schema.toCodecJson(PullRequestListResult);
+    const result = {
+      ...LIST_RESULT,
+      entries: [
+        { ...LIST_RESULT.entries[0]!, viewer: "bilal" },
+        { ...LIST_RESULT.entries[0]!, number: 2, viewer: "octocat" },
+        { ...LIST_RESULT.entries[0]!, number: 3 },
+      ],
+    };
+
+    expect(Schema.decodeSync(codec)(Schema.encodeUnknownSync(codec)(result))).toStrictEqual(result);
+  });
+
+  it.each(["", "   "])("rejects an empty row viewer %j", (viewer) => {
+    expect(() =>
+      decodeListResult({
+        ...LIST_RESULT,
+        entries: [{ ...LIST_RESULT.entries[0]!, viewer }],
+      }),
+    ).toThrow();
   });
 });
 

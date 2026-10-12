@@ -14,6 +14,7 @@ import {
   findScopedProject,
   mergePullRequestLists,
   pullRequestEntryKey,
+  pullRequestEntryViewer,
   pullRequestEnvironmentSetKey,
   groupPullRequestsByInvolvement,
   matchesPullRequestFilters,
@@ -517,6 +518,23 @@ describe("narrowing rows by the filters a host may not have applied", () => {
     const theirs = entry({ number: 33, author: { login: "Hubot", name: null, avatarUrl: null } });
     expect(matchesPullRequestFilters(mine, { author: "@me" }, "Bilal")).toBe(true);
     expect(matchesPullRequestFilters(theirs, { author: "@me" }, "Bilal")).toBe(false);
+  });
+
+  it("resolves author:me with the row's account before the legacy viewer", () => {
+    const mine = entry({
+      number: 36,
+      viewer: "Hubot",
+      author: { login: "hubot", name: null, avatarUrl: null },
+    });
+    const theirs = entry({
+      number: 37,
+      viewer: "Hubot",
+      author: { login: "Bilal", name: null, avatarUrl: null },
+    });
+
+    expect(matchesPullRequestFilters(mine, { author: "me" })).toBe(true);
+    expect(matchesPullRequestFilters(mine, { author: "@me" }, "Bilal")).toBe(true);
+    expect(matchesPullRequestFilters(theirs, { author: "me" }, "Bilal")).toBe(false);
   });
 
   it("compares author:me against the literal name when there is no viewer", () => {
@@ -1401,6 +1419,94 @@ describe('who "I" am, per server', () => {
         (row) => row.number,
       ),
     ).toEqual([1]);
+  });
+
+  it("keeps repository accounts separate on one server and host through merging and reload", () => {
+    const merged = mergePullRequestLists([
+      [
+        ENV_1,
+        answer({ "github.com": "Bilal" }, [
+          entry({ number: 1, viewer: "Bilal", author: byBilal }),
+          entry({
+            number: 2,
+            projectId: "project-2" as ProjectId,
+            repository: "octocat/work",
+            viewer: "Octocat",
+            author: { login: "octocat", name: null, avatarUrl: null },
+          }),
+          entry({
+            number: 3,
+            projectId: "project-2" as ProjectId,
+            repository: "octocat/work",
+            viewer: "Octocat",
+            author: byBilal,
+            viewerReviewRequested: true,
+          }),
+        ]),
+      ],
+    ])!;
+    const held = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => held.get(key) ?? null,
+      setItem: (key: string, value: string) => void held.set(key, value),
+    };
+    writePullRequestListSnapshot(storage, ENV_1, { scope: "s", data: merged });
+    const restored = readPullRequestListSnapshot(storage, ENV_1)!.data;
+
+    for (const { entries, viewers } of [merged, restored]) {
+      expect(entries.map((row) => pullRequestEntryViewer(row, viewers))).toEqual([
+        "bilal",
+        "octocat",
+        "octocat",
+      ]);
+      expect(
+        filterPullRequestsByInvolvement(entries, viewers, "authored").map((row) => row.number),
+      ).toEqual([1, 2]);
+      expect(
+        filterPullRequestsByInvolvement(entries, viewers, "reviewing").map((row) => row.number),
+      ).toEqual([3]);
+      expect(
+        groupPullRequestsByInvolvement(entries, viewers).map((group) => [
+          group.key,
+          group.entries.map((row) => row.number),
+        ]),
+      ).toEqual([
+        ["authored", [1, 2]],
+        ["reviewRequested", [3]],
+      ]);
+      expect(
+        entries
+          .filter((row) =>
+            matchesPullRequestFilters(row, { author: "me" }, pullRequestEntryViewer(row, viewers)),
+          )
+          .map((row) => row.number),
+      ).toEqual([1, 2]);
+    }
+  });
+
+  it("does not let another workspace replace the same pull request's account or priority group", () => {
+    const mine = entry({ number: 1, viewer: "Bilal", author: byBilal });
+    const reviewing = entry({
+      number: 1,
+      projectId: "project-2" as ProjectId,
+      viewer: "Octocat",
+      author: byBilal,
+      viewerReviewRequested: true,
+    });
+    const entries = [mine, reviewing];
+    const entriesByKey = new Map(entries.map((row) => [pullRequestEntryKey(row), row]));
+
+    expect(entriesByKey.size).toBe(2);
+    expect(partitionPullRequestsWithPriority(entries, [mine], [reviewing])).toEqual([
+      { key: "authored", label: "Authored", entries: [mine] },
+      { key: "reviewRequested", label: "Review requested", entries: [reviewing] },
+    ]);
+    expect(
+      pullRequestStatsBatches(entriesByKey, new Set(entriesByKey.keys()))[0]?.input.refs,
+    ).toEqual([
+      { projectId: mine.projectId, repository: mine.repository, number: 1 },
+      { projectId: reviewing.projectId, repository: reviewing.repository, number: 1 },
+    ]);
   });
 
   it("still reads a single server's host-keyed viewers, which is what a snapshot carries", () => {
