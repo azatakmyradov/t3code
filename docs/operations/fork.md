@@ -63,10 +63,19 @@ configuration; OTA updates are disabled by default.
 
 Inherited release and deployment entry points remain disabled. The separate
 **T3 Fork release** workflow uses GitHub-hosted runners and the existing desktop
-packager through its reusable workflow. By default, it builds only macOS for
-Apple Silicon. Enable **Also build Intel Mac, Linux, and Windows** in the dispatch
-form, or pass `-f all_platforms=true`, to build all six platform targets.
+packager through its reusable workflow. By default, it builds the Apple Silicon
+macOS app and CLI, plus a standalone Linux x86-64 server CLI. The Linux archive
+is built and smoke-tested independently of the optional Linux desktop app.
+Enable **Also build Intel Mac, Linux desktop, and Windows** in the dispatch form,
+or pass `-f all_platforms=true`, to build all six desktop platform targets.
 It publishes the selected installers, CLI archives, checksums, and desktop update metadata.
+
+The default Linux server asset is `t3-<version>-linux-x64.tar.gz`, with its hash in
+`SHA256SUMS`. Fork SSH environments and server updates already consume this release
+format from this repository. Every Linux x64 archive must pass an extracted-binary
+version check and real server-startup probe in an isolated home without Node on
+`PATH`; CI runs the same build and smoke test before release. Publishing an archive
+does not migrate an upstream T3 Code server or its existing data into T3 Fork.
 It does not deploy a website or relay or publish to npm.
 
 After configuring the Apple credentials below, run **T3 Fork release** from the

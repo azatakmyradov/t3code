@@ -35,6 +35,10 @@ export class CliArchiveSmokeError extends Schema.TaggedError<CliArchiveSmokeErro
   }
 }
 
+export function cliVersionMatches(stdout: string, expectedVersion: string): boolean {
+  return /\bv(\S+)\s*$/.exec(stdout)?.[1] === expectedVersion;
+}
+
 const collect = <E>(stream: Stream.Stream<Uint8Array, E>) =>
   stream.pipe(
     Stream.decodeText(),
@@ -118,7 +122,7 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
   }
 
   const version = yield* runExecutable(executable, ["--version"], contentDir);
-  if (version.exitCode !== 0 || !version.stdout.includes(input.expectVersion)) {
+  if (version.exitCode !== 0 || !cliVersionMatches(version.stdout, input.expectVersion)) {
     return yield* new CliArchiveSmokeError({
       step: "running --version",
       detail: `exit ${String(version.exitCode)}\n${version.stdout}${version.stderr}`,

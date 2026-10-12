@@ -147,6 +147,16 @@ jobs:
         run: vp run build:desktop
       - name: Verify preload bundle output
         run: node apps/desktop/scripts/verify-preload-bundle.mjs
+      - name: Check fork release requirements
+        run: vp test run scripts/fork-release.test.ts scripts/smoke-cli-archive.test.ts
+      - name: Read server version
+        id: server_version
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; import pkg from "./apps/server/package.json" with { type: "json" }; fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${pkg.version}\n`);'
+      - name: Build and validate Linux server archive
+        uses: ./.github/actions/build-linux-cli
+        with:
+          version: ${{ steps.server_version.outputs.version }}
       - name: Check release manifest tooling
         run: node scripts/release-smoke.ts
 
