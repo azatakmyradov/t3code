@@ -9,7 +9,7 @@ on:
         default: "0.0.45"
         type: string
       all_platforms:
-        description: Also build Intel Mac, Linux, and Windows
+        description: Also build Intel Mac, Linux desktop, and Windows
         required: false
         default: false
         type: boolean
@@ -144,7 +144,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Check release packaging behavior
-        run: vp test run scripts/build-desktop-artifact.test.ts scripts/merge-update-manifests.test.ts packages/shared/src/cliRelease.test.ts
+        run: vp test run scripts/fork-release.test.ts scripts/smoke-cli-archive.test.ts scripts/build-desktop-artifact.test.ts scripts/merge-update-manifests.test.ts packages/shared/src/cliRelease.test.ts
 
       - name: Build desktop and server bundle
         run: vp run build:desktop
@@ -184,6 +184,52 @@ jobs:
       clerk_cli_oauth_client_id: ${{ needs.build_bundle.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.build_bundle.outputs.relay_url }}
 
+  cli_linux_x64:
+    # Keep this name compatible with the Windows WSL archive readiness probe.
+    name: Build Linux x64
+    needs: build_bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: ${{ needs.build_bundle.outputs.clerk_publishable_key }}
+      T3CODE_CLERK_JWT_TEMPLATE: ${{ needs.build_bundle.outputs.clerk_jwt_template }}
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ needs.build_bundle.outputs.clerk_cli_oauth_client_id }}
+      T3CODE_RELAY_URL: ${{ needs.build_bundle.outputs.relay_url }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+      - name: Install CLI build dependencies
+        run: vp install --filter=t3... --filter=@t3tools/scripts...
+      - name: Align release package versions
+        env:
+          RELEASE_VERSION: ${{ needs.build_bundle.outputs.version }}
+        run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION"
+      - name: Download JS bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: js-bundle
+          path: apps
+      - name: Build and validate Linux server archive
+        uses: ./.github/actions/build-linux-cli
+        with:
+          version: ${{ needs.build_bundle.outputs.version }}
+      - name: Upload CLI archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-linux-x64
+          path: release-cli/t3-${{ needs.build_bundle.outputs.version }}-linux-x64.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+
   desktop_mac_x64:
     if: ${{ inputs.all_platforms }}
     needs: build_bundle
@@ -220,7 +266,7 @@ jobs:
       arch: x64
       rust_target: x86_64-unknown-linux-gnu
       resource_key: linux-x64
-      cli_archive: true
+      cli_archive: false
       version: ${{ needs.build_bundle.outputs.version }}
       ref: ${{ github.sha }}
       release_channel: stable
@@ -236,7 +282,7 @@ jobs:
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
-      label: linux arm64
+      label: Linux arm64
       runner: ubuntu-24.04-arm
       platform: linux
       target: AppImage
@@ -306,12 +352,14 @@ jobs:
       ${{ !cancelled() &&
         needs.build_bundle.result == 'success' &&
         needs.desktop_mac_arm64.result == 'success' &&
+        needs.cli_linux_x64.result == 'success' &&
         !contains(needs.*.result, 'failure') &&
         !contains(needs.*.result, 'cancelled') }}
     needs:
       [
         build_bundle,
         desktop_mac_arm64,
+        cli_linux_x64,
         desktop_mac_x64,
         desktop_linux_x64,
         desktop_linux_arm64,
@@ -358,13 +406,19 @@ jobs:
           test -s release-assets/latest-linux.yml
           test -s release-assets/latest-linux-arm64.yml
       - name: Write archive checksums
+        env:
+          RELEASE_VERSION: ${{ needs.build_bundle.outputs.version }}
         run: |
           set -euo pipefail
           shopt -s nullglob
           cd release-assets
+          # Both default runtimes are mandatory, even when optional desktop jobs skip.
+          test -s "t3-$RELEASE_VERSION-darwin-arm64.tar.gz"
+          test -s "t3-$RELEASE_VERSION-linux-x64.tar.gz"
           archives=(t3-*.tar.gz t3-*.zip)
           test "${#archives[@]}" -gt 0
           sha256sum "${archives[@]}" > SHA256SUMS
+          sha256sum --check SHA256SUMS
       - name: Publish installers, update metadata, and CLI archives
         env:
           GH_TOKEN: ${{ github.token }}
@@ -379,6 +433,8 @@ jobs:
           Install the DMG manually the first time. Later desktop releases are offered through the app's update button. T3 Fork uses ~/.t3-fork and can run alongside T3 Code.
 
           macOS builds are signed and notarized.
+
+          Linux x86-64 servers use the standalone t3-<version>-linux-x64.tar.gz archive, verified against SHA256SUMS. No Linux desktop app is required. This archive is for T3 Fork; moving an existing T3 Code server and its data to the fork is a separate migration.
           NOTES
           if [[ "$ALL_PLATFORMS" == "true" ]]; then
             printf '\nWindows builds are unsigned unless Azure signing credentials are configured.\n' >> "$RUNNER_TEMP/release-notes.md"
