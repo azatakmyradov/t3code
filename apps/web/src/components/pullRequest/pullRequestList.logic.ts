@@ -673,7 +673,7 @@ interface PullRequestDiffStatScope {
 }
 
 /** Counts are scoped to the credential that read them, even within the same project. */
-export const pullRequestDiffStatKey = (row: PullRequestDiffStatScope) =>
+const pullRequestDiffStatKey = (row: PullRequestDiffStatScope) =>
   row.host === undefined && row.expectedAccountId === undefined
     ? `${row.environmentId} ${row.projectId} ${row.number}`
     : JSON.stringify([
