@@ -347,6 +347,17 @@ export class ProviderAdapterEventStreamError extends Schema.TaggedError<Provider
   }
 }
 
+/** The app deliberately closed an exclusive session to move its thread's workspace. */
+export class ProviderAdapterSessionDetached extends Schema.TaggedError<ProviderAdapterSessionDetached>()(
+  "ProviderAdapterSessionDetached",
+  {
+    driver: ProviderDriverKind,
+    providerSessionId: ProviderSessionId,
+    threadId: ThreadId,
+    reason: Schema.Literal("workspace_changed"),
+  },
+) {}
+
 export class ProviderAdapterProtocolError extends Schema.TaggedError<ProviderAdapterProtocolError>()(
   "ProviderAdapterProtocolError",
   {
@@ -376,6 +387,7 @@ export const ProviderAdapterV2Error = Schema.Union([
   ProviderAdapterInterruptError,
   ProviderAdapterRuntimeRequestResponseError,
   ProviderAdapterEventStreamError,
+  ProviderAdapterSessionDetached,
   ProviderAdapterProtocolError,
 ]);
 export type ProviderAdapterV2Error = typeof ProviderAdapterV2Error.Type;
@@ -543,6 +555,14 @@ export interface ProviderAdapterV2SessionRuntime {
    * Adapter runtimes may omit this and expose only their single-consumer event stream.
    */
   readonly subscribeEvents?: Effect.Effect<ProviderAdapterV2EventSubscription>;
+  /**
+   * Manager-owned subscription associated with one app thread. A planned
+   * workspace detach ends only its subscribers, including before a provider
+   * turn exists, while sibling threads keep receiving process events.
+   */
+  readonly subscribeEventsForThread?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ProviderAdapterV2EventSubscription>;
   /**
    * Adapters whose native runtime can hold pending work outside an active
    * turn (for example Claude background tasks and their wake turns) report it
