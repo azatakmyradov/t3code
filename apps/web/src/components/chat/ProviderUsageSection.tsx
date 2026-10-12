@@ -7,7 +7,6 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import { formatContextWindowTokens } from "../../lib/contextWindow";
-import type { TurnThroughput } from "../../lib/turnThroughput";
 import { cn } from "../../lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -27,7 +26,11 @@ import {
   selectHiddenUsageProviderIds,
   useProviderUsagePreferencesStore,
 } from "../../providerUsagePreferencesStore";
-import { providerQuotaStatus, formatStatusPercent, selectThreadUsage } from "./providerUsage.logic";
+import {
+  providerQuotaStatus,
+  formatStatusPercent,
+  selectThreadContext,
+} from "./providerUsage.logic";
 
 function UsageDetail({
   children,
@@ -122,7 +125,7 @@ function ProviderQuotaGroup({
           </span>
           <span
             aria-hidden="true"
-            className="flex min-w-7 flex-col text-left text-xs leading-3.5 tabular-nums"
+            className="flex min-w-7 flex-col text-right text-xs leading-3 tabular-nums"
           >
             {unavailable !== null ? (
               <span className="text-muted-foreground">—</span>
@@ -142,26 +145,35 @@ function ProviderQuotaGroup({
             )}
           </span>
           {unavailable === null && quota.windows.length > 2 ? (
-            <span aria-hidden="true" className="self-start pt-1 text-3xs text-muted-foreground">
+            <span aria-hidden="true" className="self-start pt-0.5 text-3xs text-muted-foreground">
               +{quota.windows.length - 2}
             </span>
           ) : null}
         </PopoverTrigger>
         <PopoverPopup side="top" width="sm" padding="compact" aria-label={`${label} usage details`}>
-          <div className="space-y-3 text-xs">
-            <PopoverTitle>{label}</PopoverTitle>
+          <div className="space-y-2.5 text-xs">
+            <div className="flex min-w-0 items-center gap-2 border-b border-border/60 pb-2">
+              <ProviderInstanceIcon
+                driverKind={entry.driverKind}
+                displayName={entry.displayName}
+                acpRegistryAgentId={entry.acpRegistryAgentId}
+                acpRegistryIconUrl={entry.acpRegistryIconUrl}
+                iconClassName="size-4"
+              />
+              <PopoverTitle>{label}</PopoverTitle>
+            </div>
             {unavailable !== null ? (
               <p className="text-muted-foreground">{unavailable}</p>
             ) : (
               <>
-                <p className="text-muted-foreground">Subscription quota used</p>
+                <p className="text-2xs text-muted-foreground">Subscription quota used</p>
                 {quota.windows.map((window) => {
                   const percent = formatStatusPercent(window.usedPercent);
                   return (
                     <div key={window.id} className="space-y-1">
                       <div className="flex items-center justify-between gap-3">
-                        <span>{window.label}</span>
-                        <span className="tabular-nums">{percent}</span>
+                        <span className="font-medium">{window.label}</span>
+                        <span className="font-semibold tabular-nums">{percent}</span>
                       </div>
                       <span
                         role="progressbar"
@@ -191,7 +203,7 @@ function ProviderQuotaGroup({
                         <p className="text-muted-foreground">Awaiting refreshed usage</p>
                       ) : null}
                       {window.resetsAt ? (
-                        <p className="text-muted-foreground">
+                        <p className="text-2xs text-muted-foreground">
                           Resets {new Date(window.resetsAt).toLocaleString()}
                         </p>
                       ) : null}
@@ -202,7 +214,7 @@ function ProviderQuotaGroup({
                   <p className="text-warning">Last reported usage · refresh failed</p>
                 ) : null}
                 {quota.checkedAt ? (
-                  <p className="text-muted-foreground">
+                  <p className="border-t border-border/60 pt-2 text-2xs text-muted-foreground">
                     Last reported {new Date(quota.checkedAt).toLocaleString()}
                   </p>
                 ) : null}
@@ -215,7 +227,7 @@ function ProviderQuotaGroup({
   );
 }
 
-/** Quotas cover visible enabled accounts; thread metrics stay scoped to the picker. */
+/** Quotas cover visible enabled accounts; thread context stays scoped to the picker. */
 export function ProviderUsageSection({
   host,
   environmentId,
@@ -226,7 +238,6 @@ export function ProviderUsageSection({
   context,
   contextModelSelection,
   showContext,
-  throughput,
   disconnected,
 }: {
   host: HTMLDivElement | null;
@@ -238,7 +249,6 @@ export function ProviderUsageSection({
   context: ContextWindowSnapshot | null;
   contextModelSelection: ModelSelection | null;
   showContext: boolean;
-  throughput: TurnThroughput | null;
   disconnected: boolean;
 }) {
   const minute = useNowMinute();
@@ -257,15 +267,13 @@ export function ProviderUsageSection({
         (entry) =>
           entry.instanceId === selectedModel.instanceId && entry.enabled && entry.isAvailable,
       ) ?? null);
-  const threadUsage = selectThreadUsage({
+  const threadContext = selectThreadContext({
     provider: selectedProvider?.snapshot ?? null,
     selectedModel,
     context,
     contextModelSelection,
-    throughput,
   });
-  const contextPercent = disconnected ? null : (threadUsage.context?.usedPercentage ?? null);
-  const tokensPerSecond = disconnected ? null : threadUsage.tokensPerSecond;
+  const contextPercent = disconnected ? null : (threadContext?.usedPercentage ?? null);
   if (host === null) return null;
 
   return createPortal(
@@ -279,7 +287,7 @@ export function ProviderUsageSection({
         className="min-w-0 text-2xs leading-4 text-muted-foreground tabular-nums"
       >
         <div className="flex min-w-0 items-start gap-1">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-0.5">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5">
             {enabledProviders.length === 0 ? (
               <p className="px-1.5 py-2">
                 {disconnected
@@ -289,7 +297,7 @@ export function ProviderUsageSection({
                     : "Loading providers…"}
               </p>
             ) : visibleProviders.length === 0 ? (
-              <div className="flex min-h-10 flex-wrap items-center gap-x-2 px-1.5">
+              <div className="flex min-h-8 flex-wrap items-center gap-x-2 px-1.5">
                 <p>All providers hidden</p>
                 <ThreadDetailsControl part="meta" onClick={() => showAll(environmentId)}>
                   Show all
@@ -308,7 +316,7 @@ export function ProviderUsageSection({
             )}
           </div>
           {enabledProviders.length > 0 ? (
-            <div className="shrink-0 pt-2">
+            <div className="shrink-0 pt-1">
               {/* A modal menu dismisses the containing card across this DOM-only portal. */}
               <Menu modal={false}>
                 <Tooltip>
@@ -346,34 +354,13 @@ export function ProviderUsageSection({
             </div>
           ) : null}
         </div>
-        {selectedProvider ? (
-          <div
-            data-thread-usage
-            className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 px-1.5"
-          >
-            {showContext ? (
-              <UsageDetail
-                description={`${instanceLabel(selectedProvider, enabledProviders)} · ${selectedModel.model}. ${
-                  contextPercent !== null && threadUsage.context
-                    ? `Context window: ${formatStatusPercent(contextPercent)} used (${formatContextWindowTokens(threadUsage.context.usedTokens)} of ${formatContextWindowTokens(threadUsage.context.maxTokens ?? null)} tokens).`
-                    : "Context percentage is unavailable until the selected provider and model report usage and a context limit for this thread."
-                }`}
-              >
-                <span>Context</span>
-                <span>{formatStatusPercent(contextPercent)}</span>
-              </UsageDetail>
-            ) : null}
+        {selectedProvider && showContext && contextPercent !== null && threadContext ? (
+          <div data-thread-usage className="px-2.5 pt-1">
             <UsageDetail
-              description={`${instanceLabel(selectedProvider, enabledProviders)} · ${selectedModel.model}. ${
-                tokensPerSecond === null
-                  ? "Turn average is available after this thread's selected provider and model complete a turn with token usage and timing. Live generation speed is not reported."
-                  : "Average output tokens per second for this thread's latest completed turn on the selected provider and model, including reasoning tokens and time spent on tools or waiting. This is not live model generation speed."
-              }`}
+              description={`${instanceLabel(selectedProvider, enabledProviders)} · ${selectedModel.model}. Context window: ${formatStatusPercent(contextPercent)} used (${formatContextWindowTokens(threadContext.usedTokens)} of ${formatContextWindowTokens(threadContext.maxTokens ?? null)} tokens).`}
             >
-              <span>Turn average</span>
-              <span>
-                {tokensPerSecond === null ? "—" : Number(tokensPerSecond.toFixed(1))} tok/s
-              </span>
+              <span>Context</span>
+              <span>{formatStatusPercent(contextPercent)}</span>
             </UsageDetail>
           </div>
         ) : null}

@@ -499,7 +499,6 @@ import {
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
-import { deriveLatestTurnThroughput } from "../lib/turnThroughput";
 import { selectActiveProviderThreadUsage } from "../lib/providerTurnUsage";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
@@ -3667,10 +3666,6 @@ export default function ChatView(props: ChatViewProps) {
       activeUsageProviderThread,
       activeProviderThreadId,
     ],
-  );
-  const activeTurnThroughput = useMemo(
-    () => deriveLatestTurnThroughput(providerUsageProjection),
-    [providerUsageProjection],
   );
   const pendingBackgroundTasks = useMemo(() => {
     if (serverProjection === null || serverProjection === undefined) {
@@ -11809,7 +11804,6 @@ export default function ChatView(props: ChatViewProps) {
                               activeContextModelSelection={
                                 activeThreadUsageSelection.modelSelection
                               }
-                              activeTurnThroughput={activeTurnThroughput}
                               providerUsageHost={providerUsageHost}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}

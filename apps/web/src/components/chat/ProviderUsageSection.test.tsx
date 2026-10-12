@@ -112,13 +112,6 @@ async function render(overrides: Partial<ComponentProps<typeof ProviderUsageSect
           context={context}
           contextModelSelection={selectedModel}
           showContext
-          throughput={{
-            providerInstanceId: selectedModel.instanceId,
-            modelSelection: selectedModel,
-            tokensPerSecond: 91,
-            outputTokens: 910,
-            durationMs: 10_000,
-          }}
           disconnected={false}
           {...overrides}
         />
@@ -167,7 +160,7 @@ it("shows every account and model-specific quota bucket independently of model s
   );
   expect(group("claude-work").textContent).toContain("56%71%+1");
   expect(group("claude-work").textContent).not.toContain("84%");
-  expect(threadUsage()?.textContent).toContain("Context5%Turn average91 tok/s");
+  expect(threadUsage()?.textContent).toContain("Context5%");
   for (const element of host.querySelectorAll("[data-provider-usage-instance]")) {
     expect(element.textContent).not.toMatch(/Context|Turn average/);
   }
@@ -178,20 +171,30 @@ it("shows every account and model-specific quota bucket independently of model s
   expect(
     [...host.querySelectorAll("[data-provider-usage-instance]")].map((el) => el.textContent),
   ).toEqual(quotas);
-  expect(threadUsage()?.textContent).toContain("Context—Turn average— tok/s");
+  expect(threadUsage()).toBeNull();
   await render({ selectedModel: { ...selectedModel, model: "claude-sonnet-5-5" } });
-  expect(threadUsage()?.textContent).toContain("Context—Turn average— tok/s");
+  expect(threadUsage()).toBeNull();
   expect(trigger("claude-work").getAttribute("aria-label")).toContain(
     "Weekly · Opus: 71% used. Weekly · Sonnet: 84% used.",
   );
   expect(group("claude-work").textContent).toContain("56%71%+1");
   expect(group("claude-work").textContent).not.toContain("84%");
   await render();
-  expect(threadUsage()?.textContent).toContain("Context5%Turn average91 tok/s");
+  expect(threadUsage()?.textContent).toContain("Context5%");
   expect(threadUsage()?.querySelector('[role="group"]')?.getAttribute("aria-label")).toContain(
     "Claude Work · claude-opus-5-5. Context window: 5% used",
   );
   expect(composer.textContent).toBe("");
+});
+
+it("shows context only when it has a valid selected-model value, without a turn-rate row", async () => {
+  await render();
+  expect(threadUsage()?.textContent).toBe("Context5%");
+  expect(host.textContent).not.toMatch(/Turn average|tok\/s/);
+  await render({ context: null });
+  expect(threadUsage()).toBeNull();
+  await render({ context: context ? { ...context, usedTokens: 0, usedPercentage: 0 } : null });
+  expect(threadUsage()?.textContent).toBe("Context0%");
 });
 
 it("keeps duplicate labels and same-driver accounts distinct through updates and removal", async () => {
@@ -229,8 +232,7 @@ it("retains all providers in multi-model mode but never assigns thread metrics t
   expect(threadUsage()).toBeNull();
   expect(group("codex").textContent).toContain("12%");
   await render({ showContext: false });
-  expect(threadUsage()?.textContent).not.toContain("Context");
-  expect(threadUsage()?.textContent).toContain("Turn average91 tok/s");
+  expect(threadUsage()).toBeNull();
 });
 
 it("omits disabled providers and shows enabled unavailable instances without cached values", async () => {
@@ -313,8 +315,8 @@ it("clears every account on disconnect and restores only its current report on r
   await render();
   await render({ disconnected: true });
   expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
-  expect(host.textContent).not.toMatch(/12%|34%|56%|71%|84%|91 tok/);
-  expect(threadUsage()?.textContent).toContain("Context—Turn average— tok/s");
+  expect(host.textContent).not.toMatch(/12%|34%|56%|71%|84%/);
+  expect(threadUsage()).toBeNull();
   await render({ providers: deriveProviderInstanceEntries([provider("codex", "Codex", 2)]) });
   expect(group("codex").textContent).toContain("2%");
   expect(host.textContent).not.toMatch(/12%|34%|56%/);
@@ -438,7 +440,7 @@ it("hides and restores accounts through the menu without disabling them", async 
   expect(choice().getAttribute("aria-checked")).toBe("false");
   await act(async () => choice().click());
   expect(group("claude-work").textContent).toContain("56%");
-  expect(threadUsage()?.textContent).toContain("91 tok/s");
+  expect(threadUsage()?.textContent).toBe("Context5%");
 });
 
 it("keeps restoration discoverable when all enabled providers are hidden", async () => {

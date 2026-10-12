@@ -47,4 +47,4 @@ export const THREAD_DETAILS_PANEL_SPLIT_SECONDARY_CLASS = `${THREAD_DETAILS_PANE
 export const THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS = "h-4 w-px shrink-0 bg-border/65";
 
 /** Two quota values beside a provider glyph, without a full-width label row. */
-export const THREAD_DETAILS_PANEL_USAGE_ACTION_CLASS = `h-10 gap-2 rounded-md border-transparent px-1.5 text-xs font-medium text-foreground/80 ${THREAD_DETAILS_PANEL_ROW_SURFACE_CLASS}`;
+export const THREAD_DETAILS_PANEL_USAGE_ACTION_CLASS = `h-8 gap-1.5 rounded-md border-transparent px-2 text-xs font-medium text-foreground/80 ${THREAD_DETAILS_PANEL_ROW_SURFACE_CLASS}`;

@@ -7,7 +7,6 @@ import type {
 import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
-import type { TurnThroughput } from "../../lib/turnThroughput";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { providerClients } from "../settings/providerDriverMeta";
 
@@ -39,35 +38,19 @@ export function usageModelMatchesSelection(
   );
 }
 
-/** Thread metrics belong only to the selected account and model, never every quota group. */
-export function selectThreadUsage(input: {
+/** Thread context belongs only to the selected account and model, never every quota group. */
+export function selectThreadContext(input: {
   provider: Pick<ServerProvider, "instanceId" | "driver"> | null;
   selectedModel: ModelSelection;
   context: ContextWindowSnapshot | null;
   contextModelSelection: ModelSelection | null;
-  throughput: TurnThroughput | null;
 }) {
-  const provider =
-    input.provider?.instanceId === input.selectedModel.instanceId ? input.provider : null;
-  if (provider === null) return { context: null, tokensPerSecond: null };
-  return {
-    context: usageModelMatchesSelection(
-      input.selectedModel,
-      input.contextModelSelection,
-      provider.driver,
-    )
-      ? input.context
-      : null,
-    tokensPerSecond:
-      input.throughput &&
-      usageModelMatchesSelection(
-        input.selectedModel,
-        input.throughput.modelSelection,
-        provider.driver,
-      )
-        ? input.throughput.tokensPerSecond
-        : null,
-  };
+  const provider = input.provider;
+  return provider !== null &&
+    provider.instanceId === input.selectedModel.instanceId &&
+    usageModelMatchesSelection(input.selectedModel, input.contextModelSelection, provider.driver)
+    ? input.context
+    : null;
 }
 
 function compactWindowLabel(window: ServerProviderUsageWindow): string {

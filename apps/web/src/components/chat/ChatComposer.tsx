@@ -299,7 +299,6 @@ import {
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { ProviderUsageSection } from "./ProviderUsageSection";
 import { selectConfiguredUsageProviders, usageModelMatchesSelection } from "./providerUsage.logic";
-import type { TurnThroughput } from "../../lib/turnThroughput";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -1614,7 +1613,6 @@ export interface ChatComposerProps {
   // Context window
   activeContextWindow: ContextWindowSnapshot | null;
   activeContextModelSelection: ModelSelection | null;
-  activeTurnThroughput: TurnThroughput | null;
   providerUsageHost: HTMLDivElement | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
@@ -7780,7 +7778,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         context={activeContextWindow}
         contextModelSelection={props.activeContextModelSelection}
         showContext={settings.contextWindowMeterEnabled}
-        throughput={props.activeTurnThroughput}
         disconnected={environmentUnavailable !== null}
       />
     </>
