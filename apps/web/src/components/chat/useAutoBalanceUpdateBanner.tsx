@@ -69,9 +69,14 @@ export function useAutoBalanceUpdateBanner(
         threadContinuation: supportsServerUpdateThreadContinuation(environment.serverConfig),
         continueThreadsAfterServerUpdate:
           environment.serverConfig?.settings.continueThreadsAfterServerUpdate ?? false,
+        canUpdate: mismatch?.canUpdate === true,
+        guidance: mismatch?.hint,
         targetVersion: state.status === "idle" ? mismatch!.clientVersion : state.targetVersion,
         connected: environment.connection.phase === "connected",
-        remoteUpdate: selfUpdate !== null && (selfUpdate !== "desktop-managed" || desktopAppUpdate),
+        remoteUpdate:
+          mismatch?.canUpdate === true &&
+          selfUpdate !== null &&
+          (selfUpdate !== "desktop-managed" || desktopAppUpdate),
         state,
         dismissKey,
       },
@@ -81,13 +86,19 @@ export function useAutoBalanceUpdateBanner(
 
   const running = machines.filter((machine) => machine.state.status === "running").length;
   const failed = machines.filter((machine) => machine.state.status === "failed").length;
-  const manual = machines.filter((machine) => !machine.remoteUpdate).length;
+  const manual = machines.filter((machine) => machine.canUpdate && !machine.remoteUpdate).length;
   const targets = machines.filter(
     (machine) => machine.connected && machine.remoteUpdate && machine.state.status !== "running",
   );
   const count = running || failed || machines.length;
   const status = running ? "running" : failed ? "failed" : "idle";
-  const prefix = running ? "Updating" : failed ? "Could not update" : "Update available for";
+  const prefix = running
+    ? "Updating"
+    : failed
+      ? "Could not update"
+      : machines.every((machine) => machine.canUpdate && machine.selfUpdate !== "desktop-managed")
+        ? "Update available for"
+        : "Version notice for";
   const title = `${prefix} ${count} ${count === 1 ? "machine" : "machines"}`;
   return {
     id: `auto-balance-server-updates-${dismissedNotices.size}`,
@@ -110,6 +121,8 @@ export function useAutoBalanceUpdateBanner(
                 <div className="font-medium">{machine.serverLabel}</div>
                 {machine.state.status !== "idle" ? (
                   <ServerUpdateProgress state={machine.state} />
+                ) : !machine.canUpdate ? (
+                  <div className="text-muted-foreground">{machine.guidance}</div>
                 ) : !machine.remoteUpdate ? (
                   <>
                     <div className="text-muted-foreground">Manual update required</div>
@@ -118,7 +131,9 @@ export function useAutoBalanceUpdateBanner(
                 ) : (
                   <div className="text-muted-foreground">
                     {machine.connected
-                      ? `Ready to update to ${machine.targetVersion}`
+                      ? machine.selfUpdate === "desktop-managed"
+                        ? "Check the desktop app's selected update feed"
+                        : `Ready to update to ${machine.targetVersion}`
                       : "Reconnect this machine to update"}
                   </div>
                 )}

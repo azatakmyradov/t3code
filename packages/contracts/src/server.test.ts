@@ -6,6 +6,8 @@ import {
   OtlpEndpointCheckInput,
   resolveEnvironmentMachineKind,
   ServerConfig,
+  ServerSelfUpdateInput,
+  ServerSelfUpdateResult,
   ServerObservability,
   ServerProvider,
   ServerProviders,
@@ -13,6 +15,8 @@ import {
 } from "./server.ts";
 import { ServerSettings } from "./settings.ts";
 
+const decodeSelfUpdateInput = Schema.decodeUnknownSync(ServerSelfUpdateInput);
+const decodeSelfUpdateResult = Schema.decodeUnknownSync(ServerSelfUpdateResult);
 const decodeServerProvider = Schema.decodeUnknownSync(ServerProvider);
 const decodeServerProviders = Schema.decodeUnknownSync(ServerProviders);
 const decodeServerObservability = Schema.decodeUnknownSync(ServerObservability);
@@ -278,5 +282,25 @@ describe("OtlpEndpointCheckInput", () => {
     for (const url of ["data:text/plain,ok", "file:///etc/hosts", "collector:4318/v1/traces"]) {
       expect(() => decode({ signal: "traces", url })).toThrow();
     }
+  });
+});
+
+describe("server update no-op negotiation", () => {
+  it("keeps legacy requests and restart acknowledgements unchanged", () => {
+    expect(decodeSelfUpdateInput({ targetVersion: "1.2.0" })).toEqual({
+      targetVersion: "1.2.0",
+    });
+    const result = {
+      targetVersion: "1.2.0",
+      method: "desktop-app",
+      desktopUpdateToken: "prepared-update",
+    };
+    expect(decodeSelfUpdateResult(result)).toEqual(result);
+  });
+  it("round-trips the opt-in and explicit no-op result", () => {
+    const input = { targetVersion: "1.3.0", reportUpToDate: true };
+    const result = { targetVersion: "1.2.0", method: "desktop-app", outcome: "up-to-date" };
+    expect(decodeSelfUpdateInput(input)).toEqual(input);
+    expect(decodeSelfUpdateResult(result)).toEqual(result);
   });
 });

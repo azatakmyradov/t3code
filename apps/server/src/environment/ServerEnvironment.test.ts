@@ -119,6 +119,10 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
           Effect.provideService(HostProcess.Platform, "linux"),
           Effect.provideService(HostProcess.Environment, {}),
         );
+        expect(descriptor.release).toEqual({
+          distribution: "azatakmyradov/t3code",
+          channel: "stable",
+        });
         expect(descriptor.capabilities.serverInstallation).toEqual(
           mode === "web" ? { kind: "npm-global", prefix: canonicalPrefix } : undefined,
         );

@@ -128,6 +128,32 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
 });
 
 it.layer(NodeServices.layer)("server self update", (it) => {
+  it.effect("negotiates no-op results without changing legacy restart acknowledgements", () =>
+    Effect.gen(function* () {
+      const { selfUpdate: service } = yield* makeHarness({
+        mode: "desktop",
+        desktopAppUpdate: {
+          available: true,
+          run: () =>
+            Effect.succeed({
+              targetVersion: "1.2.0",
+              method: "desktop-app",
+              outcome: "up-to-date",
+            }),
+          commit: () => Effect.die("A no-op must not install"),
+        },
+      });
+      expect(yield* service.update({ targetVersion: "1.3.0", reportUpToDate: true })).toEqual({
+        targetVersion: "1.2.0",
+        method: "desktop-app",
+        outcome: "up-to-date",
+      });
+      expect((yield* service.update({ targetVersion: "1.3.0" }).pipe(Effect.flip)).reason).toBe(
+        "The T3 Code desktop app on this machine is already up to date on 1.2.0.",
+      );
+    }),
+  );
+
   it.effect("marks running threads at the boot-service handoff", () =>
     Effect.gen(function* () {
       const events: string[] = [];

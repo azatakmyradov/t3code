@@ -6,6 +6,10 @@ import {
   type ServerSelfUpdateResult,
   WS_METHODS,
 } from "@t3tools/contracts";
+import {
+  canTargetServerRelease,
+  MANUAL_RELEASE_CHECK_GUIDANCE,
+} from "@t3tools/shared/releaseCompatibility";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -69,6 +73,13 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
     const { prepared, descriptor } = yield* Effect.firstSuccessOf(
       connectionRoutes(entry).map((route) => resolver.prepareForUpdate(routeEntry(entry, route))),
     );
+    // Recheck the live descriptor: a cached UI offer may belong to an older installation.
+    if (!canTargetServerRelease(descriptor, input.targetVersion)) {
+      return yield* new OutdatedHostUpdateError({
+        environmentId,
+        message: MANUAL_RELEASE_CHECK_GUIDANCE,
+      });
+    }
     const capabilities = descriptor.capabilities;
     if (
       capabilities.serverSelfUpdate === undefined ||
@@ -106,12 +117,13 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
         );
         const client = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
 
+        const updateInput = { ...input, reportUpToDate: true };
         const updateResult: ServerSelfUpdateResult =
           capabilities.serverSelfUpdateProgress === true
             ? yield* Effect.gen(function* () {
                 const terminal = yield* Ref.make(Option.none<ServerSelfUpdateResult>());
                 const streamExit = yield* client[WS_METHODS.serverUpdateServerWithProgress](
-                  input,
+                  updateInput,
                 ).pipe(
                   Stream.runForEach((event) =>
                     event.type === "complete"
@@ -126,7 +138,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
                   streamExit,
                 );
               })
-            : yield* client[WS_METHODS.serverUpdateServer](input).pipe(
+            : yield* client[WS_METHODS.serverUpdateServer](updateInput).pipe(
                 // Older servers can drop the socket before acknowledging the restart.
                 Effect.catchCauseIf(
                   (cause) =>
@@ -141,6 +153,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
                 ),
               );
 
+        if (updateResult.outcome === "up-to-date") return updateResult;
         if (
           updateResult.method === "desktop-app" &&
           updateResult.desktopUpdateToken !== undefined
@@ -159,6 +172,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
       }),
     );
 
+    if (result.outcome === "up-to-date") return result;
     yield* onStage("resuming");
     // The restarted host may answer on another saved route, so each poll asks
     // every direct address, the one that carried the update first.

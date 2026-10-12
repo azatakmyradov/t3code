@@ -186,9 +186,15 @@ const authorizeRequest = Effect.fn("EnvironmentRpc.authorize")(function* (
   yield* guard.authorize(supervisor.target.environmentId, method, input);
 });
 
+interface RequestOptions<E> {
+  /** Validate the exact session used to dispatch, rather than a cached UI projection. */
+  readonly beforeDispatch?: (session: RpcSession) => Effect.Effect<void, E>;
+}
+
 export const requestGuarded = Effect.fn("EnvironmentRpc.request")(function* <
   TTag extends EnvironmentUnaryRpcTag,
->(tag: TTag, input: EnvironmentRpcInput<TTag>) {
+  E = never,
+>(tag: TTag, input: EnvironmentRpcInput<TTag>, options?: RequestOptions<E>) {
   const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
   yield* Effect.annotateCurrentSpan({
     "environment.id": supervisor.target.environmentId,
@@ -196,6 +202,7 @@ export const requestGuarded = Effect.fn("EnvironmentRpc.request")(function* <
   });
   const session = yield* currentSession();
   yield* authorizeRequest(tag, input);
+  if (options?.beforeDispatch !== undefined) yield* options.beforeDispatch(session);
   const observer = yield* EnvironmentRpcRequestObserver;
   const method = session.client[tag] as (
     input: EnvironmentRpcInput<TTag>,
@@ -207,12 +214,14 @@ export const requestGuarded = Effect.fn("EnvironmentRpc.request")(function* <
   return yield* method(input).pipe(Effect.ensuring(completeObservation));
 });
 
-export function runStreamGuarded<TTag extends EnvironmentStreamCommandRpcTag>(
+export function runStreamGuarded<TTag extends EnvironmentStreamCommandRpcTag, E = never>(
   tag: TTag,
   input: EnvironmentRpcInput<TTag>,
+  options?: RequestOptions<E>,
 ): Stream.Stream<
   EnvironmentRpcStreamValue<TTag>,
   | EnvironmentRpcStreamFailure<TTag>
+  | E
   | EnvironmentRpcUnavailableError
   | EnvironmentAuthorizationError,
   EnvironmentSupervisor.EnvironmentSupervisor
@@ -220,6 +229,7 @@ export function runStreamGuarded<TTag extends EnvironmentStreamCommandRpcTag>(
   return Stream.unwrap(
     authorizeRequest(tag, input).pipe(
       Effect.andThen(currentSession()),
+      Effect.tap((session) => options?.beforeDispatch?.(session) ?? Effect.void),
       Effect.map((session) => {
         const method = session.client[tag] as (
           input: EnvironmentRpcInput<TTag>,
@@ -439,14 +449,20 @@ export function subscribe<TTag extends EnvironmentSubscriptionRpcTag>(
 }
 
 /** Protected writes must go through the permission-aware command layer. */
-export const request = <TTag extends Exclude<EnvironmentUnaryRpcTag, ClientGuardedRpcTag>>(
-  tag: TTag,
-  input: EnvironmentRpcInput<TTag>,
-) => requestGuarded(tag, input);
-
-export const runStream = <
-  TTag extends Exclude<EnvironmentStreamCommandRpcTag, ClientGuardedRpcTag>,
+export const request = <
+  TTag extends Exclude<EnvironmentUnaryRpcTag, ClientGuardedRpcTag>,
+  E = never,
 >(
   tag: TTag,
   input: EnvironmentRpcInput<TTag>,
-) => runStreamGuarded(tag, input);
+  options?: RequestOptions<E>,
+) => requestGuarded(tag, input, options);
+
+export const runStream = <
+  TTag extends Exclude<EnvironmentStreamCommandRpcTag, ClientGuardedRpcTag>,
+  E = never,
+>(
+  tag: TTag,
+  input: EnvironmentRpcInput<TTag>,
+  options?: RequestOptions<E>,
+) => runStreamGuarded(tag, input, options);

@@ -223,11 +223,20 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
+/** Installed release lineage. Missing on older hosts; version numbers alone do not identify it. */
+export const ServerRelease = Schema.Struct({
+  distribution: TrimmedNonEmptyString,
+  channel: Schema.Literals(["stable", "nightly", "preview", "unknown"]),
+});
+export type ServerRelease = typeof ServerRelease.Type;
+
 export const ExecutionEnvironmentDescriptor = Schema.Struct({
   environmentId: EnvironmentId,
   label: TrimmedNonEmptyString,
   platform: ExecutionEnvironmentPlatform,
   serverVersion: TrimmedNonEmptyString,
+  /** Installed build channel, not the desktop app's separately selected update feed. */
+  release: ForwardCompatibleOptional(ServerRelease),
   /** Absent on hosts from before explicit orchestration protocol negotiation. */
   orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,

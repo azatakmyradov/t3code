@@ -1,10 +1,12 @@
 import { AuthOrchestrationOperateScope, ServerProvider } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import { forkReleaseForVersion } from "@t3tools/shared/releaseCompatibility";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   canMaintainEnvironment,
   canUpdateEnvironmentProvider,
+  desktopEnvironmentUpdateTarget,
   findEnvironmentUpdate,
   supportsEnvironmentUpdate,
 } from "./environment-maintenance";
@@ -159,6 +161,60 @@ describe("environment maintenance access", () => {
 
 describe("environment release checks", () => {
   const signal = new AbortController().signal;
+  const host = (serverVersion: string) => ({
+    serverVersion,
+    release: forkReleaseForVersion(serverVersion),
+  });
+
+  it("lets known desktops check their own feed without querying CLI releases", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const environment = {
+      ...host("1.0.0"),
+      capabilities: {
+        repositoryIdentity: true,
+        serverSelfUpdate: "desktop-managed" as const,
+        desktopAppUpdate: true,
+      },
+    };
+    expect(desktopEnvironmentUpdateTarget(environment)).toBe("1.0.0");
+    const { release: _release, ...legacy } = environment;
+    expect(desktopEnvironmentUpdateTarget(legacy)).toBeNull();
+    expect(
+      desktopEnvironmentUpdateTarget({
+        ...environment,
+        release: { distribution: "pingdotgg/t3code", channel: "stable" },
+      }),
+    ).toBeNull();
+    expect(
+      desktopEnvironmentUpdateTarget({
+        ...environment,
+        capabilities: { ...environment.capabilities, desktopAppUpdate: false },
+      }),
+    ).toBeNull();
+    await expect(findEnvironmentUpdate(environment, signal)).rejects.toThrow(
+      "desktop app's own update feed",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not check this fork's feed for unknown or foreign hosts", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(findEnvironmentUpdate({ serverVersion: "1.0.0" }, signal)).rejects.toThrow(
+      "server's own installation",
+    );
+    await expect(
+      findEnvironmentUpdate(
+        {
+          serverVersion: "1.0.0",
+          release: { distribution: "pingdotgg/t3code", channel: "stable" },
+        },
+        signal,
+      ),
+    ).rejects.toThrow("server's own installation");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("keeps stable hosts on stable releases and ignores drafts", async () => {
     vi.stubGlobal(
@@ -173,9 +229,9 @@ describe("environment release checks", () => {
           ]),
         ),
     );
-    expect(await findEnvironmentUpdate("1.0.0", signal)).toBe("1.1.0");
-    expect(await findEnvironmentUpdate("1.1.0", signal)).toBeNull();
-    expect(await findEnvironmentUpdate("1.3.0", signal)).toBeNull();
+    expect(await findEnvironmentUpdate(host("1.0.0"), signal)).toBe("1.1.0");
+    expect(await findEnvironmentUpdate(host("1.1.0"), signal)).toBeNull();
+    expect(await findEnvironmentUpdate(host("1.3.0"), signal)).toBeNull();
   });
 
   it("walks release pages to find the host's channel", async () => {
@@ -184,10 +240,10 @@ describe("environment release checks", () => {
       .mockResolvedValueOnce(
         Response.json(Array.from({ length: 100 }, () => ({ tag_name: "v2.0.0" }))),
       )
-      .mockResolvedValueOnce(Response.json([{ tag_name: "v1.0.0-preview.20260923.2" }]));
+      .mockResolvedValueOnce(Response.json([{ tag_name: "v1.0.0-nightly.20260923.2" }]));
     vi.stubGlobal("fetch", fetchMock);
-    expect(await findEnvironmentUpdate("1.0.0-preview.20260923.1", signal)).toBe(
-      "1.0.0-preview.20260923.2",
+    expect(await findEnvironmentUpdate(host("1.0.0-nightly.20260923.1"), signal)).toBe(
+      "1.0.0-nightly.20260923.2",
     );
     expect(fetchMock.mock.calls[1]?.[0]).toContain("page=2");
     expect(fetchMock.mock.calls[1]?.[1]).toEqual({ signal });
@@ -195,10 +251,10 @@ describe("environment release checks", () => {
 
   it("reports failed checks instead of claiming the server is current", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
-    await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow("403");
+    await expect(findEnvironmentUpdate(host("1.0.0"), signal)).rejects.toThrow("403");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json([])));
-    await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow("No stable release");
+    await expect(findEnvironmentUpdate(host("1.0.0"), signal)).rejects.toThrow("No stable release");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "invalid" })));
-    await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow();
+    await expect(findEnvironmentUpdate(host("1.0.0"), signal)).rejects.toThrow();
   });
 });

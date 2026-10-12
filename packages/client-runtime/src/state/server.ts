@@ -8,6 +8,10 @@ import {
   type ServerSelfUpdateResult,
   WS_METHODS,
 } from "@t3tools/contracts";
+import {
+  canTargetServerRelease,
+  MANUAL_RELEASE_CHECK_GUIDANCE,
+} from "@t3tools/shared/releaseCompatibility";
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
@@ -90,6 +94,15 @@ export const serverUpdateStateAtom = Atom.family((environmentId: EnvironmentId) 
     Atom.withLabel(`environment-data:server:update-state:${environmentId}`),
   ),
 );
+
+class ServerUpdateReleaseMismatchError extends Schema.TaggedError<ServerUpdateReleaseMismatchError>()(
+  "ServerUpdateReleaseMismatchError",
+  {},
+) {
+  override get message(): string {
+    return MANUAL_RELEASE_CHECK_GUIDANCE;
+  }
+}
 
 export class ServerUpdateResumeTimeoutError extends Schema.TaggedError<ServerUpdateResumeTimeoutError>()(
   "ServerUpdateResumeTimeoutError",
@@ -287,7 +300,10 @@ export function serverUpdateStateForProgressEvent(
   fromVersion: string,
   targetVersion: string,
   event: ServerSelfUpdateProgressEvent,
-): Extract<ServerUpdateState, { status: "running" }> {
+): ServerUpdateState {
+  if (event.type === "complete" && event.result.outcome === "up-to-date") {
+    return IDLE_SERVER_UPDATE_STATE;
+  }
   return {
     status: "running",
     stage: event.type === "complete" ? "resuming" : event.stage,
@@ -602,7 +618,11 @@ export function resolveServerConfigValue(
   if (
     projection?.source === "live" &&
     (initialConfig === null ||
-      projection.config.environment.serverVersion === initialConfig.environment.serverVersion)
+      (projection.config.environment.serverVersion === initialConfig.environment.serverVersion &&
+        projection.config.environment.release?.distribution ===
+          initialConfig.environment.release?.distribution &&
+        projection.config.environment.release?.channel ===
+          initialConfig.environment.release?.channel))
   ) {
     return projection.config;
   }
@@ -731,6 +751,9 @@ export function createServerEnvironmentAtoms<R, E>(
           Effect.gen(function* () {
             const currentConfig = atomRegistry.get(configValueAtom(target.environmentId));
             fromVersion = currentConfig?.environment.serverVersion ?? targetVersion;
+            if (!canTargetServerRelease(currentConfig?.environment, targetVersion)) {
+              return yield* new ServerUpdateReleaseMismatchError({});
+            }
             atomRegistry.set(stateAtom, {
               status: "running",
               stage: currentStage,
@@ -740,15 +763,26 @@ export function createServerEnvironmentAtoms<R, E>(
 
             const supportsProgress =
               currentConfig?.environment.capabilities.serverSelfUpdateProgress === true;
-            const updateResult: ServerSelfUpdateResult = supportsProgress
-              ? yield* Effect.gen(function* () {
+            const updateInput = { ...target.input, reportUpToDate: true };
+            const beforeDispatch = (session: RpcSession) =>
+              Effect.gen(function* () {
+                const liveConfig = yield* session.initialConfig;
+                if (!canTargetServerRelease(liveConfig.environment, targetVersion)) {
+                  return yield* new ServerUpdateReleaseMismatchError({});
+                }
+                fromVersion = liveConfig.environment.serverVersion;
+              });
+            const update = supportsProgress
+              ? Effect.gen(function* () {
                   const terminal = yield* Ref.make<Option.Option<ServerSelfUpdateResult>>(
                     Option.none(),
                   );
                   const streamExit = yield* environmentRegistry
                     .runStream(
                       target.environmentId,
-                      runStream(WS_METHODS.serverUpdateServerWithProgress, target.input),
+                      runStream(WS_METHODS.serverUpdateServerWithProgress, updateInput, {
+                        beforeDispatch,
+                      }),
                     )
                     .pipe(
                       Stream.runForEach((event) =>
@@ -774,10 +808,13 @@ export function createServerEnvironmentAtoms<R, E>(
                     streamExit,
                   );
                 })
-              : yield* Effect.gen(function* () {
+              : Effect.gen(function* () {
                   const selfUpdateMethod = currentConfig?.environment.capabilities.serverSelfUpdate;
                   const exit = yield* environmentRegistry
-                    .run(target.environmentId, request(WS_METHODS.serverUpdateServer, target.input))
+                    .run(
+                      target.environmentId,
+                      request(WS_METHODS.serverUpdateServer, updateInput, { beforeDispatch }),
+                    )
                     .pipe(Effect.exit);
                   if (Exit.isSuccess(exit)) {
                     return exit.value;
@@ -793,6 +830,23 @@ export function createServerEnvironmentAtoms<R, E>(
                   }
                   return yield* Effect.failCause(exit.cause);
                 });
+
+            const updateResult: ServerSelfUpdateResult = yield* update.pipe(
+              Effect.catchTags({
+                ServerSelfUpdateError: (error) =>
+                  currentConfig?.environment.capabilities.serverSelfUpdate === "desktop-managed" &&
+                  currentConfig.environment.serverVersion === fromVersion &&
+                  error.reason ===
+                    `The T3 Code desktop app on this machine is already up to date on ${fromVersion}.`
+                    ? Effect.succeed({
+                        targetVersion: fromVersion,
+                        method: "desktop-app" as const,
+                        outcome: "up-to-date" as const,
+                      })
+                    : Effect.fail(error),
+              }),
+            );
+            if (updateResult.outcome === "up-to-date") return updateResult;
 
             if (
               updateResult.method === "desktop-app" &&
@@ -826,6 +880,11 @@ export function createServerEnvironmentAtoms<R, E>(
             return updateResult;
           }),
         );
+
+        if (result.outcome === "up-to-date") {
+          atomRegistry.set(stateAtom, IDLE_SERVER_UPDATE_STATE);
+          return result;
+        }
 
         // The update restart is intentional and the server stays unreachable
         // for the whole restart, so hold the retry cadence flat instead of

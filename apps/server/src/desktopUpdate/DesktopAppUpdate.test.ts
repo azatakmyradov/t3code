@@ -154,16 +154,20 @@ it.layer(NodeServices.layer)("desktop app update", (it) => {
     }),
   );
 
-  it.effect("maps up-to-date and failed outcomes to readable errors", () =>
+  it.effect("returns up-to-date without an install token and preserves actual failures", () =>
     Effect.gen(function* () {
       const upToDate = yield* makeHarness({
         reports: (requestId) => [
           report(requestId, makeState({ status: "up-to-date" }), { outcome: "up-to-date" }),
         ],
       });
-      expect((yield* upToDate.service.run(() => Effect.void).pipe(Effect.flip)).reason).toBe(
-        "The T3 Code desktop app on this machine is already up to date on 1.2.3.",
-      );
+      expect(yield* upToDate.service.run(() => Effect.void)).toEqual({
+        targetVersion: "1.2.3",
+        method: "desktop-app",
+        outcome: "up-to-date",
+      });
+      const retry = yield* upToDate.service.run(() => Effect.void).pipe(Effect.flip);
+      expect(retry.reason).not.toBe("A desktop app update is already in progress.");
 
       const failed = yield* makeHarness({
         reports: (requestId) => [

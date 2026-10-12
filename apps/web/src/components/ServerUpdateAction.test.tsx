@@ -203,6 +203,24 @@ describe("ServerUpdateAction", () => {
     },
   );
 
+  it("reports an up-to-date result as information without claiming a restart", async () => {
+    testState.updateServer.mockResolvedValue(
+      AsyncResult.success({
+        targetVersion: "0.0.30",
+        method: "desktop-app" as const,
+        outcome: "up-to-date" as const,
+      }),
+    );
+    renderAction().props.onClick?.();
+    await flushPromises();
+    expect(testState.toast).toHaveBeenCalledWith({
+      type: "info",
+      title: "Test server is up to date",
+      description:
+        "No newer desktop update is available on this machine’s update channel (0.0.30).",
+    });
+  });
+
   it("reports success only after the shared update flow reconnects", async () => {
     testState.updateServer.mockResolvedValue(
       AsyncResult.success({ targetVersion: "0.0.31", method: "boot-service" as const }),

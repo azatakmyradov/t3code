@@ -1,4 +1,5 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, type ServerRelease } from "@t3tools/contracts";
+import { forkReleaseForVersion } from "@t3tools/shared/releaseCompatibility";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -154,6 +155,29 @@ describe("versionSkew", () => {
     expect(resolveVersionMismatch("0.0.34")).toMatchObject({ serverVersion: "0.0.34" });
   });
 
+  it.each([
+    { release: undefined, canUpdate: false },
+    { release: { distribution: "pingdotgg/t3code", channel: "stable" }, canUpdate: false },
+    { release: forkReleaseForVersion("0.0.33-nightly.20261001.1"), canUpdate: false },
+    { release: forkReleaseForVersion("0.0.33"), canUpdate: true },
+  ] satisfies ReadonlyArray<{ release: ServerRelease | undefined; canUpdate: boolean }>)(
+    "keeps the version notice but gates exact update targets: $canUpdate",
+    ({ release, canUpdate }) => {
+      const mismatch = resolveServerConfigVersionMismatch({
+        environment: {
+          environmentId: EnvironmentId.make("release-server"),
+          label: "Remote",
+          platform: { os: "linux", arch: "x64" },
+          serverVersion: "0.0.33",
+          capabilities: { repositoryIdentity: true },
+          ...(release ? { release } : {}),
+        },
+      });
+      expect(mismatch).toMatchObject({ serverVersion: "0.0.33", canUpdate });
+      if (!canUpdate) expect(mismatch?.hint).toContain("server's own installation");
+    },
+  );
+
   it("reads the server version from config descriptors", () => {
     expect(
       resolveServerConfigVersionMismatch({
@@ -173,6 +197,21 @@ describe("versionSkew", () => {
     ).toMatchObject({
       serverVersion: "0.0.33",
     });
+  });
+
+  it("does not hide a newly actionable upgrade after dismissing legacy guidance", () => {
+    const environmentId = EnvironmentId.make("release-metadata-arrived");
+    const versions = { clientVersion: "0.0.34", serverVersion: "0.0.33" };
+    const manualKey = buildVersionMismatchDismissalKey(environmentId, {
+      ...versions,
+      canUpdate: false,
+    });
+    dismissVersionMismatch(manualKey);
+    expect(
+      isVersionMismatchDismissed(
+        buildVersionMismatchDismissalKey(environmentId, { ...versions, canUpdate: true }),
+      ),
+    ).toBe(false);
   });
 
   it("keys dismissals by environment, client version, and server version", () => {

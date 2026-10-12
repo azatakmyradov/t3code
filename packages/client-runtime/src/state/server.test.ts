@@ -322,6 +322,15 @@ describe("server state projection", () => {
     });
   });
 
+  it("does not project a completed no-op as restarting", () => {
+    expect(
+      serverUpdateStateForProgressEvent("1.2.0", "1.3.0", {
+        type: "complete",
+        result: { targetVersion: "1.2.0", method: "desktop-app", outcome: "up-to-date" },
+      }),
+    ).toEqual({ status: "idle" });
+  });
+
   it("keeps active update state and hides stale failures after a version change", () => {
     const running = {
       status: "running" as const,
@@ -760,6 +769,30 @@ describe("server state projection", () => {
         initial,
       ),
     ).toBe(live);
+  });
+
+  it("does not reuse a previous distribution's live config after a same-version reconnect", () => {
+    const current = {
+      ...CONFIG,
+      environment: {
+        ...CONFIG.environment,
+        serverVersion: "1.2.0",
+        release: { distribution: "pingdotgg/t3code", channel: "stable" as const },
+      },
+    };
+    const previous = {
+      ...current,
+      environment: {
+        ...current.environment,
+        release: { distribution: "azatakmyradov/t3code", channel: "stable" as const },
+      },
+    };
+    expect(
+      resolveServerConfigValue(
+        { config: previous, latestEvent: snapshotEvent(previous), source: "live" },
+        current,
+      ),
+    ).toBe(current);
   });
 
   it.effect("throttles server configuration writes and flushes the latest on teardown", () =>
