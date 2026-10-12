@@ -6,6 +6,8 @@ import { pullRequestEnvironment } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 
+import { pullRequestReviewKey } from "./pullRequestReviewStore";
+
 import { toastManager } from "../ui/toast";
 import {
   countViewedFiles,
@@ -90,7 +92,7 @@ export function usePullRequestFilesViewed(options: {
   // Everything held here belongs to one change request on one environment. The environment is
   // part of that: two of them can hand out the same project id, and a press made against one
   // must never be answered for by the other.
-  const scopeKey = `${environmentId} ${reference.projectId} ${reference.repository} ${reference.number}`;
+  const scopeKey = `${environmentId}:${pullRequestReviewKey(reference)}`;
   const scope = useRef(scopeKey);
 
   // The host's answer as it stood when a completed write was acknowledged, per path. The first

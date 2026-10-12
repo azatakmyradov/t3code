@@ -532,6 +532,8 @@ export const PullRequestListEntry = Schema.Struct({
   host: TrimmedNonEmptyString,
   /** The account that read this row; repositories on one host can use different accounts. */
   viewer: Schema.optional(TrimmedNonEmptyString),
+  /** Stable verified account identity for subsequent reads and account-scoped client caches. */
+  expectedAccountId: Schema.optional(TrimmedNonEmptyString),
   projectId: ProjectId,
   projectTitle: TrimmedNonEmptyString,
   repository: TrimmedNonEmptyString,
@@ -815,6 +817,9 @@ export type PullRequestStack = typeof PullRequestStack.Type;
  * rows on screen at the speed of everything else on them.
  */
 export const PullRequestDiffStat = Schema.Struct({
+  /** The verified origin of these counts; absent for legacy providers. */
+  host: Schema.optional(TrimmedNonEmptyString),
+  expectedAccountId: Schema.optional(TrimmedNonEmptyString),
   projectId: ProjectId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,

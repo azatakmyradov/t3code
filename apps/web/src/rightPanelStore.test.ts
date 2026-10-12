@@ -971,6 +971,30 @@ describe("rightPanelStore", () => {
     );
   });
 
+  it("keeps the account guard when switching between tabs for the same project and pull request", () => {
+    const accountA = {
+      projectId: "project-a",
+      repository: "acme/api",
+      number: 7,
+      host: "github.com",
+      expectedAccountId: "account-a",
+    };
+    const accountB = { ...accountA, expectedAccountId: "account-b" };
+    const store = useRightPanelStore.getState();
+    store.openPullRequest(refA, accountA);
+    store.openPullRequest(refA, accountB);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
+    ).toEqual([pullRequestSurface(accountA), pullRequestSurface(accountB)]);
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ expectedAccountId: "account-b" });
+    store.openPullRequest(refA, accountA);
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ expectedAccountId: "account-a" });
+  });
+
   it("keeps one pull request read from two servers as two tabs", () => {
     const local = {
       environmentId: "local",

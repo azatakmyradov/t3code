@@ -203,6 +203,9 @@ export function usePullRequestCloseBatch(onClosed: (entry: EnvironmentPullReques
               input: {
                 projectId: entry.projectId,
                 host: entry.host,
+                ...(entry.expectedAccountId === undefined
+                  ? {}
+                  : { expectedAccountId: entry.expectedAccountId }),
                 repository: entry.repository,
                 number: entry.number,
                 action: "close",

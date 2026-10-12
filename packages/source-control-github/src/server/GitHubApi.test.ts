@@ -23,16 +23,22 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
   const requests: Array<HttpClientRequest.HttpClientRequest> = [];
   let tokens = ["first", "second"];
   let invalidations = 0;
+  let credentialReads = 0;
+  const credentialContexts: Array<GitHubCredentials.GitHubCredentialContext | undefined> = [];
   const credentials = Layer.succeed(
     GitHubCredentials.GitHubCredentials,
     GitHubCredentials.GitHubCredentials.of({
-      get: (host) =>
-        Effect.sync(() => ({
-          host,
-          token: Redacted.make(tokens[0]!),
-          source: "gh" as const,
-          fingerprint: `${host}:${tokens[0]}`,
-        })),
+      get: (host, context) =>
+        Effect.sync(() => {
+          credentialReads++;
+          credentialContexts.push(context);
+          return {
+            host,
+            token: Redacted.make(tokens[0]!),
+            source: "gh" as const,
+            fingerprint: `${host}:${tokens[0]}`,
+          };
+        }),
       invalidate: () =>
         Effect.sync(() => {
           invalidations++;
@@ -52,7 +58,13 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
     Layer.provideMerge(GitHubQuota.layer),
     Layer.provideMerge(SourceControlRateLimit.layer),
   );
-  return { layer, requests, invalidations: () => invalidations };
+  return {
+    layer,
+    requests,
+    invalidations: () => invalidations,
+    credentialReads: () => credentialReads,
+    credentialContexts,
+  };
 }
 
 const json = (body: unknown, init?: ResponseInit) =>
@@ -115,6 +127,88 @@ describe("GitHubApi", () => {
       expect(sent._tag === "Uint8Array" ? new TextDecoder().decode(sent.body) : "").toContain(
         '"query":"query { viewer { login } }"',
       );
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("resolves GraphQL credentials once per request and refreshes after refusal", () => {
+    const { layer, requests, invalidations, credentialReads } = harness((request) =>
+      request.headers.authorization === "Bearer first"
+        ? new Response(null, { status: 401 })
+        : json({ data: { viewer: { login: "julius" } } }),
+    );
+    return Effect.gen(function* () {
+      const api = yield* GitHubApi.GitHubApi;
+      const input = {
+        host: "github.com",
+        operation: "viewer",
+        query: "query { viewer { login } }",
+      };
+      const refused = yield* Effect.flip(api.graphql(input));
+      expect(refused._tag).toBe("GitHubApiAuthenticationError");
+      expect(credentialReads()).toBe(1);
+      expect(invalidations()).toBe(1);
+
+      const body = yield* api.graphql(input);
+      expect(body).toContain('"login":"julius"');
+      expect(credentialReads()).toBe(2);
+      expect(requests.map((request) => request.headers.authorization)).toEqual([
+        "Bearer first",
+        "Bearer second",
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect.each(["rest", "graphql"] as const)(
+    "forwards the checkout credential context once for %s requests",
+    (kind) => {
+      const { layer, requests, credentialContexts } = harness(() => json({ data: {} }));
+      return Effect.gen(function* () {
+        const api = yield* GitHubApi.GitHubApi;
+        const input = {
+          host: "github.com",
+          operation: "viewer",
+          credentialContext: { cwd: "/work/repository" },
+        };
+        if (kind === "rest") yield* api.rest({ ...input, path: "user" });
+        else yield* api.graphql({ ...input, query: "query { viewer { login } }" });
+        expect(credentialContexts).toEqual([{ cwd: "/work/repository" }]);
+        expect(requests).toHaveLength(1);
+        expect(requests[0]!.headers.authorization).toBe("Bearer first");
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.effect("keeps GraphQL rate limits scoped to the token actually sent", () => {
+    const { layer, requests, credentialReads } = harness((request) =>
+      request.headers.authorization === "Bearer personal"
+        ? json({ errors: [{ type: "RATE_LIMITED" }] }, { headers: { "retry-after": "60" } })
+        : json({ data: { viewer: { login: "work" } } }),
+    );
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(NOW);
+      const api = yield* GitHubApi.GitHubApi;
+      const read = (token: string) =>
+        api
+          .graphql({
+            host: "github.com",
+            operation: "viewer",
+            query: "query { viewer { login } }",
+          })
+          .pipe(
+            Effect.provideService(GitHubApi.PinnedGitHubCredential, {
+              host: "github.com",
+              token: Redacted.make(token),
+              credentialFingerprint: `github.com:${token}`,
+            }),
+          );
+      expect((yield* Effect.flip(read("personal")))._tag).toBe("GitHubApiRateLimitError");
+      expect((yield* Effect.flip(read("personal")))._tag).toBe("SourceControlRateLimitPausedError");
+      expect(yield* read("work")).toContain('"login":"work"');
+      expect(credentialReads()).toBe(0);
+      expect(requests.map((request) => request.headers.authorization)).toEqual([
+        "Bearer personal",
+        "Bearer work",
+      ]);
     }).pipe(Effect.provide(layer));
   });
 

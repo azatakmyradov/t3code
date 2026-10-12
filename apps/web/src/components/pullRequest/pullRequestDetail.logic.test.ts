@@ -19,6 +19,7 @@ import { buildMessageContext, reviewCommentContextReference } from "~/lib/compos
 
 import {
   buildAddSelectionToAgentHandoff,
+  buildAskAboutGuideStopHandoff,
   classifyPullRequestChecks,
   groupPullRequestChecks,
   describePullRequestChecks,
@@ -36,6 +37,7 @@ import {
   isStackedPullRequestBase,
   loadingPullRequestCheckoutCommand,
   pullRequestPanelContext,
+  pullRequestListEntryMatchesReference,
   threadPullRequestPanelTarget,
   latestPullRequestReviewOutcomes,
   newestPullRequestCommitAt,
@@ -1222,6 +1224,54 @@ describe("asking about a change rather than working on it", () => {
   });
 });
 
+describe("buildAskAboutGuideStopHandoff", () => {
+  const base = {
+    number: 42,
+    title: "Add search",
+    url: "https://github.com/acme/web/pull/42",
+    headBranch: "feat/search",
+    baseBranch: "main",
+    state: "open" as const,
+    isDraft: false,
+  };
+  const stop = {
+    index: 1,
+    title: "The index is built on write",
+    summary: "Writes now update the index.",
+    attention: "A tradeoff: writes get slower.",
+    excerpts: [
+      { path: "src/index.ts", side: "new" as const, start: 10, end: 20 },
+      { path: "src/old.ts", side: "old" as const, start: 3, end: 5 },
+    ],
+  };
+
+  it("carries the stop beside the pull request and asks only for an answer", () => {
+    const handoff = buildAskAboutGuideStopHandoff({ ...base, stop, question: "Why on write?" });
+    expect(handoff.prompt).toBe("Why on write?");
+    expect(handoff.reviewComments.map((entry) => entry.filePath)).toEqual([
+      "PR #42",
+      "Guide stop 2",
+    ]);
+    expect(handoff.reviewComments[0]?.text).toContain("Do not change any code");
+    const chip = handoff.reviewComments[1]?.text ?? "";
+    expect(chip).toContain("Writes now update the index.");
+    expect(chip).toContain("A tradeoff: writes get slower.");
+    expect(chip).toContain("- src/index.ts lines 10-20\n");
+    expect(chip).toContain("- src/old.ts lines 3-5 (removed; numbered as in the base branch)");
+  });
+
+  it("leaves the question to the reader when none was suggested", () => {
+    const handoff = buildAskAboutGuideStopHandoff({
+      ...base,
+      stop: { ...stop, attention: null, excerpts: [] },
+      question: "",
+    });
+    expect(handoff.prompt).toBe("");
+    expect(handoff.reviewComments[1]?.text).not.toContain("judge");
+    expect(handoff.reviewComments[1]?.text).not.toContain("lines it showed");
+  });
+});
+
 describe("a second ask into the same composer", () => {
   const chip = (id: string): ReviewCommentContext => ({
     id,
@@ -1774,6 +1824,39 @@ describe("cached pull request detail", () => {
       setItem: (key: string, value: string) => void held.set(key, value),
     };
   };
+
+  it("does not hydrate another account or an unguarded legacy snapshot after an account switch", () => {
+    const storage = makeStorage();
+    const accountA = { ...reference, host: "github.com", expectedAccountId: "account-a" };
+    const accountB = { ...accountA, expectedAccountId: "account-b" };
+    writePullRequestDetailSnapshot(storage, "env-1", reference, detail({ title: "Legacy" }));
+    expect(readPullRequestDetailSnapshot(storage, "env-1", accountA)).toBeNull();
+    writePullRequestDetailSnapshot(storage, "env-1", accountA, detail({ title: "Account A" }));
+    expect(readPullRequestDetailSnapshot(storage, "env-1", accountB)).toBeNull();
+    writePullRequestDetailSnapshot(storage, "env-1", accountB, detail({ title: "Account B" }));
+    expect(readPullRequestDetailSnapshot(storage, "env-1", accountA)?.title).toBe("Account A");
+    expect(readPullRequestDetailSnapshot(storage, "env-1", accountB)?.title).toBe("Account B");
+    expect(readPullRequestDetailSnapshot(storage, "env-1", reference)?.title).toBe("Legacy");
+  });
+
+  it("only seeds a pinned detail from the matching account's list entry", () => {
+    const accountA = { ...reference, host: "github.com", expectedAccountId: "account-a" };
+    const row = {
+      ...detail(),
+      ...accountA,
+      viewer: "same-login",
+      viewerReviewRequested: false,
+      labels: [],
+    };
+    expect(pullRequestListEntryMatchesReference(row, accountA)).toBe(true);
+    expect(
+      pullRequestListEntryMatchesReference(row, { ...accountA, expectedAccountId: "account-b" }),
+    ).toBe(false);
+    expect(pullRequestListEntryMatchesReference(row, reference)).toBe(true);
+    expect(
+      pullRequestListEntryMatchesReference({ ...row, expectedAccountId: undefined }, accountA),
+    ).toBe(false);
+  });
 
   it("hydrates the last title, author, and counts so a reopen does not ghost the tab", () => {
     const storage = makeStorage();

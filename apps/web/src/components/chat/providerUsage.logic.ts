@@ -7,7 +7,12 @@ import type {
 import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
-import type { ProviderInstanceEntry } from "../../providerInstances";
+import {
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+  sortProviderInstanceEntries,
+  type ProviderInstanceEntry,
+} from "../../providerInstances";
 import { providerClients } from "../settings/providerDriverMeta";
 
 /** Remove deleted custom accounts before the next provider snapshot reconciles. */
@@ -20,6 +25,19 @@ export function selectConfiguredUsageProviders(
     const definition = providerClients.get(entry.driverKind);
     return entry.isDefault && definition !== undefined && definition.hasDefaultInstance !== false;
   });
+}
+
+/** Subscription quota remains machine-wide when a project's model picker disables an account. */
+export function deriveUsageProviderEntries(
+  providers: ReadonlyArray<ServerProvider>,
+  settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">,
+) {
+  return selectConfiguredUsageProviders(
+    sortProviderInstanceEntries(
+      applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
+    ),
+    settings,
+  );
 }
 
 const WINDOW_ORDER = { session: 0, weekly: 1, monthly: 2, other: 3 } as const;

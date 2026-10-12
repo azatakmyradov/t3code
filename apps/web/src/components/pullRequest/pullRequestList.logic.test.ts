@@ -21,6 +21,7 @@ import {
   matchesPullRequestQuery,
   parsePullRequestQuery,
   pullRequestStatsBatches,
+  hasPullRequestDiffStat,
   pullRequestStatsKeysToRequest,
   pullRequestStatsRefreshBatches,
   pullRequestStatsRequestBatches,
@@ -84,6 +85,72 @@ function entry(
 }
 
 describe("visible pull request line-count targets", () => {
+  it("requests fresh counts after the same project's account changes, without reusing in-flight or cached counts", () => {
+    const accountA = entry({
+      number: 7,
+      viewer: "same-login",
+      expectedAccountId: "account-a",
+      additions: 0,
+      deletions: 0,
+    });
+    const accountB = { ...accountA, expectedAccountId: "account-b" };
+    const keyA = pullRequestEntryKey(accountA);
+    const keyB = pullRequestEntryKey(accountB);
+    const active = pullRequestStatsBatches(new Map([[keyA, accountA]]), new Set([keyA]));
+    const cached = mergePullRequestDiffStats(new Map(), [
+      { ...accountA, additions: 42, deletions: 3 },
+    ]);
+    const next = pullRequestStatsRequestBatches({
+      entriesByKey: new Map([[keyB, accountB]]),
+      candidateKeys: new Set([keyB]),
+      policy: "visible",
+      activeBatches: active,
+      statsByRow: cached,
+    });
+
+    expect(keyB).not.toBe(keyA);
+    expect(next[0]?.input.refs).toEqual([
+      {
+        projectId: accountB.projectId,
+        host: accountB.host,
+        expectedAccountId: "account-b",
+        repository: accountB.repository,
+        number: 7,
+      },
+    ]);
+    expect(hasPullRequestDiffStat(accountB, cached)).toBe(false);
+    expect(withDiffStat(accountB, cached)).toBe(accountB);
+    expect(withDiffStat(accountA, cached)).toMatchObject({ additions: 42, deletions: 3 });
+    const answered = mergePullRequestDiffStats(cached, [
+      { ...accountB, additions: 8, deletions: 1 },
+    ]);
+    expect(withDiffStat(accountB, answered)).toMatchObject({ additions: 8, deletions: 1 });
+    expect(withDiffStat(accountA, answered)).toMatchObject({ additions: 42, deletions: 3 });
+    expect(reusePullRequestEntries([accountA], [accountB], pullRequestEntryKey)[0]).toBe(accountB);
+  });
+
+  it("keeps host-scoped counts separate and only gives legacy counts to unguarded rows", () => {
+    const publicRow = entry({ number: 7, additions: 0, deletions: 0 });
+    const enterpriseRow = { ...publicRow, host: "github.example.com" };
+    const scoped = mergePullRequestDiffStats(new Map(), [{ ...publicRow, additions: 12 }]);
+    expect(withDiffStat(enterpriseRow, scoped)).toBe(enterpriseRow);
+    expect(withDiffStat({ ...publicRow, host: "GITHUB.COM" }, scoped).additions).toBe(12);
+    const legacy = mergePullRequestDiffStats(new Map(), [
+      {
+        environmentId: publicRow.environmentId,
+        projectId: publicRow.projectId,
+        number: 7,
+        additions: 20,
+        deletions: 1,
+      },
+    ]);
+    expect(withDiffStat(publicRow, legacy).additions).toBe(20);
+    const guarded = { ...publicRow, expectedAccountId: "account-a" };
+    expect(withDiffStat(guarded, legacy)).toBe(guarded);
+    expect(withDiffStat(guarded, scoped)).toBe(guarded);
+    expect(hasPullRequestDiffStat(guarded, legacy)).toBe(false);
+  });
+
   it("reuses counts supplied by the listing and only requests missing counts", () => {
     const entries = [
       entry({ number: 1, additions: 12, deletions: 0 }),
@@ -99,7 +166,7 @@ describe("visible pull request line-count targets", () => {
     );
 
     expect(pullRequestStatsBatches(entriesByKey, keys)[0]?.input.refs).toEqual([
-      { projectId: "project-1", repository: "pingdotgg/t3code", number: 3 },
+      { projectId: "project-1", host: "github.com", repository: "pingdotgg/t3code", number: 3 },
     ]);
   });
 
@@ -129,7 +196,7 @@ describe("visible pull request line-count targets", () => {
     );
     expect([...keys]).toEqual([secondKey]);
     expect(pullRequestStatsBatches(entriesByKey, keys)[0]?.input.refs).toEqual([
-      { projectId: "project-1", repository: "pingdotgg/t3code", number: 2 },
+      { projectId: "project-1", host: "github.com", repository: "pingdotgg/t3code", number: 2 },
     ]);
   });
 
@@ -1504,8 +1571,13 @@ describe('who "I" am, per server', () => {
     expect(
       pullRequestStatsBatches(entriesByKey, new Set(entriesByKey.keys()))[0]?.input.refs,
     ).toEqual([
-      { projectId: mine.projectId, repository: mine.repository, number: 1 },
-      { projectId: reviewing.projectId, repository: reviewing.repository, number: 1 },
+      { projectId: mine.projectId, host: mine.host, repository: mine.repository, number: 1 },
+      {
+        projectId: reviewing.projectId,
+        host: reviewing.host,
+        repository: reviewing.repository,
+        number: 1,
+      },
     ]);
   });
 

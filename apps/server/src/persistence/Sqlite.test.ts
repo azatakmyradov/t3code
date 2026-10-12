@@ -94,7 +94,7 @@ it.effect("applies busy_timeout in the shared persistence setup", () =>
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
-it.effect("preserves released bot data when starting an already upgraded database", () => {
+it.effect("adds review guides while preserving released bot data and migration history", () => {
   const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-retired-bots-"));
   const dbPath = NodePath.join(tempDir, "statev2.sqlite");
   const readBotData = Effect.gen(function* () {
@@ -147,12 +147,26 @@ it.effect("preserves released bot data when starting an already upgraded databas
   return Effect.gen(function* () {
     const before = yield* seedReleasedDatabase;
     // Reopen through the same setup used by the server, with no bot service loaded.
-    const after = yield* readBotData.pipe(
+    const after = yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`
+        INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
+        VALUES ('github.com', 'test/repo', 1, '{}')
+      `;
+      assert.deepStrictEqual(
+        yield* sql`SELECT repository, number FROM pull_request_review_guides`,
+        [{ repository: "test/repo", number: 1 }],
+      );
+      return yield* readBotData;
+    }).pipe(
       Effect.provide(
         SqlitePersistence.layerFromPath(dbPath).pipe(Layer.provide(NodeServices.layer)),
       ),
     );
-    assert.deepStrictEqual(after, before);
+    assert.deepStrictEqual(after, {
+      ...before,
+      migrations: [...before.migrations, { migration_id: 62, name: "PullRequestReviewGuides" }],
+    });
   }).pipe(
     Effect.ensuring(Effect.sync(() => NodeFS.rmSync(tempDir, { recursive: true, force: true }))),
   );

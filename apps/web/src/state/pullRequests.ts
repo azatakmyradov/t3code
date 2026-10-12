@@ -89,12 +89,16 @@ export function pullRequestListEntryToSummary(entry: PullRequestListEntry): Pull
   };
 }
 
-// A project has one remote, so its id already pins the host. Leaving the host out lets a list
-// row, a hostless legacy reference and a URL-derived thread reference share one entry.
-function pullRequestSummaryKey(environmentId: EnvironmentId, reference: PullRequestRef): string {
+// A fresh credential must not inherit another account's status observations.
+export function pullRequestSummaryKey(
+  environmentId: EnvironmentId,
+  reference: PullRequestRef,
+): string {
   return JSON.stringify([
     environmentId,
     reference.projectId,
+    reference.host?.toLowerCase() ?? null,
+    reference.expectedAccountId ?? null,
     reference.repository.toLowerCase(),
     reference.number,
   ]);
@@ -300,6 +304,9 @@ export function usePullRequestList(
           {
             projectId: entry.projectId,
             host: entry.host,
+            ...(entry.expectedAccountId === undefined
+              ? {}
+              : { expectedAccountId: entry.expectedAccountId }),
             repository: entry.repository,
             number: entry.number,
           },

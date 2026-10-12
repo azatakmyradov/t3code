@@ -78,7 +78,7 @@ const PAGE_ROW_CLASS = "px-3 py-2.5";
 
 export type PullRequestRowTarget = Pick<
   EnvironmentPullRequestEntry,
-  "environmentId" | "projectId" | "host" | "repository" | "number"
+  "environmentId" | "projectId" | "host" | "expectedAccountId" | "repository" | "number"
 >;
 
 function PullRequestRowImpl({
@@ -180,6 +180,10 @@ function PullRequestRowImpl({
                   environmentId={entry.environmentId}
                   reference={{
                     projectId: entry.projectId,
+                    host: entry.host,
+                    ...(entry.expectedAccountId === undefined
+                      ? {}
+                      : { expectedAccountId: entry.expectedAccountId }),
                     repository: entry.repository,
                     number: entry.number,
                   }}
@@ -202,6 +206,9 @@ function PullRequestRowImpl({
                   reference={{
                     projectId: entry.projectId,
                     host: entry.host,
+                    ...(entry.expectedAccountId === undefined
+                      ? {}
+                      : { expectedAccountId: entry.expectedAccountId }),
                     repository: entry.repository,
                     number: entry.number,
                   }}

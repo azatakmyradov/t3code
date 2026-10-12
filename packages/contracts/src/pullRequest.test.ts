@@ -6,6 +6,7 @@ import {
   PullRequestActionInput,
   PullRequestCapabilities,
   PullRequestFilesViewedResult,
+  PullRequestDiffStat,
   PullRequestListInput,
   PullRequestListResult,
   PullRequestReviewerRequestInput,
@@ -90,6 +91,38 @@ const LIST_RESULT: PullRequestListResult = {
   truncated: false,
   nextCursors: { "github.com pingdotgg/t3code": "2026-07-02T00:00:00Z|1|1" },
 };
+
+describe("pull request account provenance", () => {
+  it("round-trips verified listing identities and accepts legacy rows", () => {
+    const codec = Schema.toCodecJson(PullRequestListResult);
+    const entry = { ...LIST_RESULT.entries[0]!, viewer: "octocat", expectedAccountId: "123" };
+    const result = { ...LIST_RESULT, entries: [entry] };
+    expect(Schema.decodeSync(codec)(Schema.encodeSync(codec)(result))).toEqual(result);
+    expect(decodeListResult(LIST_RESULT).entries[0]).not.toHaveProperty("expectedAccountId");
+    for (const expectedAccountId of ["", "   "]) {
+      expect(() =>
+        decodeListResult({ ...result, entries: [{ ...entry, expectedAccountId }] }),
+      ).toThrow();
+    }
+  });
+
+  it("round-trips verified stat origins without requiring them from legacy providers", () => {
+    const codec = Schema.toCodecJson(PullRequestDiffStat);
+    const legacy = {
+      projectId: "p1",
+      repository: "acme/web",
+      number: 1,
+      additions: 2,
+      deletions: 1,
+    };
+    const decode = Schema.decodeUnknownSync(PullRequestDiffStat);
+    const stat = decode({ ...legacy, host: "github.com", expectedAccountId: "123" });
+    expect(Schema.decodeSync(codec)(Schema.encodeSync(codec)(stat))).toEqual(stat);
+    expect(decode(legacy)).toEqual(legacy);
+    expect(() => decode({ ...legacy, expectedAccountId: "   " })).toThrow();
+    expect(() => decode({ ...legacy, host: "   " })).toThrow();
+  });
+});
 
 describe("PullRequestListResult", () => {
   it("separates Forgejo HTTP ports while preserving other provider host identities", () => {

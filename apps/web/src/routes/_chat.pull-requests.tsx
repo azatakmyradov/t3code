@@ -60,7 +60,7 @@ import {
   narrowPullRequestsToFilters,
   mergePullRequestDiffStats,
   partitionPullRequestsWithPriority,
-  pullRequestDiffStatKey,
+  hasPullRequestDiffStat,
   pullRequestEntryKey,
   pullRequestEntryViewer,
   rankPullRequestMatches,
@@ -129,7 +129,10 @@ import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { PanelLayoutControls } from "../components/chat/PanelLayoutControls";
+import {
+  PanelLayoutControls,
+  RightPanelMaximizeControl,
+} from "../components/chat/PanelLayoutControls";
 import { Button } from "../components/ui/button";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../components/ui/menu";
 import { SidebarInset } from "../components/ui/sidebar";
@@ -196,6 +199,7 @@ export interface PullRequestsSearch extends PullRequestListPreferences {
   readonly selectedProjectId?: ProjectId;
   /** Host of the open review; changing tabs must not narrow the list host filter. */
   readonly selectedHost?: string;
+  readonly selectedAccountId?: string;
   /**
    * Which server the selected pull request was read from. A project id only names a project on
    * its own server, so this is what tells two servers holding one project apart. Optional: a
@@ -322,6 +326,9 @@ export const Route = createFileRoute("/_chat/pull-requests")({
     ...(typeof raw.host === "string" && raw.host ? { host: raw.host.slice(0, 200) } : {}),
     ...(typeof raw.selectedProjectId === "string" && raw.selectedProjectId
       ? { selectedProjectId: raw.selectedProjectId as ProjectId }
+      : {}),
+    ...(typeof raw.selectedAccountId === "string" && raw.selectedAccountId.trim()
+      ? { selectedAccountId: raw.selectedAccountId.trim().slice(0, 200) }
       : {}),
     ...(typeof raw.selectedHost === "string" && raw.selectedHost
       ? { selectedHost: raw.selectedHost.slice(0, 200) }
@@ -541,6 +548,7 @@ function PullRequestsRouteView() {
             ...(next.environmentId ? { environmentId: next.environmentId } : {}),
             ...(next.host ? { host: next.host } : {}),
             ...(next.selectedHost ? { selectedHost: next.selectedHost } : {}),
+            ...(next.selectedAccountId ? { selectedAccountId: next.selectedAccountId } : {}),
             ...(next.selectedProjectId ? { selectedProjectId: next.selectedProjectId } : {}),
             ...(next.selectedEnvironmentId
               ? { selectedEnvironmentId: next.selectedEnvironmentId }
@@ -564,6 +572,7 @@ function PullRequestsRouteView() {
     selectedProjectId: undefined,
     selectedEnvironmentId: undefined,
     selectedHost: undefined,
+    selectedAccountId: undefined,
   };
   // List controls change the rows behind the detail, not the independent selected surface. The
   // reader can keep working in that panel while narrowing, sorting, or switching projects.
@@ -1575,8 +1584,7 @@ function PullRequestsRouteView() {
       enriched,
       sort,
       typedParsed.text,
-      (entry) =>
-        entry.additions + entry.deletions > 0 || statsByRow.has(pullRequestDiffStatKey(entry)),
+      (entry) => entry.additions + entry.deletions > 0 || hasPullRequestDiffStat(entry, statsByRow),
       search.involvement,
     );
   }, [
@@ -1734,11 +1742,23 @@ function PullRequestsRouteView() {
             number: search.number,
             projectId: selectedProject.id,
             ...(selectedHost ? { host: selectedHost } : {}),
+            ...(search.selectedAccountId ? { expectedAccountId: search.selectedAccountId } : {}),
           }
         : null,
-    [search.number, search.repository, selectedProject, selectedHost],
+    [search.number, search.repository, search.selectedAccountId, selectedProject, selectedHost],
   );
   const rightPanelAvailable = selectedPullRequestSurface !== null;
+  // Maximized like the thread view's panel, with the list collapsing out of the way. Opening a
+  // guide maximizes the panel for its wider layout; only the reader's own toggle restores it, so
+  // switching tabs never resizes the page under them.
+  const [maximized, setMaximized] = useState(false);
+  const rightPanelMaximized = rightPanelState.isOpen && maximized;
+  // A closed panel reopens at its own size, as the thread view's does.
+  if (!rightPanelState.isOpen && maximized) setMaximized(false);
+  const toggleRightPanelMaximized = () => {
+    if (rightPanelState.isOpen) setMaximized((value) => !value);
+  };
+  const onGuideShown = useCallback(() => setMaximized(true), []);
   useEffect(() => {
     if (!pullRequestsSupported || rightPanelRef === null || linkedSelection === null) return;
     useRightPanelStore.getState().openPullRequest(rightPanelRef, linkedSelection);
@@ -1751,6 +1771,7 @@ function PullRequestsRouteView() {
           repository: activePullRequestSurface.repository,
           number: activePullRequestSurface.number,
           projectId: activePullRequestSurface.projectId as ProjectId,
+          expectedAccountId: activePullRequestSurface.expectedAccountId,
           host:
             activePullRequestSurface.host ??
             (selectedProject?.repositoryIdentity
@@ -1771,6 +1792,7 @@ function PullRequestsRouteView() {
             number: surface.number,
             selectedProjectId: surface.projectId as ProjectId,
             selectedHost: surface.host,
+            selectedAccountId: surface.expectedAccountId,
             ...(surface.environmentId === undefined
               ? {}
               : { selectedEnvironmentId: surface.environmentId as EnvironmentId }),
@@ -1829,6 +1851,7 @@ function PullRequestsRouteView() {
         selectedProjectId: entry.projectId,
         selectedEnvironmentId: entry.environmentId,
         selectedHost: entry.host,
+        selectedAccountId: entry.expectedAccountId,
       });
     },
     [rightPanelRef, updateSearch],
@@ -1869,6 +1892,12 @@ function PullRequestsRouteView() {
       className="absolute top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
       data-workspace-titlebar-controls
     >
+      {rightPanelState.isOpen ? (
+        <RightPanelMaximizeControl
+          maximized={rightPanelMaximized}
+          onToggle={toggleRightPanelMaximized}
+        />
+      ) : null}
       {panelToggleControls}
     </div>
   );
@@ -1944,6 +1973,8 @@ function PullRequestsRouteView() {
                     }
                     selected={
                       selected?.environmentId === entry.environmentId &&
+                      selected.projectId === entry.projectId &&
+                      selected.expectedAccountId === entry.expectedAccountId &&
                       selected.repository === entry.repository &&
                       selected.host?.toLowerCase() === entry.host.toLowerCase() &&
                       selected.number === entry.number
@@ -2127,6 +2158,7 @@ function PullRequestsRouteView() {
         )
       ) : null,
     rightPanelOpen: rightPanelState.isOpen,
+    maximizedAway: rightPanelMaximized,
     listBody,
     scrollRef,
   };
@@ -2198,6 +2230,12 @@ function PullRequestsRouteView() {
     event.stopPropagation();
     if (!event.repeat) toggleRightPanel();
   });
+  const toggleRightPanelMaximizedFromShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (!rightPanelState.isOpen) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) toggleRightPanelMaximized();
+  });
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isCommandPaletteOpen()) return;
@@ -2206,6 +2244,7 @@ function PullRequestsRouteView() {
       });
       if (command === "rightPanel.close") closeActiveSurfaceFromShortcut(event);
       if (command === "rightPanel.toggle") toggleRightPanelFromShortcut(event);
+      if (command === "rightPanel.toggleMaximized") toggleRightPanelMaximizedFromShortcut(event);
       if (command === "thread.copyReference") copyPullRequestFromShortcut(event);
     };
     // Let panel shortcuts consume Escape before page navigation at window.
@@ -2223,6 +2262,7 @@ function PullRequestsRouteView() {
           <RightPanelTabs
             mode="inline"
             open={rightPanelState.isOpen}
+            maximized={rightPanelMaximized}
             keybindings={keybindings}
             getShortcutContext={getShortcutContext}
             widthStorageKey="t3code:pull-request-panel-width"
@@ -2277,6 +2317,7 @@ function PullRequestsRouteView() {
               shortcutsEnabled={activePullRequestSurface?.id === renderedPullRequestSurface.id}
               key={renderedPullRequestSurface.id}
               environmentId={panelEnvironmentId}
+              onGuideShown={onGuideShown}
               onSelectPullRequest={(reference) => {
                 if (rightPanelRef === null) return;
                 useRightPanelStore.getState().openPullRequest(rightPanelRef, {
@@ -2284,12 +2325,16 @@ function PullRequestsRouteView() {
                   repository: reference.repository,
                   number: reference.number,
                   ...(reference.host ? { host: reference.host } : {}),
+                  ...(reference.expectedAccountId === undefined
+                    ? {}
+                    : { expectedAccountId: reference.expectedAccountId }),
                   environmentId: panelEnvironmentId,
                 });
                 updateSearch({
                   repository: reference.repository,
                   number: reference.number,
                   selectedHost: reference.host,
+                  selectedAccountId: reference.expectedAccountId,
                   selectedProjectId: reference.projectId,
                   selectedEnvironmentId: panelEnvironmentId,
                 });
@@ -2298,6 +2343,9 @@ function PullRequestsRouteView() {
                 projectId: renderedPullRequestSurface.projectId as ProjectId,
                 repository: renderedPullRequestSurface.repository,
                 number: renderedPullRequestSurface.number,
+                ...(renderedPullRequestSurface.expectedAccountId === undefined
+                  ? {}
+                  : { expectedAccountId: renderedPullRequestSurface.expectedAccountId }),
                 ...(renderedPullRequestSurface.host
                   ? { host: renderedPullRequestSurface.host }
                   : {}),
@@ -2305,7 +2353,15 @@ function PullRequestsRouteView() {
               listEntry={
                 listedPullRequestsBySurface.get(
                   pullRequestListEntryId(renderedPullRequestSurface),
-                ) ?? null
+                ) ??
+                (renderedPullRequestSurface.expectedAccountId === undefined
+                  ? [...listedPullRequestsBySurface.values()].find(
+                      (entry) =>
+                        pullRequestListEntryId({ ...entry, expectedAccountId: undefined }) ===
+                        pullRequestListEntryId(renderedPullRequestSurface),
+                    )
+                  : null) ??
+                null
               }
               refreshToken={detailRefreshToken}
               // Host actions can change both readiness and diff size, so refresh the counts
@@ -2527,6 +2583,7 @@ function PullRequestsColumn({
   rightPanelControl,
   titlebarControls,
   rightPanelOpen,
+  maximizedAway,
   listBody,
   scrollRef,
 }: {
@@ -2546,6 +2603,8 @@ function PullRequestsColumn({
   rightPanelControl: ReactNode;
   titlebarControls: ReactNode;
   rightPanelOpen: boolean;
+  /** The panel beside the list is maximized, so the list gives up its width. */
+  maximizedAway: boolean;
   listBody: ReactNode;
   scrollRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -2607,7 +2666,12 @@ function PullRequestsColumn({
   return (
     // Painted flat like the chat column: the inset underneath carries the chrome grain, and a
     // content surface that lets it show reads as a different background than every thread.
-    <div className="@container/pr-list flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+    <div
+      className={cn(
+        "@container/pr-list flex min-h-0 min-w-0 flex-col overflow-x-hidden bg-background",
+        maximizedAway ? "w-0 flex-none" : "flex-1",
+      )}
+    >
       {/* A closed right panel leaves this column full-width, so the shared header
           reserves native window controls and hosts the controls strip itself: on
           desktop the header is a drag-region, and only a no-drag descendant wins
