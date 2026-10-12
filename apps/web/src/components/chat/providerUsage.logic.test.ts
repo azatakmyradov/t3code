@@ -6,7 +6,13 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { providerQuotaStatus, formatStatusPercent, selectThreadUsage } from "./providerUsage.logic";
+import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
+
+import {
+  providerQuotaStatus,
+  formatStatusPercent,
+  selectThreadContext,
+} from "./providerUsage.logic";
 
 const now = Date.parse("2026-10-10T12:00:00Z");
 const session: ServerProviderUsageWindow = {
@@ -30,13 +36,16 @@ const limits: ServerProviderUsageLimits = {
 };
 
 describe("provider quota status", () => {
-  it("shows used percentages in session/weekly order without mutating the snapshot", () => {
+  it("shows remaining percentages in session/weekly order without mutating the snapshot", () => {
     const status = providerQuotaStatus({ usageLimits: limits }, now);
-    expect(status.windows.map(({ shortLabel, usedPercent }) => [shortLabel, usedPercent])).toEqual([
-      ["5h", 12],
-      ["Week", 62],
+    expect(
+      status.windows.map(({ shortLabel, remainingPercent }) => [shortLabel, remainingPercent]),
+    ).toEqual([
+      ["5h", 88],
+      ["Week", 38],
     ]);
     expect(limits.windows[0]?.id).toBe("seven_day");
+    expect(limits.windows.map((window) => window.usedPercent)).toEqual([62, 12]);
   });
 
   it("preserves monthly and model-specific scopes rather than inventing five-hour limits", () => {
@@ -88,13 +97,13 @@ describe("provider quota status", () => {
       now,
     );
     expect(status.stale).toBe(true);
-    expect(status.windows[0]?.usedPercent).toBe(12);
+    expect(status.windows[0]?.remainingPercent).toBe(88);
   });
 
-  it("does not present expired windows as either fresh usage or zero", () => {
+  it("does not invent a full or empty remaining quota after a reset", () => {
     const status = providerQuotaStatus({ usageLimits: limits }, Date.parse(session.resetsAt!));
-    expect(status.windows[0]?.usedPercent).toBeNull();
-    expect(status.windows[1]?.usedPercent).toBe(62);
+    expect(status.windows[0]?.remainingPercent).toBeNull();
+    expect(status.windows[1]?.remainingPercent).toBe(38);
   });
 
   it.each([
@@ -108,21 +117,32 @@ describe("provider quota status", () => {
     expect(status.unavailable).not.toBeNull();
   });
 
-  it("keeps a true zero and clamps malformed percentages", () => {
+  it("inverts the clamped usage range and keeps non-finite values unknown", () => {
     const status = providerQuotaStatus(
       {
         usageLimits: {
           ...limits,
-          windows: [0, -1, 110, Number.NaN].map((usedPercent, index) => ({
-            ...session,
-            id: String(index),
-            usedPercent,
-          })),
+          windows: [0, 100, -1, 110, 99.5, Number.NaN, Infinity, -Infinity].map(
+            (usedPercent, index) => ({
+              ...session,
+              id: String(index),
+              usedPercent,
+            }),
+          ),
         },
       },
       now,
     );
-    expect(status.windows.map(({ usedPercent }) => usedPercent)).toEqual([0, 0, 100, null]);
+    expect(status.windows.map(({ remainingPercent }) => remainingPercent)).toEqual([
+      100,
+      0,
+      100,
+      0,
+      0.5,
+      null,
+      null,
+      null,
+    ]);
   });
 });
 
@@ -138,59 +158,50 @@ it("formats small percentages without confusing missing data with zero", () => {
   ]);
 });
 
-describe("selected-thread usage scope", () => {
+describe("selected-thread context scope", () => {
   const selectedModel = {
     instanceId: ProviderInstanceId.make("claude-work"),
     model: "claude-opus-5-5",
   };
-  const input: Parameters<typeof selectThreadUsage>[0] = {
+  const context = deriveLatestContextWindowSnapshot([], {
+    usedTokens: 10_000,
+    maxTokens: 200_000,
+    updatedAt: "2026-10-10T11:59:00Z",
+  });
+  const input: Parameters<typeof selectThreadContext>[0] = {
     selectedModel,
     provider: {
       instanceId: selectedModel.instanceId,
       driver: ProviderDriverKind.make("claudeAgent"),
     },
-    context: null,
-    contextModelSelection: null,
-    throughput: null,
+    context,
+    contextModelSelection: selectedModel,
   };
-  it("rejects a stale snapshot from another account even when the driver and model match", () => {
+
+  it("returns context only for the selected provider account and model", () => {
+    expect(selectThreadContext(input)).toBe(context);
+    expect(selectThreadContext({ ...input, provider: null })).toBeNull();
+    expect(selectThreadContext({ ...input, contextModelSelection: null })).toBeNull();
     expect(
-      selectThreadUsage({
+      selectThreadContext({
         ...input,
         selectedModel: { ...selectedModel, instanceId: ProviderInstanceId.make("claude-personal") },
       }),
-    ).toEqual({ context: null, tokensPerSecond: null });
-  });
-
-  it("does not substitute another account or model's completed turn rate", () => {
-    const throughput = {
-      providerInstanceId: selectedModel.instanceId,
-      modelSelection: selectedModel,
-      tokensPerSecond: 91,
-      outputTokens: 910,
-      durationMs: 10_000,
-    };
-    expect(selectThreadUsage({ ...input, throughput }).tokensPerSecond).toBe(91);
-    expect(
-      selectThreadUsage({
-        ...input,
-        throughput: {
-          ...throughput,
-          modelSelection: {
-            ...selectedModel,
-            instanceId: ProviderInstanceId.make("claude-personal"),
-          },
-        },
-      }).tokensPerSecond,
     ).toBeNull();
     expect(
-      selectThreadUsage({
+      selectThreadContext({
         ...input,
-        throughput: {
-          ...throughput,
-          modelSelection: { ...selectedModel, model: "claude-sonnet-5-5" },
+        contextModelSelection: {
+          ...selectedModel,
+          instanceId: ProviderInstanceId.make("claude-personal"),
         },
-      }).tokensPerSecond,
+      }),
+    ).toBeNull();
+    expect(
+      selectThreadContext({
+        ...input,
+        contextModelSelection: { ...selectedModel, model: "claude-sonnet-5-5" },
+      }),
     ).toBeNull();
   });
 });

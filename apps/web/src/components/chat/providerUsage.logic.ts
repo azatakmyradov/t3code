@@ -7,7 +7,6 @@ import type {
 import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
-import type { TurnThroughput } from "../../lib/turnThroughput";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { providerClients } from "../settings/providerDriverMeta";
 
@@ -39,35 +38,19 @@ export function usageModelMatchesSelection(
   );
 }
 
-/** Thread metrics belong only to the selected account and model, never every quota group. */
-export function selectThreadUsage(input: {
+/** Thread context belongs only to the selected account and model, never every quota group. */
+export function selectThreadContext(input: {
   provider: Pick<ServerProvider, "instanceId" | "driver"> | null;
   selectedModel: ModelSelection;
   context: ContextWindowSnapshot | null;
   contextModelSelection: ModelSelection | null;
-  throughput: TurnThroughput | null;
 }) {
-  const provider =
-    input.provider?.instanceId === input.selectedModel.instanceId ? input.provider : null;
-  if (provider === null) return { context: null, tokensPerSecond: null };
-  return {
-    context: usageModelMatchesSelection(
-      input.selectedModel,
-      input.contextModelSelection,
-      provider.driver,
-    )
-      ? input.context
-      : null,
-    tokensPerSecond:
-      input.throughput &&
-      usageModelMatchesSelection(
-        input.selectedModel,
-        input.throughput.modelSelection,
-        provider.driver,
-      )
-        ? input.throughput.tokensPerSecond
-        : null,
-  };
+  const provider = input.provider;
+  return provider !== null &&
+    provider.instanceId === input.selectedModel.instanceId &&
+    usageModelMatchesSelection(input.selectedModel, input.contextModelSelection, provider.driver)
+    ? input.context
+    : null;
 }
 
 function compactWindowLabel(window: ServerProviderUsageWindow): string {
@@ -103,16 +86,19 @@ export function providerQuotaStatus(
     checkedAt: limits?.checkedAt ?? null,
     windows: windows
       .sort((left, right) => WINDOW_ORDER[left.kind] - WINDOW_ORDER[right.kind])
-      .map((window) => ({
-        ...window,
-        shortLabel: compactWindowLabel(window),
-        // A passed reset does not prove the account now has an empty bucket.
-        usedPercent:
-          !Number.isFinite(window.usedPercent) ||
-          (window.resetsAt !== undefined && Date.parse(window.resetsAt) <= now)
-            ? null
-            : Math.max(0, Math.min(100, window.usedPercent)),
-      })),
+      .map((window) => {
+        const { usedPercent, ...details } = window;
+        return {
+          ...details,
+          shortLabel: compactWindowLabel(window),
+          // An expired report does not prove the quota has reset to 100% available.
+          remainingPercent:
+            !Number.isFinite(usedPercent) ||
+            (window.resetsAt !== undefined && Date.parse(window.resetsAt) <= now)
+              ? null
+              : 100 - Math.max(0, Math.min(100, usedPercent)),
+        };
+      }),
   };
 }
 

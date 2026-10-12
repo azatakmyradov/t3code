@@ -17,6 +17,7 @@ import {
   NO_PROVIDER_MODEL_SELECTION,
 } from "../../providerInstances";
 import { TooltipProvider } from "../ui/tooltip";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { ProviderUsageSection } from "./ProviderUsageSection";
 import { selectConfiguredUsageProviders } from "./providerUsage.logic";
 import { useProviderUsagePreferencesStore } from "../../providerUsagePreferencesStore";
@@ -65,6 +66,7 @@ const claude = provider("claude-work", "Claude Work", 56, {
         label: "Session",
         windowDurationMins: 300,
         usedPercent: 56,
+        resetsAt: "2026-10-10T15:00:00Z",
       },
       { id: "seven_day_opus", kind: "weekly", label: "Weekly · Opus", usedPercent: 71 },
       { id: "seven_day_sonnet", kind: "weekly", label: "Weekly · Sonnet", usedPercent: 84 },
@@ -110,13 +112,6 @@ async function render(overrides: Partial<ComponentProps<typeof ProviderUsageSect
           context={context}
           contextModelSelection={selectedModel}
           showContext
-          throughput={{
-            providerInstanceId: selectedModel.instanceId,
-            modelSelection: selectedModel,
-            tokensPerSecond: 91,
-            outputTokens: 910,
-            durationMs: 10_000,
-          }}
           disconnected={false}
           {...overrides}
         />
@@ -127,18 +122,45 @@ async function render(overrides: Partial<ComponentProps<typeof ProviderUsageSect
 function group(id: string) {
   return host.querySelector(`[data-provider-usage-instance="${id}"]`)!;
 }
+function trigger(id: string) {
+  return group(id).querySelector<HTMLButtonElement>("button")!;
+}
+function details() {
+  return document.querySelector<HTMLElement>('[data-slot="popover-popup"][data-open]');
+}
+async function openDetails(id: string) {
+  await act(async () => trigger(id).click());
+  return details()!;
+}
+async function pointerClick(element: HTMLElement) {
+  await act(async () => {
+    element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, buttons: 1 }));
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, buttons: 1 }));
+    element.focus();
+    element.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    element.click();
+  });
+}
+async function closeDetails() {
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+}
 function threadUsage() {
   return host.querySelector("[data-thread-usage]");
 }
 
 it("shows every account and model-specific quota bucket independently of model selection", async () => {
   await render();
-  expect(group("codex").textContent).toContain("5h12%");
-  expect(group("codex-personal").textContent).toContain("5h34%");
-  expect(group("claude-work").textContent).toContain("Week · Opus71%Week · Sonnet84%");
-  expect(threadUsage()?.textContent).toContain(
-    "Claude Work · claude-opus-5-5Context5%Turn average91 tok/s",
+  expect(group("codex").textContent).toContain("88%");
+  expect(group("codex-personal").textContent).toContain("66%");
+  expect(trigger("claude-work").getAttribute("aria-label")).toContain(
+    "Weekly · Opus: 29% remaining. Weekly · Sonnet: 16% remaining.",
   );
+  expect(group("claude-work").textContent).toContain("44%29%+1");
+  expect(group("claude-work").textContent).not.toContain("16%");
+  expect(threadUsage()?.textContent).toContain("Context5%");
   for (const element of host.querySelectorAll("[data-provider-usage-instance]")) {
     expect(element.textContent).not.toMatch(/Context|Turn average/);
   }
@@ -149,42 +171,127 @@ it("shows every account and model-specific quota bucket independently of model s
   expect(
     [...host.querySelectorAll("[data-provider-usage-instance]")].map((el) => el.textContent),
   ).toEqual(quotas);
-  expect(threadUsage()?.textContent).toContain("Codex · gpt-5Context—Turn average— tok/s");
+  expect(threadUsage()).toBeNull();
   await render({ selectedModel: { ...selectedModel, model: "claude-sonnet-5-5" } });
-  expect(threadUsage()?.textContent).toContain("Context—Turn average— tok/s");
-  expect(group("claude-work").textContent).toContain("Week · Opus71%Week · Sonnet84%");
+  expect(threadUsage()).toBeNull();
+  expect(trigger("claude-work").getAttribute("aria-label")).toContain(
+    "Weekly · Opus: 29% remaining. Weekly · Sonnet: 16% remaining.",
+  );
+  expect(group("claude-work").textContent).toContain("44%29%+1");
+  expect(group("claude-work").textContent).not.toContain("16%");
   await render();
-  expect(threadUsage()?.textContent).toContain("Context5%Turn average91 tok/s");
+  expect(threadUsage()?.textContent).toContain("Context5%");
+  expect(threadUsage()?.querySelector('[role="group"]')?.getAttribute("aria-label")).toContain(
+    "Claude Work · claude-opus-5-5. Context window: 5% used",
+  );
   expect(composer.textContent).toBe("");
+});
+
+it("shows context only when it has a valid selected-model value, without a turn-rate row", async () => {
+  await render();
+  expect(threadUsage()?.textContent).toBe("Context5%");
+  expect(host.textContent).not.toMatch(/Turn average|tok\/s/);
+  await render({ context: null });
+  expect(threadUsage()).toBeNull();
+  await render({ context: context ? { ...context, usedTokens: 0, usedPercentage: 0 } : null });
+  expect(threadUsage()?.textContent).toBe("Context0%");
+});
+
+it.each([
+  [0, 100],
+  [89, 11],
+  [90, 10],
+  [100, 0],
+  [-5, 100],
+  [105, 0],
+])(
+  "shows %s used as %s remaining consistently in the summary and accessible meter",
+  async (used, remaining) => {
+    await render({ providers: deriveProviderInstanceEntries([provider("codex", "Codex", used!)]) });
+    expect(trigger("codex").textContent).toBe(`${remaining}%`);
+    expect(group("codex").textContent).not.toContain("left");
+    expect(trigger("codex").getAttribute("aria-label")).toContain(`${remaining}% remaining`);
+    expect(trigger("codex").querySelector(".text-warning") !== null).toBe(remaining! <= 10);
+    const popup = await openDetails("codex");
+    expect(popup.textContent).toContain(`${remaining}%`);
+    const meter = popup.querySelector<HTMLElement>('[role="progressbar"]')!;
+    expect(meter.getAttribute("aria-label")).toBe("Codex · Session quota remaining");
+    expect(meter.getAttribute("aria-valuenow")).toBe(String(remaining));
+    expect(meter.getAttribute("aria-valuetext")).toBe(`${remaining}% remaining`);
+    expect((meter.firstElementChild as HTMLElement).style.width).toBe(`${remaining}%`);
+  },
+);
+
+it("does not turn unknown quota into a full remaining allowance", async () => {
+  await render({
+    providers: deriveProviderInstanceEntries([provider("codex", "Codex", Number.NaN)]),
+  });
+  expect(trigger("codex").textContent).toBe("—");
+  const popup = await openDetails("codex");
+  expect(popup.textContent).not.toContain("100%");
+  const meter = popup.querySelector('[role="progressbar"]')!;
+  expect(meter.getAttribute("aria-valuenow")).toBeNull();
+  expect(meter.getAttribute("aria-valuetext")).toBe("Awaiting refreshed usage");
+});
+
+it("keeps a provider's no-limit explanation without inventing a remaining percentage", async () => {
+  await render({
+    providers: deriveProviderInstanceEntries([
+      {
+        ...codex,
+        usageLimits: {
+          checkedAt: "2026-10-10T11:59:00Z",
+          windows: [],
+          unavailable: {
+            reason: "unsupported",
+            message: "This account has no subscription usage limit.",
+          },
+        },
+      },
+    ]),
+  });
+  expect(trigger("codex").textContent).toBe("—");
+  const popup = await openDetails("codex");
+  expect(popup.textContent).toContain("This account has no subscription usage limit.");
+  expect(popup.querySelector('[role="progressbar"]')).toBeNull();
 });
 
 it("keeps duplicate labels and same-driver accounts distinct through updates and removal", async () => {
   const sameName = { ...personal, displayName: "Codex" };
   await render({ providers: deriveProviderInstanceEntries([codex, sameName]) });
-  expect(group("codex").textContent).toContain("Codex5h12%");
+  expect(trigger("codex").getAttribute("aria-label")).toContain(
+    "Codex subscription quota remaining. Session: 88% remaining.",
+  );
   // Instance display resolution humanizes a custom id when the server only gives the driver label.
-  expect(group("codex-personal").textContent).toContain("Codex Personal5h34%");
+  expect(trigger("codex-personal").getAttribute("aria-label")).toContain(
+    "Codex Personal subscription quota remaining. Session: 66% remaining.",
+  );
   const renamed = { ...codex, displayName: "Shared name" };
   const renamedPersonal = { ...personal, displayName: "Shared name" };
   await render({ providers: deriveProviderInstanceEntries([renamedPersonal, renamed]) });
-  expect(group("codex").textContent).toContain("Shared name (codex)5h12%");
-  expect(group("codex-personal").textContent).toContain("Shared name (codex-personal)5h34%");
+  expect(trigger("codex").getAttribute("aria-label")).toContain(
+    "Shared name (codex) subscription quota remaining. Session: 88% remaining.",
+  );
+  expect(trigger("codex-personal").getAttribute("aria-label")).toContain(
+    "Shared name (codex-personal) subscription quota remaining. Session: 66% remaining.",
+  );
   await render({
     providers: deriveProviderInstanceEntries([{ ...personal, usageLimits: undefined }]),
   });
   expect(host.querySelector('[data-provider-usage-instance="codex"]')).toBeNull();
-  expect(group("codex-personal").textContent).toContain("Codex PersonalUnavailable");
-  expect(host.textContent).not.toMatch(/12%|34%/);
+  expect(trigger("codex-personal").getAttribute("aria-label")).toContain(
+    "Codex Personal: No subscription usage",
+  );
+  expect(host.textContent).not.toMatch(/88%|66%/);
 });
 
 it("retains all providers in multi-model mode but never assigns thread metrics to every account", async () => {
   await render({ multipleModels: true });
   expect(host.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(3);
   expect(threadUsage()).toBeNull();
-  expect(group("codex").textContent).toContain("12%");
+  expect(group("codex").textContent).toContain("88%");
   await render({ showContext: false });
-  expect(threadUsage()?.textContent).not.toContain("Context");
-  expect(threadUsage()?.textContent).toContain("Turn average91 tok/s");
+  expect(threadUsage()).toBeNull();
 });
 
 it("omits disabled providers and shows enabled unavailable instances without cached values", async () => {
@@ -195,45 +302,83 @@ it("omits disabled providers and shows enabled unavailable instances without cac
     ]),
   });
   expect(host.querySelector('[data-provider-usage-instance="codex"]')).toBeNull();
-  expect(group("claude-work").textContent).toBe("Claude WorkUnavailable");
+  expect(trigger("claude-work").getAttribute("aria-label")).toContain(
+    "Claude Work: This provider is unavailable",
+  );
+  expect(group("claude-work").textContent).not.toMatch(/44%|29%|16%/);
   expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
   expect(threadUsage()).toBeNull();
   await render();
-  expect(group("codex").textContent).toContain("12%");
+  expect(group("codex").textContent).toContain("88%");
 });
 
-it("explains compact unavailable rows on keyboard focus without implying an empty quota", async () => {
-  vi.useFakeTimers();
+it("explains unavailable summaries and supports keyboard dismissal and reopening", async () => {
   await render({
     providers: deriveProviderInstanceEntries([{ ...codex, usageLimits: undefined }]),
   });
-  const row = group("codex").querySelector<HTMLElement>('[role="group"]')!;
-  expect(row.textContent).toBe("CodexUnavailable");
-  expect(group("codex").querySelector('[role="progressbar"]')).toBeNull();
-  await act(async () => {
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
-    row.focus();
-    await vi.advanceTimersByTimeAsync(60);
-  });
-  expect(document.querySelector('[data-slot="tooltip-popup"][data-open]')?.textContent).toBe(
+  const row = trigger("codex");
+  expect(row.textContent).toBe("—");
+  expect(row.getAttribute("aria-label")).toBe(
     "Codex: No subscription usage has been reported for this account.",
   );
+  expect(group("codex").querySelector('[role="progressbar"]')).toBeNull();
   await act(async () => {
-    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await vi.advanceTimersByTimeAsync(100);
+    row.focus();
+    row.click();
   });
-  expect(document.querySelector('[data-slot="tooltip-popup"][data-open]')).toBeNull();
+  expect(details()?.textContent).toContain(
+    "No subscription usage has been reported for this account.",
+  );
+  await closeDetails();
+  expect(details()).toBeNull();
+  await openDetails("codex");
+  expect(details()?.textContent).toContain(
+    "No subscription usage has been reported for this account.",
+  );
+});
+
+it("keeps every bucket, reset and report time in the compact summary's details", async () => {
+  await render();
+  const popup = await openDetails("claude-work");
+  expect(popup.textContent).toContain("Claude Work");
+  expect(popup.textContent).toContain("Subscription quota remaining");
+  expect(popup.textContent).toContain("Weekly · Opus29%");
+  expect(popup.textContent).toContain("Weekly · Sonnet16%");
+  expect(popup.querySelectorAll('[role="progressbar"]')).toHaveLength(3);
+  expect(popup.textContent).toContain("Last reported");
+  expect(popup.textContent).toContain(
+    `Resets ${new Date("2026-10-10T15:00:00Z").toLocaleString()}`,
+  );
+  await closeDetails();
+  expect(details()).toBeNull();
+  expect(composer.textContent).toBe("");
+});
+
+it("updates an open account detail on disconnect and removes it when the account is hidden", async () => {
+  await render();
+  await openDetails("claude-work");
+  expect(details()?.textContent).toContain("29%");
+  await render({ disconnected: true });
+  expect(details()?.textContent).toContain("Reconnect to see this provider's usage limits.");
+  expect(details()?.textContent).not.toMatch(/44%|29%|16%/);
+  await render();
+  expect(details()?.textContent).toContain("29%");
+  await act(async () =>
+    useProviderUsagePreferencesStore.getState().setHidden(environmentId, claude.instanceId, true),
+  );
+  expect(details()).toBeNull();
+  expect(host.querySelector('[data-provider-usage-instance="claude-work"]')).toBeNull();
 });
 
 it("clears every account on disconnect and restores only its current report on reconnect", async () => {
   await render();
   await render({ disconnected: true });
   expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
-  expect(host.textContent).not.toMatch(/12%|34%|56%|71%|84%|91 tok/);
-  expect(threadUsage()?.textContent).toContain("Context—Turn average— tok/s");
+  expect(host.textContent).not.toMatch(/88%|66%|44%|29%|16%/);
+  expect(threadUsage()).toBeNull();
   await render({ providers: deriveProviderInstanceEntries([provider("codex", "Codex", 2)]) });
-  expect(group("codex").textContent).toContain("5h2%");
-  expect(host.textContent).not.toMatch(/12%|34%|56%/);
+  expect(group("codex").textContent).toContain("98%");
+  expect(host.textContent).not.toMatch(/88%|66%|44%/);
 });
 
 it("keeps failed refreshes visibly stale and expired buckets unknown", async () => {
@@ -252,10 +397,17 @@ it("keeps failed refreshes visibly stale and expired buckets unknown", async () 
     },
   };
   await render({ providers: deriveProviderInstanceEntries([stale, expired]) });
-  expect(group("codex").textContent).toContain("12%Last reported usage · refresh failed");
-  expect(group("codex-personal").textContent).toContain("5h—");
+  expect(trigger("codex").getAttribute("aria-label")).toContain(
+    "Last reported usage; refresh failed.",
+  );
+  expect((await openDetails("codex")).textContent).toContain(
+    "Last reported usage · refresh failed",
+  );
+  await closeDetails();
+  expect(group("codex-personal").textContent).toContain("—");
+  await openDetails("codex-personal");
   expect(
-    group("codex-personal").querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow"),
+    details()?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow"),
   ).toBeNull();
 });
 
@@ -268,11 +420,15 @@ it("moves outside the composer and survives card closing and switching to a popo
     await render({ host: null });
     expect(host.textContent).toBe("");
     await render({ host: popover });
-    expect(popover.textContent).toContain("Codex Personal");
+    expect(
+      popover
+        .querySelector('[data-provider-usage-instance="codex-personal"] button')
+        ?.getAttribute("aria-label"),
+    ).toContain("Codex Personal");
     expect(host.textContent).toBe("");
     await render();
     expect(popover.textContent).toBe("");
-    expect(group("codex").textContent).toContain("12%");
+    expect(group("codex").textContent).toContain("88%");
   } finally {
     popover.remove();
   }
@@ -297,10 +453,10 @@ it("removes a deleted custom account before stale server snapshots reconcile", a
       },
     }),
   });
-  expect(group("codex-personal").textContent).toContain("34%");
+  expect(group("codex-personal").textContent).toContain("66%");
   await render({ providers: selectConfiguredUsageProviders(entries, { providerInstances: {} }) });
   expect(host.querySelector('[data-provider-usage-instance="codex-personal"]')).toBeNull();
-  expect(group("codex").textContent).toContain("12%");
+  expect(group("codex").textContent).toContain("88%");
 });
 
 it.each(["fork-driver", "acpRegistry", "constructor"])(
@@ -318,10 +474,10 @@ it.each(["fork-driver", "acpRegistry", "constructor"])(
         },
       }),
     });
-    expect(group(driver).textContent).toContain("78%");
+    expect(group(driver).textContent).toContain("22%");
     await render({ providers: selectConfiguredUsageProviders(entries, { providerInstances: {} }) });
     expect(host.querySelector(`[data-provider-usage-instance="${driver}"]`)).toBeNull();
-    expect(group("codex").textContent).toContain("12%");
+    expect(group("codex").textContent).toContain("88%");
   },
 );
 
@@ -342,8 +498,8 @@ it("hides and restores accounts through the menu without disabling them", async 
   expect(claude.enabled).toBe(true);
   expect(choice().getAttribute("aria-checked")).toBe("false");
   await act(async () => choice().click());
-  expect(group("claude-work").textContent).toContain("56%");
-  expect(threadUsage()?.textContent).toContain("91 tok/s");
+  expect(group("claude-work").textContent).toContain("44%");
+  expect(threadUsage()?.textContent).toBe("Context5%");
 });
 
 it("keeps restoration discoverable when all enabled providers are hidden", async () => {
@@ -386,7 +542,7 @@ it("excludes disabled providers from groups and choices and remembers hidden cho
     environmentId: EnvironmentId.make("other-environment"),
     providers: deriveProviderInstanceEntries([personal]),
   });
-  expect(group("codex-personal").textContent).toContain("34%");
+  expect(group("codex-personal").textContent).toContain("66%");
 });
 
 it("honors settings disable immediately while the previous ready snapshot still reports quota", async () => {
@@ -411,5 +567,84 @@ it("honors settings disable immediately while the previous ready snapshot still 
       enabled,
     ),
   });
-  expect(group("codex").textContent).toContain("12%");
+  expect(group("codex").textContent).toContain("88%");
+});
+
+it("keeps the narrow card open through quota details, visibility changes and recovery", async () => {
+  const outerContainer = document.createElement("div");
+  document.body.append(outerContainer);
+  const outerRoot = createRoot(outerContainer);
+  let nestedHost: HTMLDivElement | null = null;
+  try {
+    await act(async () =>
+      outerRoot.render(
+        <Popover defaultOpen>
+          <PopoverTrigger>Thread details</PopoverTrigger>
+          <PopoverPopup aria-label="Thread details test">
+            <div
+              ref={(element) => {
+                nestedHost = element;
+              }}
+            />
+          </PopoverPopup>
+        </Popover>,
+      ),
+    );
+    await render({ host: nestedHost });
+    const quotaTrigger = document.querySelector<HTMLButtonElement>(
+      '[data-provider-usage-instance="claude-work"] button',
+    )!;
+    await act(async () => quotaTrigger.click());
+    const outer = () => document.querySelector('[aria-label="Thread details test"][data-open]');
+    const inner = () =>
+      document.querySelector<HTMLElement>('[aria-label="Claude Work usage details"][data-open]');
+    expect(outer()).not.toBeNull();
+    expect(inner()?.textContent).toContain("Weekly · Sonnet16%");
+    await act(async () => inner()!.click());
+    expect(outer()).not.toBeNull();
+    await act(async () =>
+      inner()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+    expect(inner()).toBeNull();
+    expect(outer()).not.toBeNull();
+    expect(document.activeElement).toBe(quotaTrigger);
+    await act(async () => quotaTrigger.click());
+    expect(inner()).not.toBeNull();
+    await act(async () =>
+      inner()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+    const visibility = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Choose visible providers"]',
+    )!;
+    await act(async () => visibility.click());
+    const choice = document.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!;
+    await pointerClick(choice);
+    expect(outer()).not.toBeNull();
+    expect(document.querySelector('[data-provider-usage-instance="codex"]')).toBeNull();
+    for (const item of document.querySelectorAll<HTMLElement>(
+      '[role="menuitemcheckbox"][aria-checked="true"]',
+    )) {
+      await pointerClick(item);
+      expect(outer()).not.toBeNull();
+    }
+    expect(outer()?.textContent).toContain("All providers hidden");
+    await act(async () =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(document.querySelector('[role="menuitemcheckbox"]')).toBeNull();
+    expect(outer()).not.toBeNull();
+    expect(document.activeElement).toBe(visibility);
+    const showAll = [...outer()!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Show all",
+    )!;
+    await pointerClick(showAll);
+    expect(outer()).not.toBeNull();
+    expect(outer()?.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(3);
+  } finally {
+    await render({ host: null });
+    await act(async () => outerRoot.unmount());
+    outerContainer.remove();
+  }
 });
