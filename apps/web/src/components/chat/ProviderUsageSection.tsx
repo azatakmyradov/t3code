@@ -1,5 +1,5 @@
 import type { EnvironmentId, ModelSelection } from "@t3tools/contracts";
-import { GaugeIcon, MoreHorizontalIcon } from "lucide-react";
+import { MoreHorizontalIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -11,14 +11,9 @@ import type { TurnThroughput } from "../../lib/turnThroughput";
 import { cn } from "../../lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
+import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "../ui/popover";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
-import {
-  THREAD_DETAILS_PANEL_ICON_CLASS,
-  THREAD_DETAILS_PANEL_LABEL_CLASS,
-  THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
-  THREAD_DETAILS_PANEL_TEXT_CLASS,
-} from "./threadDetailsPanelStyles";
 import {
   Menu,
   MenuCheckboxItem,
@@ -65,27 +60,6 @@ function UsageDetail({
   );
 }
 
-function UsageLabel({ children, tooltip = true }: { children: string; tooltip?: boolean }) {
-  const label = (
-    <div
-      className={cn(
-        "min-w-0 flex-1 truncate",
-        THREAD_DETAILS_PANEL_TEXT_CLASS,
-        THREAD_DETAILS_PANEL_LABEL_CLASS,
-      )}
-    >
-      {children}
-    </div>
-  );
-  if (!tooltip) return label;
-  return (
-    <Tooltip>
-      <TooltipTrigger render={label} />
-      <TooltipPopup side="top">{children}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
 function instanceLabel(
   entry: ProviderInstanceEntry,
   entries: ReadonlyArray<ProviderInstanceEntry>,
@@ -112,85 +86,131 @@ function ProviderQuotaGroup({
   const unavailable = !entry.isAvailable
     ? "This provider is unavailable in the current environment."
     : quota.unavailable;
-  const identity = (
-    <>
-      <span aria-hidden="true">
-        <ProviderInstanceIcon
-          driverKind={entry.driverKind}
-          displayName={entry.displayName}
-          acpRegistryAgentId={entry.acpRegistryAgentId}
-          acpRegistryIconUrl={entry.acpRegistryIconUrl}
-          iconClassName={THREAD_DETAILS_PANEL_ICON_CLASS}
-        />
-      </span>
-      <UsageLabel tooltip={unavailable === null}>{label}</UsageLabel>
-    </>
-  );
+  const summary =
+    unavailable !== null
+      ? `${label}: ${unavailable}`
+      : [
+          `${label} subscription usage.`,
+          ...quota.windows.map(
+            (window) =>
+              `${window.label}: ${window.usedPercent === null ? "awaiting refreshed usage" : `${formatStatusPercent(window.usedPercent)} used`}.`,
+          ),
+          quota.stale ? "Last reported usage; refresh failed." : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
   return (
-    <div data-provider-usage-instance={entry.instanceId} className="min-w-0">
-      {unavailable !== null ? (
-        <UsageDetail
-          description={`${label}: ${unavailable}`}
-          className={cn("h-8 py-0", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)}
+    <div data-provider-usage-instance={entry.instanceId} className="shrink-0">
+      <Popover>
+        <PopoverTrigger
+          openOnHover
+          delay={150}
+          render={<ThreadDetailsControl part="usage" aria-label={summary} />}
         >
-          {identity}
-          <span className="shrink-0">Unavailable</span>
-        </UsageDetail>
-      ) : (
-        <>
-          <div
-            className={cn("flex h-8 min-w-0 items-center", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)}
+          <span aria-hidden="true" className="relative flex items-center">
+            <ProviderInstanceIcon
+              driverKind={entry.driverKind}
+              displayName={entry.displayName}
+              acpRegistryAgentId={entry.acpRegistryAgentId}
+              acpRegistryIconUrl={entry.acpRegistryIconUrl}
+              showBadge={!entry.isDefault}
+              iconClassName="size-5"
+            />
+            {quota.stale && unavailable === null ? (
+              <span className="absolute -top-1 -left-1 size-1.5 rounded-full bg-warning" />
+            ) : null}
+          </span>
+          <span
+            aria-hidden="true"
+            className="flex min-w-7 flex-col text-left text-xs leading-3.5 tabular-nums"
           >
-            {identity}
-          </div>
-          <div className="space-y-1 ps-9 pe-2.5 pb-1.5">
-            {quota.windows.map((window) => {
-              const percent = formatStatusPercent(window.usedPercent);
-              const description = [
-                `${label} · ${window.label}: ${window.usedPercent === null ? "waiting for refreshed usage after reset" : `${percent} used`}.`,
-                window.resetsAt ? `Resets ${new Date(window.resetsAt).toLocaleString()}.` : "",
-                quota.checkedAt
-                  ? `Last reported ${new Date(quota.checkedAt).toLocaleString()}.`
-                  : "",
-                quota.stale ? "The latest refresh failed; this is the last reported usage." : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              return (
-                <UsageDetail key={window.id} description={description} className="block space-y-1">
-                  <div className="flex min-w-0 items-center justify-between gap-2">
-                    <span className="min-w-0 truncate">{window.shortLabel}</span>
-                    <span className="shrink-0 text-foreground/80">{percent}</span>
-                  </div>
-                  <span
-                    role="progressbar"
-                    aria-label={`${label} · ${window.label} quota used`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={window.usedPercent ?? undefined}
-                    aria-valuetext={
-                      window.usedPercent === null ? "Awaiting refreshed usage" : `${percent} used`
-                    }
-                    className="block h-1 w-full overflow-hidden rounded-full bg-muted-foreground/15"
-                  >
-                    {window.usedPercent !== null ? (
+            {unavailable !== null ? (
+              <span className="text-muted-foreground">—</span>
+            ) : (
+              quota.windows.slice(0, 2).map((window) => (
+                <span
+                  key={window.id}
+                  className={
+                    window.usedPercent !== null && window.usedPercent >= 90
+                      ? "text-warning"
+                      : undefined
+                  }
+                >
+                  {formatStatusPercent(window.usedPercent)}
+                </span>
+              ))
+            )}
+          </span>
+          {unavailable === null && quota.windows.length > 2 ? (
+            <span aria-hidden="true" className="self-start pt-1 text-3xs text-muted-foreground">
+              +{quota.windows.length - 2}
+            </span>
+          ) : null}
+        </PopoverTrigger>
+        <PopoverPopup side="top" width="sm" padding="compact" aria-label={`${label} usage details`}>
+          <div className="space-y-3 text-xs">
+            <PopoverTitle>{label}</PopoverTitle>
+            {unavailable !== null ? (
+              <p className="text-muted-foreground">{unavailable}</p>
+            ) : (
+              <>
+                <p className="text-muted-foreground">Subscription quota used</p>
+                {quota.windows.map((window) => {
+                  const percent = formatStatusPercent(window.usedPercent);
+                  return (
+                    <div key={window.id} className="space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{window.label}</span>
+                        <span className="tabular-nums">{percent}</span>
+                      </div>
                       <span
-                        className={
-                          window.usedPercent >= 90
-                            ? "block h-full bg-warning"
-                            : "block h-full bg-muted-foreground/60"
+                        role="progressbar"
+                        aria-label={`${label} · ${window.label} quota used`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={window.usedPercent ?? undefined}
+                        aria-valuetext={
+                          window.usedPercent === null
+                            ? "Awaiting refreshed usage"
+                            : `${percent} used`
                         }
-                        style={{ width: `${window.usedPercent}%` }}
-                      />
-                    ) : null}
-                  </span>
-                </UsageDetail>
-              );
-            })}
-            {quota.stale ? <p className="py-1">Last reported usage · refresh failed</p> : null}
+                        className="block h-1 w-full overflow-hidden rounded-full bg-muted-foreground/15"
+                      >
+                        {window.usedPercent !== null ? (
+                          <span
+                            className={
+                              window.usedPercent >= 90
+                                ? "block h-full bg-warning"
+                                : "block h-full bg-muted-foreground/60"
+                            }
+                            style={{ width: `${window.usedPercent}%` }}
+                          />
+                        ) : null}
+                      </span>
+                      {window.usedPercent === null ? (
+                        <p className="text-muted-foreground">Awaiting refreshed usage</p>
+                      ) : null}
+                      {window.resetsAt ? (
+                        <p className="text-muted-foreground">
+                          Resets {new Date(window.resetsAt).toLocaleString()}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+                {quota.stale ? (
+                  <p className="text-warning">Last reported usage · refresh failed</p>
+                ) : null}
+                {quota.checkedAt ? (
+                  <p className="text-muted-foreground">
+                    Last reported {new Date(quota.checkedAt).toLocaleString()}
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
-        </>
-      )}
+        </PopoverPopup>
+      </Popover>
     </div>
   );
 }
@@ -252,97 +272,102 @@ export function ProviderUsageSection({
     <ThreadDetailsSection
       headingId="thread-details-usage-heading"
       title="Usage"
-      headingIcon={<GaugeIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden="true" />}
-      actions={
-        enabledProviders.length > 0 ? (
-          <Menu>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <MenuTrigger
-                    render={
-                      <ThreadDetailsControl part="icon" aria-label="Choose visible providers" />
-                    }
-                  >
-                    <MoreHorizontalIcon className="size-4" />
-                  </MenuTrigger>
-                }
-              />
-              <TooltipPopup>Show or hide providers</TooltipPopup>
-            </Tooltip>
-            <MenuPopup align="end">
-              <MenuGroup>
-                <MenuGroupLabel>Shown in this sidebar</MenuGroupLabel>
-                {enabledProviders.map((entry) => (
-                  <MenuCheckboxItem
-                    key={entry.instanceId}
-                    checked={!hiddenIds.includes(entry.instanceId)}
-                    onCheckedChange={(checked) =>
-                      setHidden(environmentId, entry.instanceId, !checked)
-                    }
-                    closeOnClick={false}
-                  >
-                    <MenuItemLabel>{instanceLabel(entry, enabledProviders)}</MenuItemLabel>
-                  </MenuCheckboxItem>
-                ))}
-              </MenuGroup>
-            </MenuPopup>
-          </Menu>
-        ) : undefined
-      }
+      showHeading={false}
     >
       <div
         data-provider-usage-section
         className="min-w-0 text-2xs leading-4 text-muted-foreground tabular-nums"
       >
-        {enabledProviders.length === 0 ? (
-          <p className="ps-9 pe-2.5 py-1.5">
-            {disconnected
-              ? "Reconnect to see provider usage."
-              : catalogKnown
-                ? "No enabled providers"
-                : "Loading providers…"}
-          </p>
-        ) : visibleProviders.length === 0 ? (
-          <div className="flex items-center justify-between gap-2 ps-9 pe-2.5 py-1">
-            <p>All providers hidden</p>
-            <ThreadDetailsControl part="meta" onClick={() => showAll(environmentId)}>
-              Show all
-            </ThreadDetailsControl>
+        <div className="flex min-w-0 items-start gap-1">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-0.5">
+            {enabledProviders.length === 0 ? (
+              <p className="px-1.5 py-2">
+                {disconnected
+                  ? "Reconnect to see provider usage."
+                  : catalogKnown
+                    ? "No enabled providers"
+                    : "Loading providers…"}
+              </p>
+            ) : visibleProviders.length === 0 ? (
+              <div className="flex min-h-10 flex-wrap items-center gap-x-2 px-1.5">
+                <p>All providers hidden</p>
+                <ThreadDetailsControl part="meta" onClick={() => showAll(environmentId)}>
+                  Show all
+                </ThreadDetailsControl>
+              </div>
+            ) : (
+              visibleProviders.map((entry) => (
+                <ProviderQuotaGroup
+                  key={entry.instanceId}
+                  entry={entry}
+                  label={instanceLabel(entry, enabledProviders)}
+                  now={Date.parse(`${minute}:00Z`)}
+                  disconnected={disconnected}
+                />
+              ))
+            )}
           </div>
-        ) : (
-          visibleProviders.map((entry) => (
-            <ProviderQuotaGroup
-              key={entry.instanceId}
-              entry={entry}
-              label={instanceLabel(entry, enabledProviders)}
-              now={Date.parse(`${minute}:00Z`)}
-              disconnected={disconnected}
-            />
-          ))
-        )}
+          {enabledProviders.length > 0 ? (
+            <div className="shrink-0 pt-2">
+              <Menu>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <MenuTrigger
+                        render={
+                          <ThreadDetailsControl part="icon" aria-label="Choose visible providers" />
+                        }
+                      >
+                        <MoreHorizontalIcon className="size-4" />
+                      </MenuTrigger>
+                    }
+                  />
+                  <TooltipPopup>Show or hide providers</TooltipPopup>
+                </Tooltip>
+                <MenuPopup align="end">
+                  <MenuGroup>
+                    <MenuGroupLabel>Shown in this sidebar</MenuGroupLabel>
+                    {enabledProviders.map((entry) => (
+                      <MenuCheckboxItem
+                        key={entry.instanceId}
+                        checked={!hiddenIds.includes(entry.instanceId)}
+                        onCheckedChange={(checked) =>
+                          setHidden(environmentId, entry.instanceId, !checked)
+                        }
+                        closeOnClick={false}
+                      >
+                        <MenuItemLabel>{instanceLabel(entry, enabledProviders)}</MenuItemLabel>
+                      </MenuCheckboxItem>
+                    ))}
+                  </MenuGroup>
+                </MenuPopup>
+              </Menu>
+            </div>
+          ) : null}
+        </div>
         {selectedProvider ? (
-          <div data-thread-usage className="min-w-0 space-y-1 ps-9 pe-2.5 pt-2">
-            <p className="mb-1 font-medium">Thread usage · selected model</p>
-            <UsageLabel>{`${instanceLabel(selectedProvider, enabledProviders)} · ${selectedModel.model}`}</UsageLabel>
+          <div
+            data-thread-usage
+            className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 px-1.5"
+          >
             {showContext ? (
               <UsageDetail
-                description={
+                description={`${instanceLabel(selectedProvider, enabledProviders)} · ${selectedModel.model}. ${
                   contextPercent !== null && threadUsage.context
                     ? `Context window: ${formatStatusPercent(contextPercent)} used (${formatContextWindowTokens(threadUsage.context.usedTokens)} of ${formatContextWindowTokens(threadUsage.context.maxTokens ?? null)} tokens).`
                     : "Context percentage is unavailable until the selected provider and model report usage and a context limit for this thread."
-                }
+                }`}
               >
                 <span>Context</span>
                 <span>{formatStatusPercent(contextPercent)}</span>
               </UsageDetail>
             ) : null}
             <UsageDetail
-              description={
+              description={`${instanceLabel(selectedProvider, enabledProviders)} · ${selectedModel.model}. ${
                 tokensPerSecond === null
                   ? "Turn average is available after this thread's selected provider and model complete a turn with token usage and timing. Live generation speed is not reported."
                   : "Average output tokens per second for this thread's latest completed turn on the selected provider and model, including reasoning tokens and time spent on tools or waiting. This is not live model generation speed."
-              }
+              }`}
             >
               <span>Turn average</span>
               <span>
