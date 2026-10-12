@@ -139,6 +139,16 @@ async function openDetails(id: string) {
   await act(async () => trigger(id).click());
   return details()!;
 }
+async function pointerClick(element: HTMLElement) {
+  await act(async () => {
+    element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, buttons: 1 }));
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, buttons: 1 }));
+    element.focus();
+    element.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    element.click();
+  });
+}
 async function closeDetails() {
   await act(async () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -499,7 +509,7 @@ it("honors settings disable immediately while the previous ready snapshot still 
   expect(group("codex").textContent).toContain("12%");
 });
 
-it("opens quota details within the narrow card popover and Escape closes only the quota details", async () => {
+it("keeps the narrow card open through quota details, visibility changes and recovery", async () => {
   const outerContainer = document.createElement("div");
   document.body.append(outerContainer);
   const outerRoot = createRoot(outerContainer);
@@ -539,6 +549,38 @@ it("opens quota details within the narrow card popover and Escape closes only th
     expect(document.activeElement).toBe(quotaTrigger);
     await act(async () => quotaTrigger.click());
     expect(inner()).not.toBeNull();
+    await act(async () =>
+      inner()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+    const visibility = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Choose visible providers"]',
+    )!;
+    await act(async () => visibility.click());
+    const choice = document.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!;
+    await pointerClick(choice);
+    expect(outer()).not.toBeNull();
+    expect(document.querySelector('[data-provider-usage-instance="codex"]')).toBeNull();
+    for (const item of document.querySelectorAll<HTMLElement>(
+      '[role="menuitemcheckbox"][aria-checked="true"]',
+    )) {
+      await pointerClick(item);
+      expect(outer()).not.toBeNull();
+    }
+    expect(outer()?.textContent).toContain("All providers hidden");
+    await act(async () =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(document.querySelector('[role="menuitemcheckbox"]')).toBeNull();
+    expect(outer()).not.toBeNull();
+    expect(document.activeElement).toBe(visibility);
+    const showAll = [...outer()!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Show all",
+    )!;
+    await pointerClick(showAll);
+    expect(outer()).not.toBeNull();
+    expect(outer()?.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(3);
   } finally {
     await render({ host: null });
     await act(async () => outerRoot.unmount());

@@ -309,7 +309,8 @@ export function ProviderUsageSection({
           </div>
           {enabledProviders.length > 0 ? (
             <div className="shrink-0 pt-2">
-              <Menu>
+              {/* A modal menu dismisses the containing card across this DOM-only portal. */}
+              <Menu modal={false}>
                 <Tooltip>
                   <TooltipTrigger
                     render={
