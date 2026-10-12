@@ -185,6 +185,7 @@ export interface ProviderSessionManagerV2Shape {
     readonly providerSessionId: ProviderSessionId;
     readonly threadId: ThreadId;
     readonly detail?: string;
+    readonly reason?: "workspace_changed";
     /**
      * True for terminal detaches (thread archived or deleted): the thread's
      * MCP credentials are revoked immediately instead of surviving for a
@@ -213,9 +214,8 @@ interface LiveSessionEntry {
   readonly supportsMultipleProviderThreads: boolean;
   readonly runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime;
   readonly exposedRuntime: ProviderAdapter.ProviderAdapterV2SessionRuntime;
-  readonly eventSubscribers: Ref.Ref<
-    ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
-  >;
+  readonly eventSubscribers: Ref.Ref<ReadonlyMap<number, ProviderSessionEventSubscriber>>;
+  readonly plannedDetachReasons: Ref.Ref<ReadonlyMap<ThreadId, "workspace_changed">>;
   readonly requestEventPermit: Semaphore.Semaphore;
   readonly scope: Scope.Closeable;
   readonly idleGeneration: number;
@@ -241,6 +241,11 @@ interface IdleThreadUnload {
   readonly providerThread: OrchestrationV2ProviderThread;
   readonly generation: number;
   readonly fiber: Fiber.Fiber<void, never> | null;
+}
+
+interface ProviderSessionEventSubscriber {
+  readonly threadId: ThreadId | undefined;
+  readonly queue: Queue.Queue<ProviderSessionEventSignal, Cause.Done>;
 }
 
 type ProviderSessionEventSignal =
@@ -559,34 +564,80 @@ export const layerWithOptions = (
             );
 
       const publishToSubscribers = (
-        subscribers: Ref.Ref<
-          ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
-        >,
+        subscribers: Ref.Ref<ReadonlyMap<number, ProviderSessionEventSubscriber>>,
         signal: ProviderSessionEventSignal,
       ) =>
         Ref.get(subscribers).pipe(
           Effect.flatMap((current) =>
-            Effect.forEach(current.values(), (queue) => Queue.offer(queue, signal), {
+            Effect.forEach(current.values(), ({ queue }) => Queue.offer(queue, signal), {
               discard: true,
             }),
           ),
         );
 
-      const failSubscribers = (entry: LiveSessionEntry, detail: string) =>
+      const failSubscribers = (
+        entry: LiveSessionEntry,
+        detail: string,
+        expectedDetach?: Pick<
+          ProviderAdapter.ProviderAdapterSessionDetached,
+          "threadId" | "reason"
+        >,
+      ) =>
         Effect.gen(function* () {
-          const error = new ProviderAdapter.ProviderAdapterEventStreamError({
-            driver: entry.runtime.driver,
-            providerSessionId: entry.runtime.providerSessionId,
-            cause: detail,
-          });
+          const error =
+            expectedDetach === undefined
+              ? new ProviderAdapter.ProviderAdapterEventStreamError({
+                  driver: entry.runtime.driver,
+                  providerSessionId: entry.runtime.providerSessionId,
+                  cause: detail,
+                })
+              : new ProviderAdapter.ProviderAdapterSessionDetached({
+                  driver: entry.runtime.driver,
+                  providerSessionId: entry.runtime.providerSessionId,
+                  ...expectedDetach,
+                });
           const subscribers = yield* Ref.getAndSet(entry.eventSubscribers, new Map());
           yield* Effect.forEach(
             subscribers.values(),
-            (queue) =>
+            ({ queue }) =>
               Queue.offer(queue, {
                 type: "failure",
                 cause: Cause.fail(error),
               }),
+            { discard: true },
+          );
+        });
+
+      const detachThreadSubscribers = (
+        entry: LiveSessionEntry,
+        threadId: ThreadId,
+        reason: "workspace_changed",
+      ) =>
+        Effect.gen(function* () {
+          yield* Ref.update(entry.plannedDetachReasons, (current) =>
+            new Map(current).set(threadId, reason),
+          );
+          const subscribers = yield* Ref.modify(entry.eventSubscribers, (current) => {
+            const detached: Array<ProviderSessionEventSubscriber> = [];
+            const remaining = new Map(current);
+            for (const [id, subscriber] of current) {
+              if (subscriber.threadId !== threadId) continue;
+              detached.push(subscriber);
+              remaining.delete(id);
+            }
+            return [detached, remaining] as const;
+          });
+          const cause = Cause.fail(
+            new ProviderAdapter.ProviderAdapterSessionDetached({
+              driver: entry.runtime.driver,
+              providerSessionId: entry.runtime.providerSessionId,
+              threadId,
+              reason,
+            }),
+          );
+          yield* Effect.forEach(
+            subscribers,
+            ({ queue }) => Queue.offer(queue, { type: "failure", cause }),
             { discard: true },
           );
         });
@@ -596,7 +647,7 @@ export const layerWithOptions = (
           const subscribers = yield* Ref.getAndSet(entry.eventSubscribers, new Map());
           yield* Effect.forEach(
             subscribers.values(),
-            (queue) => Queue.clear(queue).pipe(Effect.andThen(Queue.end(queue))),
+            ({ queue }) => Queue.clear(queue).pipe(Effect.andThen(Queue.end(queue))),
             { discard: true },
           );
         });
@@ -607,7 +658,7 @@ export const layerWithOptions = (
       const endSubscribers = (entry: LiveSessionEntry) =>
         Effect.gen(function* () {
           const subscribers = yield* Ref.getAndSet(entry.eventSubscribers, new Map());
-          yield* Effect.forEach(subscribers.values(), (queue) => Queue.end(queue), {
+          yield* Effect.forEach(subscribers.values(), ({ queue }) => Queue.end(queue), {
             discard: true,
           });
         });
@@ -940,6 +991,10 @@ export const layerWithOptions = (
         readonly cancelIdleFiber?: boolean;
         readonly onlyIfIdleGeneration?: number;
         readonly gracefulSubscribers?: boolean;
+        readonly expectedDetach?: Pick<
+          ProviderAdapter.ProviderAdapterSessionDetached,
+          "threadId" | "reason"
+        >;
       }) =>
         Effect.acquireUseRelease(
           removeLiveEntry(input),
@@ -959,6 +1014,7 @@ export const layerWithOptions = (
                     yield* failSubscribers(
                       entry,
                       input.detail ?? `Provider session released: ${input.reason}.`,
+                      input.expectedDetach,
                     );
                   }
                   const closeExit = yield* closeScopeWithin(entry.scope, {
@@ -1344,6 +1400,11 @@ export const layerWithOptions = (
                     payload: entry.runtime.providerSession,
                   }),
                 );
+                yield* Ref.update(entry.plannedDetachReasons, (current) => {
+                  const reasons = new Map(current);
+                  reasons.delete(input.threadId);
+                  return reasons;
+                });
               }
             }
           }).pipe(
@@ -1637,16 +1698,15 @@ export const layerWithOptions = (
         );
 
       const makeEventSubscription = (
-        subscribers: Ref.Ref<
-          ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
-        >,
+        subscribers: Ref.Ref<ReadonlyMap<number, ProviderSessionEventSubscriber>>,
+        threadId?: ThreadId,
       ): Effect.Effect<ProviderAdapter.ProviderAdapterV2EventSubscription> =>
         Effect.gen(function* () {
           const queue = yield* Queue.unbounded<ProviderSessionEventSignal, Cause.Done>();
           const subscriberId = yield* Ref.getAndUpdate(nextSubscriberId, (value) => value + 1);
           yield* Ref.update(subscribers, (current) => {
             const updated = new Map(current);
-            updated.set(subscriberId, queue);
+            updated.set(subscriberId, { threadId, queue });
             return updated;
           });
           const close = Ref.modify(subscribers, (current) => {
@@ -1676,9 +1736,8 @@ export const layerWithOptions = (
 
       const decorateRuntime = (
         runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime,
-        eventSubscribers: Ref.Ref<
-          ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
-        >,
+        eventSubscribers: Ref.Ref<ReadonlyMap<number, ProviderSessionEventSubscriber>>,
+        plannedDetachReasons: Ref.Ref<ReadonlyMap<ThreadId, "workspace_changed">>,
       ): ProviderAdapter.ProviderAdapterV2SessionRuntime => {
         const providerSessionId = runtime.providerSessionId;
         const subscribeEvents = makeEventSubscription(eventSubscribers);
@@ -1697,6 +1756,37 @@ export const layerWithOptions = (
         return {
           ...runtime,
           subscribeEvents,
+          subscribeEventsForThread: (threadId) =>
+            threadAttachment.withLock(
+              threadAttachmentKey({ providerSessionId, threadId }),
+              Effect.gen(function* () {
+                const entry = (yield* Ref.get(sessions)).get(sessionKey(providerSessionId));
+                const reason = (yield* Ref.get(plannedDetachReasons)).get(threadId);
+                if (
+                  entry?.runtime === runtime &&
+                  entry.attachedThreadIds.has(threadId) &&
+                  reason === undefined
+                ) {
+                  return yield* makeEventSubscription(eventSubscribers, threadId);
+                }
+                // A subscriber queued behind teardown must receive its result,
+                // rather than wait forever on a runtime that no longer owns it.
+                const error =
+                  reason === undefined
+                    ? new ProviderAdapter.ProviderAdapterEventStreamError({
+                        driver: runtime.driver,
+                        providerSessionId,
+                        cause: "Provider thread is no longer attached to this session.",
+                      })
+                    : new ProviderAdapter.ProviderAdapterSessionDetached({
+                        driver: runtime.driver,
+                        providerSessionId,
+                        threadId,
+                        reason,
+                      });
+                return { events: Stream.fail(error), close: Effect.void };
+              }),
+            ),
           events: Stream.unwrap(
             subscribeEvents.pipe(Effect.map((subscription) => subscription.events)),
           ),
@@ -2157,9 +2247,16 @@ export const layerWithOptions = (
                   }),
                 );
               const eventSubscribers = yield* Ref.make<
-                ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
+                ReadonlyMap<number, ProviderSessionEventSubscriber>
               >(new Map());
-              const exposedRuntime = decorateRuntime(runtime, eventSubscribers);
+              const plannedDetachReasons = yield* Ref.make<
+                ReadonlyMap<ThreadId, "workspace_changed">
+              >(new Map());
+              const exposedRuntime = decorateRuntime(
+                runtime,
+                eventSubscribers,
+                plannedDetachReasons,
+              );
               const now = yield* Clock.currentTimeMillis;
               const entry: LiveSessionEntry = {
                 attachedThreadIds: new Set([input.threadId]),
@@ -2174,6 +2271,7 @@ export const layerWithOptions = (
                 runtime,
                 exposedRuntime,
                 eventSubscribers,
+                plannedDetachReasons,
                 requestEventPermit: yield* Semaphore.make(1),
                 scope: sessionScope,
                 idleGeneration: 0,
@@ -2285,8 +2383,15 @@ export const layerWithOptions = (
           Effect.gen(function* () {
             const key = sessionKey(input.providerSessionId);
             const currentEntry = (yield* Ref.get(sessions)).get(key);
+            if (currentEntry === undefined || !currentEntry.attachedThreadIds.has(input.threadId)) {
+              if (input.revokeMcpCredential === true) yield* clearMcpSession(input.threadId);
+              return;
+            }
             let detachedProviderThreads: ReadonlyArray<OrchestrationV2ProviderThread> = [];
-            if (currentEntry?.supportsMultipleProviderThreads === true) {
+            let activeTurns: ReadonlyArray<
+              Parameters<ProviderAdapter.ProviderAdapterV2SessionRuntime["interruptTurn"]>[0]
+            > = [];
+            if (currentEntry.supportsMultipleProviderThreads) {
               const projection = yield* Effect.option(
                 projectionStore.getThreadRecords(input.threadId, [
                   "providerThreads",
@@ -2300,37 +2405,45 @@ export const layerWithOptions = (
                     .map((thread) => [thread.id, thread] as const),
                 );
                 detachedProviderThreads = [...providerThreads.values()];
-                const activeTurns = projection.value.providerTurns.filter(
-                  (turn) => turn.status === "running" && providerThreads.has(turn.providerThreadId),
-                );
-                yield* Effect.forEach(
-                  activeTurns,
-                  (turn) =>
-                    currentEntry.exposedRuntime
-                      .interruptTurn({
-                        providerThread: providerThreads.get(turn.providerThreadId)!,
-                        providerTurnId: turn.id,
-                      })
-                      .pipe(
-                        Effect.catchCause((cause) =>
-                          Effect.logWarning(
-                            "orchestration-v2.driver-session.detach-interrupt-failed",
-                            {
-                              providerSessionId: input.providerSessionId,
-                              threadId: input.threadId,
-                              providerTurnId: turn.id,
-                              cause,
-                            },
-                          ),
-                        ),
-                      ),
-                  { concurrency: 1, discard: true },
-                );
+                activeTurns = projection.value.providerTurns
+                  .filter(
+                    (turn) =>
+                      turn.status === "running" && providerThreads.has(turn.providerThreadId),
+                  )
+                  .map((turn) => ({
+                    providerThread: providerThreads.get(turn.providerThreadId)!,
+                    providerTurnId: turn.id,
+                  }));
               }
             }
+            // Snapshot active turns first: the detach signal can terminalize their
+            // projections before the native turn has actually been interrupted.
+            // Remove old subscriptions before interrupting, whose terminal can be
+            // synchronous. App-thread ownership also covers pre-provider-turn runs.
+            if (input.reason !== undefined) {
+              yield* detachThreadSubscribers(currentEntry, input.threadId, input.reason);
+            }
+            yield* Effect.forEach(
+              activeTurns,
+              (turn) =>
+                currentEntry.exposedRuntime.interruptTurn(turn).pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("orchestration-v2.driver-session.detach-interrupt-failed", {
+                      providerSessionId: input.providerSessionId,
+                      threadId: input.threadId,
+                      providerTurnId: turn.providerTurnId,
+                      cause,
+                    }),
+                  ),
+                ),
+              { concurrency: 1, discard: true },
+            );
             const detachResult = yield* Ref.modify(sessions, (current) => {
               const entry = current.get(key);
-              if (entry === undefined || !entry.attachedThreadIds.has(input.threadId)) {
+              if (
+                entry?.runtime !== currentEntry.runtime ||
+                !entry.attachedThreadIds.has(input.threadId)
+              ) {
                 return [
                   Option.none<{
                     readonly entry: LiveSessionEntry;
@@ -2406,6 +2519,9 @@ export const layerWithOptions = (
                 providerSessionId: input.providerSessionId,
                 reason: "manual_shutdown",
                 ...(input.detail === undefined ? {} : { detail: input.detail }),
+                ...(input.reason === undefined
+                  ? {}
+                  : { expectedDetach: { threadId: input.threadId, reason: input.reason } }),
               });
               return;
             }
@@ -2414,45 +2530,38 @@ export const layerWithOptions = (
             // servers) resident until the whole runtime is released.
             const unloadThread = detached.value.exposedRuntime.unloadThread;
             if (detached.value.supportsMultipleProviderThreads && unloadThread !== undefined) {
-              // Serialized with re-attachment: a thread whose next turn
-              // attaches first stays loaded, and one that attaches during the
-              // unload waits for it, so its resume reloads the native thread.
-              yield* threadAttachment.withLock(
-                threadAttachmentKey(input),
-                Effect.gen(function* () {
-                  const entry = (yield* Ref.get(sessions)).get(key);
-                  if (
-                    entry?.runtime !== detached.value.runtime ||
-                    entry.attachedThreadIds.has(input.threadId)
-                  ) {
-                    return;
-                  }
-                  yield* Effect.forEach(
-                    detachedProviderThreads.filter((thread) => thread.nativeThreadRef !== null),
-                    (providerThread) =>
-                      unloadThread({ providerThread }).pipe(
-                        // Bounded so a wedged provider cannot hold up the
-                        // thread's next attach.
-                        Effect.timeout(UNLOAD_THREAD_TIMEOUT_MS),
-                        Effect.catchCause((cause) =>
-                          Effect.logWarning(
-                            "orchestration-v2.driver-session.detach-unload-failed",
-                            {
-                              providerSessionId: input.providerSessionId,
-                              threadId: input.threadId,
-                              providerThreadId: providerThread.id,
-                              cause,
-                            },
-                          ),
-                        ),
+              yield* Effect.gen(function* () {
+                const entry = (yield* Ref.get(sessions)).get(key);
+                if (
+                  entry?.runtime !== detached.value.runtime ||
+                  entry.attachedThreadIds.has(input.threadId)
+                ) {
+                  return;
+                }
+                yield* Effect.forEach(
+                  detachedProviderThreads.filter((thread) => thread.nativeThreadRef !== null),
+                  (providerThread) =>
+                    unloadThread({ providerThread }).pipe(
+                      // Bounded so a wedged provider cannot hold up the
+                      // thread's next attach.
+                      Effect.timeout(UNLOAD_THREAD_TIMEOUT_MS),
+                      Effect.catchCause((cause) =>
+                        Effect.logWarning("orchestration-v2.driver-session.detach-unload-failed", {
+                          providerSessionId: input.providerSessionId,
+                          threadId: input.threadId,
+                          providerThreadId: providerThread.id,
+                          cause,
+                        }),
                       ),
-                    { concurrency: 1, discard: true },
-                  );
-                }),
-              );
+                    ),
+                  { concurrency: 1, discard: true },
+                );
+              });
             }
             yield* scheduleIdleRelease(input.providerSessionId);
           }).pipe(
+            // Keep replacement subscriptions and native resumes outside teardown.
+            (detach) => threadAttachment.withLock(threadAttachmentKey(input), detach),
             Effect.catchCause((cause) =>
               Effect.fail(
                 new ProviderSessionReleaseError({

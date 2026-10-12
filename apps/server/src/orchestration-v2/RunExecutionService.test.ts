@@ -32,6 +32,7 @@ import * as Exit from "effect/Exit";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -3748,6 +3749,240 @@ it.effect("does not refresh pull requests for auxiliary or stale provider termin
   }),
 );
 
+it.effect("finalizes a planned workspace detach before the provider announces its first turn", () =>
+  Effect.gen(function* () {
+    const key = "workspace-detach-before-turn";
+    const { written, observed } = yield* captureRootRunTermination({
+      key,
+      knownProviderTurn: false,
+      shouldFinalizeRun: () => Effect.succeed(true),
+      events: (ids) =>
+        Stream.fail(
+          new ProviderAdapter.ProviderAdapterSessionDetached({
+            driver,
+            providerSessionId: ProviderSessionId.make(`session:${key}`),
+            threadId: ids.threadId,
+            reason: "workspace_changed",
+          }),
+        ),
+    });
+    assert.deepEqual(observed, ["run:interrupted", "pull-requests-refreshed"]);
+    assert.deepEqual(
+      written.map((item) => item.type),
+      ["run_interrupt_result"],
+    );
+    const interruption = written.find((item) => item.type === "run_interrupt_result");
+    assert.equal(interruption?.message, "Run interrupted because the workspace changed");
+  }),
+);
+
+it.effect("a planned detach interrupts a pending provider start without failing the run", () =>
+  Effect.gen(function* () {
+    const key = "workspace-detach-pending-start";
+    const starting = yield* Deferred.make<void>();
+    const startInterrupted = yield* Deferred.make<void>();
+    const { written, observed } = yield* captureRootRunTermination({
+      key,
+      knownProviderTurn: false,
+      shouldFinalizeRun: () => Effect.succeed(true),
+      startTurn: () =>
+        Deferred.succeed(starting, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() => Deferred.succeed(startInterrupted, undefined)),
+        ),
+      events: (ids) =>
+        Stream.unwrap(
+          Deferred.await(starting).pipe(
+            Effect.as(
+              Stream.fail(
+                new ProviderAdapter.ProviderAdapterSessionDetached({
+                  driver,
+                  providerSessionId: ProviderSessionId.make(`session:${key}`),
+                  threadId: ids.threadId,
+                  reason: "workspace_changed",
+                }),
+              ),
+            ),
+          ),
+        ),
+    });
+    assert.isTrue(yield* Deferred.isDone(startInterrupted));
+    assert.deepEqual(observed, ["run:interrupted", "pull-requests-refreshed"]);
+    assert.deepEqual(
+      written.map((item) => item.type),
+      ["run_interrupt_result"],
+    );
+  }),
+);
+
+it.effect("cancels a detached pending start before waiting for terminal refresh", () =>
+  Effect.gen(function* () {
+    const key = "workspace-detach-blocked-refresh";
+    const starting = yield* Deferred.make<void>();
+    const acceptStart = yield* Deferred.make<void>();
+    const startInterrupted = yield* Deferred.make<void>();
+    const refreshStarted = yield* Deferred.make<void>();
+    const finishRefresh = yield* Deferred.make<void>();
+    const nativeAccepted = yield* Ref.make(false);
+    const execution = yield* captureRootRunTermination({
+      key,
+      knownProviderTurn: false,
+      shouldFinalizeRun: () => Effect.succeed(true),
+      startTurn: () =>
+        Deferred.succeed(starting, undefined).pipe(
+          Effect.andThen(Deferred.await(acceptStart)),
+          Effect.andThen(Ref.set(nativeAccepted, true)),
+          Effect.onInterrupt(() => Deferred.succeed(startInterrupted, undefined)),
+        ),
+      refreshAfterTurn: Deferred.succeed(refreshStarted, undefined).pipe(
+        Effect.andThen(Deferred.await(finishRefresh)),
+      ),
+      events: (ids) =>
+        Stream.unwrap(
+          Deferred.await(starting).pipe(
+            Effect.as(
+              Stream.fail(
+                new ProviderAdapter.ProviderAdapterSessionDetached({
+                  driver,
+                  providerSessionId: ProviderSessionId.make(`session:${key}`),
+                  threadId: ids.threadId,
+                  reason: "workspace_changed",
+                }),
+              ),
+            ),
+          ),
+        ),
+    }).pipe(Effect.forkScoped);
+    yield* Deferred.await(refreshStarted);
+    yield* Deferred.await(startInterrupted);
+    yield* Deferred.succeed(acceptStart, undefined);
+    assert.isFalse(yield* Ref.get(nativeAccepted));
+    yield* Deferred.succeed(finishRefresh, undefined);
+    const { observed } = yield* Fiber.join(execution);
+    assert.deepEqual(observed, ["run:interrupted", "pull-requests-refreshed"]);
+  }),
+);
+
+it.effect("cancels only unfinished current-run tools when a planned handoff detaches", () =>
+  Effect.gen(function* () {
+    const key = "workspace-detach-open-tools";
+    const commandId = TurnItemId.make(`${key}:command`);
+    const completedId = TurnItemId.make(`${key}:completed`);
+    const { written, observed } = yield* captureRootRunTermination({
+      key,
+      shouldFinalizeRun: () => Effect.succeed(true),
+      events: (ids) => {
+        const tool = backgroundTurnItemEvent(ids, "dynamic_tool", "running", 1);
+        assert.equal(tool.type, "turn_item.updated");
+        if (tool.type !== "turn_item.updated") throw new Error("Expected tool update");
+        return Stream.fromIterable([
+          tool,
+          {
+            ...tool,
+            turnItem: {
+              ...tool.turnItem,
+              output: {
+                progress: "latest",
+                source: { type: "base64", media_type: "image/png", data: "A".repeat(128) },
+              },
+            },
+          } as ProviderAdapter.ProviderAdapterV2Event,
+          backgroundTurnItemEvent(ids, "command_execution", "running", 2, commandId),
+          backgroundTurnItemEvent(ids, "dynamic_tool", "running", 3, completedId),
+          backgroundTurnItemEvent(ids, "dynamic_tool", "completed", 4, completedId),
+          backgroundTurnItemEventForRun(
+            ids,
+            RunId.make("run:unrelated"),
+            "dynamic_tool",
+            "running",
+            5,
+          ),
+        ]).pipe(
+          Stream.concat(
+            Stream.fail(
+              new ProviderAdapter.ProviderAdapterSessionDetached({
+                driver,
+                providerSessionId: ProviderSessionId.make(`session:${key}`),
+                threadId: ids.threadId,
+                reason: "workspace_changed",
+              }),
+            ),
+          ),
+        );
+      },
+    });
+    assert.deepEqual(observed, ["run:interrupted", "pull-requests-refreshed"]);
+    const cancelled = written.filter((item) => item.status === "cancelled");
+    assert.deepEqual(
+      cancelled.map((item) => item.id),
+      [backgroundScenarioIds(key).itemId, commandId],
+    );
+    assert.isTrue(cancelled.every((item) => item.completedAt !== null));
+    const tool = cancelled.find((item) => item.type === "dynamic_tool");
+    assert.equal(tool?.type, "dynamic_tool");
+    if (tool?.type === "dynamic_tool") {
+      assert.deepEqual(tool.output, {
+        progress: "latest",
+        source: { type: "base64", media_type: "image/png", sizeBytes: 96 },
+      });
+    }
+    assert.isFalse(written.some((item) => item.id === completedId));
+    assert.isFalse(written.some((item) => item.type === "error"));
+  }),
+);
+
+it.effect("keeps live background tools after an ordinary provider interruption", () =>
+  Effect.gen(function* () {
+    const { written, observed } = yield* captureRootRunTermination({
+      key: "ordinary-interrupt-open-tools",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      events: (ids) =>
+        Stream.fromIterable([
+          backgroundTurnItemEvent(ids, "dynamic_tool", "running", 1),
+          rootTerminalEvent(ids, "interrupted"),
+        ]),
+    });
+    assert.deepEqual(observed, ["run:interrupted", "pull-requests-refreshed"]);
+    assert.deepEqual(
+      written.map((item) => item.type),
+      ["run_interrupt_result"],
+    );
+    assert.equal(
+      written[0]?.type === "run_interrupt_result" ? written[0].message : null,
+      "Run interrupted by user",
+    );
+  }),
+);
+
+it.effect.each(["thread", "session"] as const)(
+  "fails rather than treating another %s's planned detach as this run's interruption",
+  (mismatch) =>
+    Effect.gen(function* () {
+      const key = `workspace-detach-mismatched-${mismatch}`;
+      const { written, observed } = yield* captureRootRunTermination({
+        key,
+        knownProviderTurn: false,
+        shouldFinalizeRun: () => Effect.succeed(true),
+        events: (ids) =>
+          Stream.fail(
+            new ProviderAdapter.ProviderAdapterSessionDetached({
+              driver,
+              providerSessionId: ProviderSessionId.make(
+                mismatch === "session" ? "session:other" : `session:${key}`,
+              ),
+              threadId: mismatch === "thread" ? ThreadId.make("thread:other") : ids.threadId,
+              reason: "workspace_changed",
+            }),
+          ),
+      });
+      assert.deepEqual(observed, ["run:failed", "pull-requests-refreshed"]);
+      assert.deepEqual(
+        written.map((item) => item.type),
+        ["error"],
+      );
+    }),
+);
+
 it.effect("refreshes pull requests after a provider stream exits with an error", () =>
   Effect.gen(function* () {
     const { written, observed } = yield* captureRootRunTermination({
@@ -3820,6 +4055,7 @@ function captureRootRunTermination(input: {
   readonly rejectTerminalWrite?: boolean;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
   readonly seedOpenSubagent?: boolean;
+  readonly knownProviderTurn?: boolean;
   readonly events?: (
     ids: BackgroundScenarioIds,
   ) => Stream.Stream<
@@ -3954,7 +4190,7 @@ function captureRootRunTermination(input: {
         } as OrchestrationV2Run,
         rootNode: {
           id: ids.rootNodeId,
-          providerTurnId: ids.rootProviderTurnId,
+          providerTurnId: input.knownProviderTurn === false ? null : ids.rootProviderTurnId,
         } as OrchestrationV2ExecutionNode,
         checkpointScope: {
           id: CheckpointScopeId.make(`checkpoint-scope:${input.key}`),
@@ -3965,7 +4201,7 @@ function captureRootRunTermination(input: {
         } as OrchestrationV2ProviderThread,
         attempt: {
           id: ids.attemptId,
-          providerTurnId: ids.rootProviderTurnId,
+          providerTurnId: input.knownProviderTurn === false ? null : ids.rootProviderTurnId,
         } as OrchestrationV2RunAttempt,
         attemptId: ids.attemptId,
         providerTurnOrdinal: 1,

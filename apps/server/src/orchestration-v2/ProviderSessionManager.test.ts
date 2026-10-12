@@ -321,6 +321,7 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
     readonly hangSessionScopeClose?: boolean;
     readonly startTurn?: Effect.Effect<void>;
     readonly beforeUnload?: Effect.Effect<void>;
+    readonly onInterrupt?: ProviderAdapter.ProviderAdapterV2SessionRuntime["interruptTurn"];
     /** Registers the process's closeCount finalizer before `beforeOpen` runs. */
     readonly spawnBeforeOpen?: boolean;
     /** Completed when a hanging scope close reaches its wedged finalizer. */
@@ -416,11 +417,11 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
             })).pipe(Effect.as(threadInput.providerThread)),
           startTurn: () => options.startTurn ?? Effect.void,
           steerTurn: () => Effect.void,
-          interruptTurn: () =>
+          interruptTurn: (turn) =>
             Ref.update(state, (current) => ({
               ...current,
               interruptCount: current.interruptCount + 1,
-            })),
+            })).pipe(Effect.andThen(options.onInterrupt?.(turn) ?? Effect.void)),
           unloadThread: ({ providerThread }) =>
             (options.beforeUnload ?? Effect.void).pipe(
               Effect.andThen(
@@ -468,6 +469,7 @@ function layerTest(input: {
   readonly hangSessionScopeClose?: boolean;
   readonly startTurn?: Effect.Effect<void>;
   readonly beforeUnload?: Effect.Effect<void>;
+  readonly onInterrupt?: ProviderAdapter.ProviderAdapterV2SessionRuntime["interruptTurn"];
   readonly spawnBeforeOpen?: boolean;
   readonly scopeCloseReached?: Deferred.Deferred<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
@@ -498,6 +500,7 @@ function layerTest(input: {
         : { hangSessionScopeClose: input.hangSessionScopeClose }),
       ...(input.startTurn === undefined ? {} : { startTurn: input.startTurn }),
       ...(input.beforeUnload === undefined ? {} : { beforeUnload: input.beforeUnload }),
+      ...(input.onInterrupt === undefined ? {} : { onInterrupt: input.onInterrupt }),
       ...(input.spawnBeforeOpen === undefined ? {} : { spawnBeforeOpen: input.spawnBeforeOpen }),
       ...(input.scopeCloseReached === undefined
         ? {}
@@ -4242,6 +4245,223 @@ it.effect(
     }),
 );
 
+it.effect.each([
+  { shared: false, activeTurn: false, label: "exclusive before the first provider turn" },
+  { shared: false, activeTurn: true, label: "exclusive with an active turn" },
+  { shared: true, activeTurn: false, label: "shared before the first provider turn" },
+  { shared: true, activeTurn: true, label: "shared with an active turn" },
+])("ProviderSessionManagerV2 workspace detach signals $label", ({ shared, activeTurn }) =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    const terminalObserved = yield* Deferred.make<void>();
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread-workspace-detach");
+      const siblingId = ThreadId.make("thread-workspace-detach-sibling");
+      const providerSessionId = idAllocator.derive.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+      });
+      yield* eventSink.write({
+        events: [
+          yield* makeThreadCreatedEvent({ idAllocator, threadId, now }),
+          yield* makeThreadCreatedEvent({ idAllocator, threadId: siblingId, now }),
+        ],
+      });
+      const providerThread = makeProviderThread({
+        idAllocator,
+        threadId,
+        providerSessionId,
+        now,
+      });
+      const runId = idAllocator.derive.run({ threadId, ordinal: 1 });
+      yield* eventSink.write({
+        events: [
+          {
+            id: yield* idAllocator.allocate.event({ threadId }),
+            type: "provider-thread.updated",
+            threadId,
+            driver: CODEX_DRIVER,
+            occurredAt: now,
+            payload: providerThread,
+          },
+          ...(activeTurn
+            ? [
+                {
+                  id: yield* idAllocator.allocate.event({ threadId }),
+                  type: "provider-turn.updated" as const,
+                  threadId,
+                  runId,
+                  driver: CODEX_DRIVER,
+                  occurredAt: now,
+                  payload: {
+                    id: idAllocator.derive.providerTurn({
+                      driver: CODEX_DRIVER,
+                      nativeTurnId: "native-workspace-detach-turn",
+                    }),
+                    providerThreadId: providerThread.id,
+                    nodeId: idAllocator.derive.rootNode({ runId }),
+                    runAttemptId: null,
+                    nativeTurnRef: null,
+                    ordinal: 1,
+                    status: "running" as const,
+                    startedAt: now,
+                    completedAt: null,
+                  },
+                },
+              ]
+            : []),
+        ],
+      });
+      const runtime = yield* manager.open({
+        threadId,
+        providerSessionId,
+        modelSelection,
+        runtimePolicy,
+      });
+      const subscribe = runtime.subscribeEventsForThread;
+      assert.isDefined(subscribe);
+      if (subscribe === undefined) return;
+      const detachedSubscription = yield* subscribe(threadId);
+      const unscopedSubscription = shared ? undefined : yield* runtime.subscribeEvents!;
+      const detachedResult = yield* detachedSubscription.events.pipe(
+        Stream.runHead,
+        Effect.flip,
+        Effect.forkScoped,
+      );
+      const siblingSubscription = shared
+        ? yield* manager
+            .open({ threadId: siblingId, providerSessionId, modelSelection, runtimePolicy })
+            .pipe(Effect.andThen(subscribe(siblingId)))
+        : undefined;
+      // A process observer acknowledges the terminal while interruptTurn
+      // is still running, proving it cannot overtake the planned signal.
+      const observer = shared && activeTurn ? yield* runtime.subscribeEvents! : undefined;
+      const observed =
+        observer === undefined
+          ? undefined
+          : yield* observer.events.pipe(
+              Stream.filter((event) => event.type === "turn.terminal"),
+              Stream.tap(() => Deferred.succeed(terminalObserved, undefined)),
+              Stream.runHead,
+              Effect.forkScoped,
+            );
+      yield* manager.detach({
+        providerSessionId,
+        threadId,
+        reason: "workspace_changed",
+        detail: "Workspace changed.",
+      });
+      const error = yield* Fiber.join(detachedResult);
+      assert.equal(error._tag, "ProviderAdapterSessionDetached");
+      if (error._tag !== "ProviderAdapterSessionDetached") return;
+      assert.equal(error.threadId, threadId);
+      assert.equal(error.providerSessionId, providerSessionId);
+      assert.equal(error.reason, "workspace_changed");
+      const lateSubscription = yield* subscribe(threadId);
+      const lateError = yield* lateSubscription.events.pipe(Stream.runHead, Effect.flip);
+      assert.equal(lateError._tag, "ProviderAdapterSessionDetached");
+      if (unscopedSubscription !== undefined) {
+        const unscopedError = yield* unscopedSubscription.events.pipe(Stream.runHead, Effect.flip);
+        assert.equal(unscopedError._tag, "ProviderAdapterSessionDetached");
+      }
+      assert.equal((yield* Ref.get(state)).interruptCount, shared && activeTurn ? 1 : 0);
+      assert.equal((yield* Ref.get(state)).closeCount, shared ? 0 : 1);
+      if (!shared || siblingSubscription === undefined) {
+        assert.isTrue(Option.isNone(yield* manager.get(providerSessionId)));
+        return;
+      }
+      if (observed !== undefined) assert.isTrue(Option.isSome(yield* Fiber.join(observed)));
+      assert.isTrue(Option.isSome(yield* manager.get(providerSessionId)));
+      assert.deepEqual((yield* Ref.get(state)).unloadedNativeThreadIds, ["native-thread"]);
+      // A replacement subscription on the same shared process must also
+      // survive once the old detach has finished.
+      yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+      const replacementSubscription = yield* subscribe(threadId);
+      const queue = (yield* Ref.get(state)).eventQueues.get(String(providerSessionId));
+      assert.isDefined(queue);
+      yield* Queue.offer(queue!, {
+        type: "provider_session.updated",
+        driver: CODEX_DRIVER,
+        providerSession: runtime.providerSession,
+      });
+      for (const subscription of [siblingSubscription, replacementSubscription]) {
+        const received = yield* subscription.events.pipe(
+          Stream.filter((event) => event.type === "provider_session.updated"),
+          Stream.runHead,
+        );
+        assert.isTrue(Option.isSome(received));
+      }
+    }).pipe(
+      Effect.provide(
+        layerTest({
+          state,
+          idleTimeoutMs: 1000,
+          capabilities: shared ? CodexCapabilities : ExclusiveCapabilities,
+          onInterrupt: ({ providerThread, providerTurnId }) =>
+            Effect.gen(function* () {
+              assert.equal(providerThread.appThreadId, ThreadId.make("thread-workspace-detach"));
+              const queue = (yield* Ref.get(state)).eventQueues.get(
+                String(providerThread.providerSessionId),
+              );
+              assert.isDefined(queue);
+              yield* Queue.offer(queue!, {
+                type: "turn.terminal",
+                driver: CODEX_DRIVER,
+                providerThreadId: providerThread.id,
+                providerTurnId,
+                runOrdinal: 1,
+                status: "interrupted",
+                failure: null,
+                threadDisposition: "reusable",
+              });
+              yield* Deferred.await(terminalObserved);
+            }),
+        }),
+      ),
+    );
+  }),
+);
+
+it.effect("ProviderSessionManagerV2 unexpected release still fails thread-scoped subscribers", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const threadId = ThreadId.make("thread-unexpected-scoped-release");
+      const now = yield* DateTime.now;
+      const providerSessionId = idAllocator.derive.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+      });
+      yield* eventSink.write({
+        events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+      });
+      const runtime = yield* manager.open({
+        threadId,
+        providerSessionId,
+        modelSelection,
+        runtimePolicy,
+      });
+      // A prior planned detach must not relabel a later unexpected failure
+      // after the same shared runtime legitimately re-attached the thread.
+      yield* manager.detach({ providerSessionId, threadId, reason: "workspace_changed" });
+      yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+      const subscription = yield* runtime.subscribeEventsForThread!(threadId);
+      yield* manager.release({ providerSessionId, reason: "runtime_error" });
+      const error = yield* subscription.events.pipe(Stream.runHead, Effect.flip);
+      assert.equal(error._tag, "ProviderAdapterEventStreamError");
+      const lateSubscription = yield* runtime.subscribeEventsForThread!(threadId);
+      const lateError = yield* lateSubscription.events.pipe(Stream.runHead, Effect.flip);
+      assert.equal(lateError._tag, "ProviderAdapterEventStreamError");
+      assert.equal((yield* Ref.get(state)).closeCount, 1);
+    }).pipe(Effect.provide(layerTest({ state, idleTimeoutMs: 1000 })));
+  }),
+);
+
 it.effect(
   "ProviderSessionManagerV2 re-attaching a thread waits for its in-flight unload, then reloads it",
   () =>
@@ -4319,19 +4539,41 @@ it.effect(
         });
         yield* resume;
 
+        const oldSubscription = yield* runtime.subscribeEventsForThread!(threadId);
         const detach = yield* manager
-          .detach({ providerSessionId, threadId })
+          .detach({ providerSessionId, threadId, reason: "workspace_changed" })
           .pipe(Effect.forkScoped);
         yield* Deferred.await(unloadStarted);
+        const lateSubscription = yield* runtime.subscribeEventsForThread!(threadId).pipe(
+          Effect.forkScoped({ startImmediately: true }),
+        );
         // The same thread's next turn re-attaches while the unload is parked.
         // Give it room to run: unfixed, it reaches the provider's resume
         // here; serialized, it waits for the unload.
-        const reattach = yield* resume.pipe(Effect.forkScoped);
+        const reattach = yield* resume.pipe(
+          Effect.andThen(runtime.subscribeEventsForThread!(threadId)),
+          Effect.forkScoped,
+        );
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
         yield* Deferred.succeed(releaseUnload, undefined);
         yield* Fiber.join(detach);
-        yield* Fiber.join(reattach);
+        const replacementSubscription = yield* Fiber.join(reattach);
+        const lateError = yield* (yield* Fiber.join(lateSubscription)).events.pipe(
+          Stream.runHead,
+          Effect.flip,
+        );
+        assert.equal(lateError._tag, "ProviderAdapterSessionDetached");
+        const detachedError = yield* oldSubscription.events.pipe(Stream.runHead, Effect.flip);
+        assert.equal(detachedError._tag, "ProviderAdapterSessionDetached");
+        const queue = (yield* Ref.get(state)).eventQueues.get(String(providerSessionId));
+        assert.isDefined(queue);
+        yield* Queue.offer(queue!, {
+          type: "provider_session.updated",
+          driver: CODEX_DRIVER,
+          providerSession: runtime.providerSession,
+        });
+        assert.isTrue(Option.isSome(yield* replacementSubscription.events.pipe(Stream.runHead)));
 
         // The unload reached the provider before the re-attached resume, so
         // that resume reloads the thread instead of being torn down after it.
