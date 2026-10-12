@@ -29,6 +29,7 @@ export function pullRequestReviewKey(reference: PullRequestRef): string {
   return JSON.stringify([
     reference.projectId,
     reference.host?.toLowerCase() ?? null,
+    reference.expectedAccountId ?? null,
     reference.repository.toLowerCase(),
     reference.number,
   ]);

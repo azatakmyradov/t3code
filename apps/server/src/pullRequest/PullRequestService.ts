@@ -176,6 +176,8 @@ const LIST_STATS_CACHE_TTL = Duration.seconds(60);
 const FILES_VIEWED_CACHE_TTL = Duration.seconds(15);
 /** A diff can stay interactive while its next cached value is fetched off the critical path. */
 const DIFF_STALE_WINDOW = Duration.minutes(10);
+/** How long an expired diff may stay held before it is dropped unread. */
+const DIFF_SWEEP_INTERVAL = Duration.minutes(1);
 /** How long one host's signed-in login is believed without asking its CLI again. */
 const VIEWER_CACHE_TTL = Duration.minutes(10);
 const SEARCH_VISIBILITY_TTL = Duration.minutes(10);
@@ -1002,6 +1004,38 @@ export const make = Effect.gen(function* () {
     );
     const candidates = [...exact, ...alternatives];
     if (candidates.length === 0) {
+      // These providers target repositories explicitly and authenticate by host. A linked PR
+      // in a non-repository project still needs refreshing, using that project's directory.
+      // GitLab and Azure require checkout-specific host or organization selection instead.
+      const provider = ["github.com", "bitbucket.org", "codeberg.org"].includes(host)
+        ? detectSourceControlProviderFromRemoteUrl(`https://${host}/${repository}.git`)
+        : null;
+      const api = provider === null ? null : registry.get(provider.kind);
+      if (api !== null) {
+        const selected = yield* projects.getShell(ref.projectId).pipe(
+          Effect.mapError(
+            (cause) =>
+              new PullRequestOperationError({
+                operation: "resolveRepository",
+                detail: "The selected project could not be read.",
+                cause,
+              }),
+          ),
+        );
+        // An absent/deleted selection cannot supply a fallback directory. Account verification
+        // still happens before any read or write, including for an expected routed account.
+        if (Option.isSome(selected)) {
+          return {
+            cursorKey: listCursorKey(host, repository),
+            project: selected.value,
+            api: withRateLimitBackoff(api, host, rateLimits),
+            repository,
+            host,
+            remote: normalizeGitRemoteUrl(`https://${host}/${repository}`),
+            repositoryKey: null,
+          };
+        }
+      }
       return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
     }
     const expectedAccountId = ref.expectedAccountId;
@@ -1298,6 +1332,7 @@ export const make = Effect.gen(function* () {
     readonly project: SupportedProject;
     readonly item: ProviderChangeRequest;
     readonly viewer: string;
+    readonly accountId: string | undefined;
     readonly observedAt: number;
   }): PullRequestListEntry => {
     const viewer = input.viewer.toLowerCase();
@@ -1305,6 +1340,7 @@ export const make = Effect.gen(function* () {
       ...(input.item.stack === undefined ? {} : { stack: input.item.stack }),
       provider: input.project.api.kind,
       host: input.project.host,
+      ...(input.accountId === undefined ? {} : { expectedAccountId: input.accountId }),
       projectId: input.project.project.id,
       projectTitle: input.project.project.title,
       repository: input.project.repository,
@@ -1495,7 +1531,15 @@ export const make = Effect.gen(function* () {
                   key,
                   entries: items
                     .filter((item) => matchesRowFilters(item, input.filters, viewer))
-                    .map((item) => toEntry({ project, item, viewer, observedAt })),
+                    .map((item) =>
+                      toEntry({
+                        project,
+                        item,
+                        viewer,
+                        accountId: resolved?.accountId,
+                        observedAt,
+                      }),
+                    ),
                   errors: [],
                   truncated: page.truncated,
                   nextCursor:
@@ -1627,7 +1671,15 @@ export const make = Effect.gen(function* () {
                     key: project.cursorKey,
                     entries: items
                       .filter((item) => matchesRowFilters(item, input.filters, viewer))
-                      .map((item) => toEntry({ project, item, viewer, observedAt })),
+                      .map((item) =>
+                        toEntry({
+                          project,
+                          item,
+                          viewer,
+                          accountId: resolved?.accountId,
+                          observedAt,
+                        }),
+                      ),
                     errors: [],
                     truncated: page.truncated,
                     nextCursor:
@@ -2086,6 +2138,7 @@ export const make = Effect.gen(function* () {
     );
 
   const context = yield* Effect.context<never>();
+  const scope = yield* Effect.scope;
   /** Runs a refresh as its own fiber, for the reads that answer from a held value first. */
   const runFork = Effect.runForkWith(context);
 
@@ -2812,8 +2865,9 @@ export const make = Effect.gen(function* () {
           if (oldest !== undefined) held.delete(oldest);
         }
         held.set(key, { at, value });
+        armDiffSweep();
       });
-    return <E>(key: string, read: Effect.Effect<PullRequestDiffResult, E>) => {
+    const serve = <E>(key: string, read: Effect.Effect<PullRequestDiffResult, E>) => {
       const recorded = read.pipe(Effect.tap((value) => record(key, value)));
       return Effect.flatMap(Clock.currentTimeMillis, (now) => {
         const snapshot = held.get(key);
@@ -2824,6 +2878,14 @@ export const make = Effect.gen(function* () {
         return revalidate(recorded).pipe(Effect.as(snapshot.value));
       });
     };
+    /** Drops what `serve` would already refuse, and says how many values are still held. */
+    const dropExpired = Effect.map(Clock.currentTimeMillis, (now) => {
+      for (const [key, snapshot] of held) {
+        if (now - snapshot.at > staleMs) held.delete(key);
+      }
+      return held.size;
+    });
+    return { serve, dropExpired };
   })();
 
   const makeLastGoodRead = <A>(capacity: number) => {
@@ -3430,6 +3492,36 @@ export const make = Effect.gen(function* () {
       },
     },
   );
+  /**
+   * Both diff holders drop an expired value only when its own key is read again, and a diff's key
+   * moves with every push, so a closed page's patches would stay held until the server restarted.
+   * One pending sweep at a time, armed in the same step that leaves a value held and re-armed
+   * while anything still is, so an idle server keeps no timer.
+   */
+  let diffSweepPending = false;
+  // Forked from the service's own context, in one step with the flag: a caller's interruption
+  // cannot strand the flag, and its request is not kept alive by the wait.
+  const armDiffSweep = () => {
+    if (diffSweepPending) return;
+    diffSweepPending = true;
+    runFork(Effect.forkIn(sweepDiffs, scope));
+  };
+  const sweepDiffs: Effect.Effect<void> = Effect.sleep(DIFF_SWEEP_INTERVAL).pipe(
+    Effect.andThen(
+      Effect.suspend(() => {
+        // Cleared before the sweep, so a read that settles during it arms the next one itself.
+        diffSweepPending = false;
+        return staleDiff.dropExpired;
+      }),
+    ),
+    // The cache drops its expired entries as its keys are walked.
+    Effect.flatMap((stale) =>
+      Effect.map(Cache.keys(diffCache), (keys) => stale + Array.from(keys).length),
+    ),
+    Effect.map((held) => {
+      if (held > 0) armDiffSweep();
+    }),
+  );
   const diff: PullRequestService["Service"]["diff"] = (input) => {
     const key = JSON.stringify([
       refCacheKey(input),
@@ -3452,8 +3544,10 @@ export const make = Effect.gen(function* () {
               Effect.uninterruptible,
             ),
       ),
+      // However the read ends, it may have left a value behind in the cache.
+      Effect.ensuring(Effect.sync(armDiffSweep)),
     );
-    return staleDiff(key, read);
+    return staleDiff.serve(key, read);
   };
 
   const filesViewedCache = yield* Cache.makeWith(
@@ -3718,21 +3812,36 @@ export const make = Effect.gen(function* () {
           if (!hasScopedCredentials) return listStats({ ...input, refs });
           // Each checkout resolves its identity before consulting the stats cache. Capturing a
           // single account for a host-wide batch would hide other checkouts' private PRs.
-          const groups = new Map<ProjectId, PullRequestRef[]>();
+          const groups = new Map<string, PullRequestRef[]>();
           for (const ref of refs) {
-            const group = groups.get(ref.projectId) ?? [];
+            const key = JSON.stringify([ref.projectId, ref.host, ref.expectedAccountId ?? null]);
+            const group = groups.get(key) ?? [];
             group.push(ref);
-            groups.set(ref.projectId, group);
+            groups.set(key, group);
           }
           return Effect.forEach(
             groups.values(),
             (group) =>
               credentialCached((first: CredentialRef) =>
-                listStats({
-                  refs: group.map((ref) => ({
-                    ...ref,
-                    [credentialNamespace]: first[credentialNamespace],
-                  })),
+                Effect.gen(function* () {
+                  const identity = yield* routingCredential;
+                  const result = yield* listStats({
+                    refs: group.map((ref) => ({
+                      ...ref,
+                      [credentialNamespace]: first[credentialNamespace],
+                    })),
+                  });
+                  // Cache hits and fresh reads share this verified credential namespace. Report
+                  // its actual identity, never merely echo the account requested by the client.
+                  return identity === null
+                    ? result
+                    : {
+                        stats: result.stats.map((stat) => ({
+                          ...stat,
+                          host: first.host,
+                          expectedAccountId: identity.accountId,
+                        })),
+                      };
                 }),
               )(group[0]!).pipe(Effect.orElseSucceed(() => ({ stats: [] }))),
             { concurrency: REPOSITORY_CONCURRENCY },

@@ -8,7 +8,6 @@ import {
   resolvePullRequestAuthorFilter,
 } from "@t3tools/contracts";
 import type {
-  ProjectId,
   PullRequestAction,
   PullRequestActor,
   PullRequestDiffStat,
@@ -17,6 +16,7 @@ import type {
   PullRequestListCursors,
   PullRequestListFilters,
   PullRequestListState,
+  PullRequestRef,
   PullRequestState,
 } from "@t3tools/contracts";
 
@@ -427,17 +427,15 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
  */
 export function pullRequestEntryKey(entry: ScopedEntry): string {
   const scope = entry.environmentId === undefined ? "" : `${entry.environmentId}:`;
-  return `${scope}${entry.projectId}:${entry.host}:${entry.repository}#${entry.number}`;
+  const account =
+    entry.expectedAccountId === undefined ? "" : `:${JSON.stringify(entry.expectedAccountId)}`;
+  return `${scope}${entry.projectId}:${entry.host}:${entry.repository}#${entry.number}${account}`;
 }
 
 export interface PullRequestStatsTarget {
   readonly environmentId: EnvironmentId;
   readonly input: {
-    readonly refs: ReadonlyArray<{
-      readonly projectId: ProjectId;
-      readonly repository: string;
-      readonly number: number;
-    }>;
+    readonly refs: ReadonlyArray<PullRequestRef>;
   };
 }
 
@@ -470,7 +468,7 @@ export function pullRequestStatsKeysToRequest(
         entry.additions === 0 &&
         entry.deletions === 0 &&
         !requested.has(key) &&
-        !statsByRow.has(pullRequestDiffStatKey(entry))
+        !hasPullRequestDiffStat(entry, statsByRow)
       );
     }),
   );
@@ -496,6 +494,10 @@ export function pullRequestStatsBatches(
       key,
       ref: {
         projectId: entry.projectId,
+        host: entry.host,
+        ...(entry.expectedAccountId === undefined
+          ? {}
+          : { expectedAccountId: entry.expectedAccountId }),
         repository: entry.repository,
         number: entry.number,
       },
@@ -644,6 +646,8 @@ export function mergePullRequestDiffStats(
   stats: ReadonlyArray<{
     readonly environmentId: string;
     readonly projectId: string;
+    readonly host?: string | undefined;
+    readonly expectedAccountId?: string | undefined;
     readonly number: number;
     readonly additions: number;
     readonly deletions: number;
@@ -660,12 +664,43 @@ export function mergePullRequestDiffStats(
   return next;
 }
 
-/** A project id only names a project within its own environment, so the key carries both. */
-export const pullRequestDiffStatKey = (row: {
+interface PullRequestDiffStatScope {
   readonly environmentId: string;
   readonly projectId: string;
+  readonly host?: string | undefined;
+  readonly expectedAccountId?: string | undefined;
   readonly number: number;
-}) => `${row.environmentId} ${row.projectId} ${row.number}`;
+}
+
+/** Counts are scoped to the credential that read them, even within the same project. */
+const pullRequestDiffStatKey = (row: PullRequestDiffStatScope) =>
+  row.host === undefined && row.expectedAccountId === undefined
+    ? `${row.environmentId} ${row.projectId} ${row.number}`
+    : JSON.stringify([
+        row.environmentId,
+        row.projectId,
+        row.host?.toLowerCase() ?? null,
+        row.expectedAccountId ?? null,
+        row.number,
+      ]);
+
+function pullRequestDiffStatLookupKey(
+  row: PullRequestDiffStatScope,
+  stats: ReadonlyMap<string, unknown>,
+): string {
+  const key = pullRequestDiffStatKey(row);
+  // Older servers omit stat origins. Only unguarded rows may use those legacy counts.
+  return stats.has(key) || row.expectedAccountId !== undefined
+    ? key
+    : pullRequestDiffStatKey({ ...row, host: undefined });
+}
+
+export function hasPullRequestDiffStat(
+  row: PullRequestDiffStatScope,
+  stats: ReadonlyMap<string, unknown>,
+): boolean {
+  return stats.has(pullRequestDiffStatLookupKey(row, stats));
+}
 
 /**
  * Every connected environment's listing, read as one list.
@@ -1134,7 +1169,7 @@ export function withDiffStat<
   statsByRow: ReadonlyMap<string, { readonly additions: number; readonly deletions: number }>,
 ): Entry {
   if (entry.additions !== 0 || entry.deletions !== 0) return entry;
-  const stat = statsByRow.get(pullRequestDiffStatKey(entry));
+  const stat = statsByRow.get(pullRequestDiffStatLookupKey(entry, statsByRow));
   return stat === undefined ? entry : { ...entry, ...stat };
 }
 

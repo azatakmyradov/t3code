@@ -80,6 +80,7 @@ export type RightPanelSurface =
       environmentId?: string;
       projectId: string;
       host?: string;
+      expectedAccountId?: string | undefined;
       repository: string;
       number: number;
       url?: string;
@@ -159,6 +160,7 @@ interface RightPanelStoreState {
       environmentId?: string;
       projectId: string;
       host?: string;
+      expectedAccountId?: string | undefined;
       repository: string;
       number: number;
       url?: string;
@@ -268,6 +270,7 @@ export function pullRequestSurfaceId(target: {
   environmentId?: string;
   projectId: string;
   host?: string;
+  expectedAccountId?: string | undefined;
   repository: string;
   number: number;
 }): PullRequestSurface["id"] {
@@ -276,13 +279,18 @@ export function pullRequestSurfaceId(target: {
   const scope =
     target.environmentId === undefined ? "" : `${encodeURIComponent(target.environmentId)}:`;
   const host = target.host === undefined ? "" : `${encodeURIComponent(target.host.toLowerCase())}:`;
-  return `pull-request:${scope}${encodeURIComponent(target.projectId)}:${host}${encodeURIComponent(target.repository)}:${target.number}`;
+  const account =
+    target.expectedAccountId === undefined
+      ? ""
+      : `:account:${encodeURIComponent(target.expectedAccountId)}`;
+  return `pull-request:${scope}${encodeURIComponent(target.projectId)}:${host}${encodeURIComponent(target.repository)}:${target.number}${account}`;
 }
 
 export function pullRequestSurface(target: {
   environmentId?: string;
   projectId: string;
   host?: string;
+  expectedAccountId?: string | undefined;
   repository: string;
   number: number;
   url?: string;
@@ -293,6 +301,9 @@ export function pullRequestSurface(target: {
     ...(target.environmentId === undefined ? {} : { environmentId: target.environmentId }),
     projectId: target.projectId,
     ...(typeof target.host === "string" ? { host: target.host.toLowerCase() } : {}),
+    ...(typeof target.expectedAccountId === "string"
+      ? { expectedAccountId: target.expectedAccountId }
+      : {}),
     repository: target.repository,
     number: target.number,
     ...(typeof target.url === "string" ? { url: target.url } : {}),

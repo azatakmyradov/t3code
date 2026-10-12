@@ -65,6 +65,31 @@ describe("pull request review drafts", () => {
     expect(usePullRequestReviewStore.getState().summaries[publicKey]).toBe("Public review");
   });
 
+  it("keeps review comments and summaries isolated across an account switch in the same project", () => {
+    const reference = {
+      projectId: ProjectId.make("project-a"),
+      host: "github.com",
+      repository: "owner/repo",
+      number: 7,
+    };
+    const keyA = pullRequestReviewKey({ ...reference, expectedAccountId: "account-a" });
+    const keyB = pullRequestReviewKey({ ...reference, expectedAccountId: "account-b" });
+    const store = usePullRequestReviewStore.getState();
+    store.addComment(keyA, comment("account-a-draft"));
+    store.setSummary(keyA, "Account A review");
+    expect(usePullRequestReviewStore.getState().drafts[keyB]).toBeUndefined();
+    expect(usePullRequestReviewStore.getState().summaries[keyB]).toBeUndefined();
+    expect(
+      usePullRequestReviewStore.getState().summaries[pullRequestReviewKey(reference)],
+    ).toBeUndefined();
+    store.addComment(keyB, comment("account-b-draft"));
+    store.setSummary(keyB, "Account B review");
+    store.clear(keyB);
+    store.clearSummary(keyB, "Account B review");
+    expect(usePullRequestReviewStore.getState().drafts[keyA]).toEqual([comment("account-a-draft")]);
+    expect(usePullRequestReviewStore.getState().summaries[keyA]).toBe("Account A review");
+  });
+
   it("does not clear a summary revised while submission is in flight", () => {
     const store = usePullRequestReviewStore.getState();
     store.setSummary("review-a", "Submitted body");

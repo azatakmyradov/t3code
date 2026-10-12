@@ -1,5 +1,7 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeV8 from "node:v8";
+import * as NodeVM from "node:vm";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as KeyValueStore from "effect/persistence/KeyValueStore";
 import { assert, it } from "@effect/vitest";
@@ -2567,7 +2569,238 @@ it.effect("refuses Azure cross-organization reads and writes without its checkou
   }),
 );
 
-it.effect("refuses a hosted reference when nothing is checked out from that host", () =>
+it.effect.each([
+  ["github.com", "github"],
+  ["bitbucket.org", "bitbucket"],
+  ["codeberg.org", "forgejo"],
+] as const)("reads linked PR summaries and stacks on %s without a checkout", ([host, kind]) =>
+  Effect.gen(function* () {
+    const seen: Array<{ cwd: string; repository: string; host: string }> = [];
+    const service = yield* makeService({
+      projects: [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make(kind), {
+          getChangeRequestSummary: (input) =>
+            Effect.sync(() => {
+              seen.push({ cwd: input.cwd, repository: input.repository, host: input.host });
+              return changeRequest(7, "2026-07-02T00:00:00Z");
+            }),
+          getChangeRequestStack: (input) =>
+            Effect.sync(() => {
+              seen.push({ cwd: input.cwd, repository: input.repository, host: input.host });
+              return null;
+            }),
+        }),
+      ],
+    });
+    const reference = {
+      projectId: "inbox" as ProjectId,
+      host,
+      repository: "acme/api",
+      number: 7,
+    };
+    const summary = yield* service.summary(reference, { recoverTransientFailure: false });
+    const stack = yield* service.stack(reference, { includeDetails: false });
+    assert.strictEqual(summary.title, "Change request 7");
+    assert.strictEqual(summary.state, "open");
+    assert.strictEqual(summary.projectId, reference.projectId);
+    assert.strictEqual(stack, null);
+    assert.deepStrictEqual(seen, [
+      { cwd: "/home/alex", repository: "acme/api", host },
+      { cwd: "/home/alex", repository: "acme/api", host },
+    ]);
+  }),
+);
+
+it.effect("verifies and isolates expected accounts for linked PRs without a checkout", () =>
+  Effect.gen(function* () {
+    let accountId = "101";
+    const seen: Array<{ cwd: string; repository: string; host: string; accountId: string }> = [];
+    const verified: Array<{ cwd: string; host: string }> = [];
+    const service = yield* makeService({
+      projects: [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          withVerifiedCredential: (input, use) =>
+            Effect.suspend(() => {
+              verified.push(input);
+              return use({ accountId, viewer: accountId, credentialFingerprint: accountId });
+            }),
+          getChangeRequestSummary: (input) =>
+            Effect.sync(() => {
+              seen.push({
+                cwd: input.cwd,
+                repository: input.repository,
+                host: input.host,
+                accountId,
+              });
+              return { ...changeRequest(7, "2026-07-02T00:00:00Z"), title: accountId };
+            }),
+        }),
+      ],
+    });
+    const reference = {
+      projectId: "inbox" as ProjectId,
+      host: "github.com",
+      repository: "acme/api",
+      number: 7,
+      expectedAccountId: "101",
+    };
+    const read = (ref: typeof reference) =>
+      service.withRoutingCredential(ref, service.summary(ref, { recoverTransientFailure: false }));
+    assert.strictEqual((yield* read(reference)).title, "101");
+    assert.strictEqual((yield* read(reference)).title, "101");
+    accountId = "202";
+    const mismatch = yield* Effect.flip(read(reference));
+    assert.strictEqual(mismatch._tag, "PullRequestOperationError");
+    if (mismatch._tag === "PullRequestOperationError")
+      assert.strictEqual(mismatch.operation, "routeIdentity");
+    assert.strictEqual((yield* read({ ...reference, expectedAccountId: "202" })).title, "202");
+    assert.deepStrictEqual(seen, [
+      { cwd: "/home/alex", repository: "acme/api", host: "github.com", accountId: "101" },
+      { cwd: "/home/alex", repository: "acme/api", host: "github.com", accountId: "202" },
+    ]);
+    assert.deepStrictEqual(
+      verified,
+      Array.from({ length: 4 }, () => ({ cwd: "/home/alex", host: "github.com" })),
+    );
+  }),
+);
+
+it.effect("rejects a deleted fallback project before serving its cached linked PR", () =>
+  Effect.gen(function* () {
+    const projects = [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })];
+    let reads = 0;
+    let verifications = 0;
+    const service = yield* makeService({
+      projects,
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          withVerifiedCredential: (_, use) =>
+            Effect.suspend(() => {
+              verifications++;
+              return use({ accountId: "101", viewer: "alex", credentialFingerprint: "101" });
+            }),
+          getChangeRequestSummary: () =>
+            Effect.sync(() => {
+              reads++;
+              return changeRequest(7, "2026-07-02T00:00:00Z");
+            }),
+        }),
+      ],
+    });
+    const reference = {
+      projectId: "inbox" as ProjectId,
+      host: "github.com",
+      repository: "acme/api",
+      number: 7,
+      expectedAccountId: "101",
+    };
+    yield* service.summary(reference);
+    projects.splice(0);
+    const error = yield* Effect.flip(service.summary(reference));
+    assert.strictEqual(error._tag, "PullRequestUnavailableError");
+    assert.strictEqual(reads, 1);
+    assert.strictEqual(verifications, 1);
+  }),
+);
+
+it.effect("prefers a matching checkout over a non-repository project's directory", () =>
+  Effect.gen(function* () {
+    const seen: string[] = [];
+    const service = yield* makeService({
+      projects: [
+        project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" }),
+        project({ id: "repo", title: "API", workspaceRoot: "/api", repository: "acme/api" }),
+      ],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          getChangeRequestSummary: (input) =>
+            Effect.sync(() => {
+              seen.push(input.cwd);
+              return changeRequest(7, "2026-07-02T00:00:00Z");
+            }),
+        }),
+      ],
+    });
+    yield* service.summary(
+      {
+        projectId: "inbox" as ProjectId,
+        host: "github.com",
+        repository: "acme/api",
+        number: 7,
+      },
+      { recoverTransientFailure: false },
+    );
+    assert.deepStrictEqual(seen, ["/api"]);
+  }),
+);
+
+it.effect("requires an explicit host for a non-repository project's linked PR", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })],
+      providers: [fakeProvider(SourceControlProviderKind.make("github"))],
+    });
+    const error = yield* service
+      .summary(
+        {
+          projectId: "inbox" as ProjectId,
+          repository: "acme/api",
+          number: 7,
+        },
+        { recoverTransientFailure: false },
+      )
+      .pipe(Effect.flip);
+    assert.strictEqual(error._tag, "PullRequestUnavailableError");
+  }),
+);
+
+it.effect("refuses a public host reference without a selected project directory", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [],
+      providers: [fakeProvider(SourceControlProviderKind.make("github"))],
+    });
+    const error = yield* service
+      .summary(
+        {
+          projectId: "missing" as ProjectId,
+          host: "github.com",
+          repository: "acme/api",
+          number: 7,
+        },
+        { recoverTransientFailure: false },
+      )
+      .pipe(Effect.flip);
+    assert.strictEqual(error._tag, "PullRequestUnavailableError");
+  }),
+);
+
+it.effect(
+  "requires a checkout for GitLab because its adapter does not explicitly target the host",
+  () =>
+    Effect.gen(function* () {
+      const service = yield* makeService({
+        projects: [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })],
+        providers: [fakeProvider(SourceControlProviderKind.make("gitlab"))],
+      });
+      const error = yield* service
+        .summary(
+          {
+            projectId: "inbox" as ProjectId,
+            host: "gitlab.com",
+            repository: "acme/api",
+            number: 7,
+          },
+          { recoverTransientFailure: false },
+        )
+        .pipe(Effect.flip);
+      assert.strictEqual(error._tag, "PullRequestUnavailableError");
+    }),
+);
+
+it.effect("refuses a hosted reference when its provider is unavailable", () =>
   Effect.gen(function* () {
     const service = yield* makeService({
       projects: [
@@ -6056,6 +6289,41 @@ it.effect("caches a small replacement after releasing a large diff", () =>
   }),
 );
 
+it.effect("releases an expired diff nobody reads again", () =>
+  Effect.gen(function* () {
+    NodeV8.setFlagsFromString("--expose-gc");
+    const collect = NodeVM.runInNewContext("gc") as () => void;
+    const settle = Effect.promise(async () => {
+      // A weak reference keeps its target for the rest of the job that created it.
+      await new Promise((resolve) => setImmediate(resolve));
+      collect();
+    });
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/a", repository: "acme/web" })],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          getDiff: () => Effect.sync(() => ({ patch: "@@", truncated: false, nextCursor: null })),
+        }),
+      ],
+    });
+    const reference = { projectId: "p1" as ProjectId, repository: "acme/web", number: 1 };
+    const read = (input: Parameters<typeof service.diff>[0]) =>
+      Effect.map(service.diff(input), (result) => new WeakRef(result));
+    const page = yield* read(reference);
+    const commit = yield* read({ ...reference, commit: "a".repeat(40) });
+
+    yield* TestClock.adjust("9 minutes");
+    yield* settle;
+    assert.isDefined(page.deref());
+    assert.isDefined(commit.deref());
+
+    yield* TestClock.adjust("2 minutes");
+    yield* settle;
+    assert.isUndefined(page.deref());
+    assert.isUndefined(commit.deref());
+  }),
+);
+
 const environmentViewedProvider = (
   revisions: Map<string, string>,
   asked: Array<ReadonlyArray<string>>,
@@ -7486,88 +7754,104 @@ it.effect.each([
     }),
 );
 
-it.effect("isolates repository viewers, batches, and listing caches by verified credential", () =>
-  Effect.gen(function* () {
-    const account = Context.Reference<string>("test/listingAccount", {
-      defaultValue: () => "unverified",
-    });
-    const selected = new Map([
-      ["/personal", "personal"],
-      ["/work", "work"],
-      ["/work-copy", "work"],
-    ]);
-    const batches: Array<{ viewer: string; repositories: ReadonlyArray<string> }> = [];
-    const service = yield* makeService({
-      projects: [
-        project({
-          id: "personal",
-          title: "personal",
-          workspaceRoot: "/personal",
-          repository: "acme/shared",
-        }),
-        project({ id: "work", title: "work", workspaceRoot: "/work", repository: "acme/shared" }),
-        project({
-          id: "copy",
-          title: "work copy",
-          workspaceRoot: "/work-copy",
-          repository: "acme/shared",
-        }),
-      ],
-      providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
-          getViewer: () =>
-            Effect.die("a host-wide viewer must not replace a verified checkout identity"),
-          withVerifiedCredential: ({ cwd }, use) =>
-            Effect.suspend(() => {
-              const viewer = selected.get(cwd)!;
-              return use({
-                accountId: viewer,
-                viewer,
-                credentialFingerprint: `token-${viewer}`,
-              }).pipe(Effect.provideService(account, viewer));
-            }),
-          listChangeRequestsAcross: (input) =>
-            Effect.gen(function* () {
-              const viewer = yield* account;
-              assert.strictEqual(input.viewer, viewer);
-              batches.push({ viewer, repositories: input.repositories });
-              return {
-                items: input.repositories.map((repository) => ({
-                  ...changeRequest(1, "2026-07-02T00:00:00Z"),
-                  repository,
-                  author: { login: viewer, name: null, avatarUrl: null },
-                })),
-                truncated: false,
-              };
-            }),
-        }),
-      ],
-    });
-    const input = {
-      state: "open" as const,
-      involvement: "authored" as const,
-      filters: { author: "me" },
-    };
-    const first = yield* service.list(input);
-    assert.deepStrictEqual(
-      first.entries.map((entry) => [entry.projectId, entry.viewer, entry.author?.login]),
-      [
-        ["personal", "personal", "personal"],
-        ["work", "work", "work"],
-      ],
-    );
-    assert.strictEqual(first.providers.length, 1);
-    assert.strictEqual(batches.length, 2);
-    yield* service.list(input);
-    assert.strictEqual(batches.length, 2);
-    selected.set("/personal", "new-personal");
-    const switched = yield* service.list(input);
-    assert.strictEqual(
-      switched.entries.find((entry) => entry.projectId === "personal")?.viewer,
-      "new-personal",
-    );
-    assert.strictEqual(batches.length, 4);
-  }),
+it.effect.each(["repository", "batch"] as const)(
+  "isolates repository viewers, %s listings, and listing caches by verified credential",
+  (listing) =>
+    Effect.gen(function* () {
+      const account = Context.Reference<string>("test/listingAccount", {
+        defaultValue: () => "unverified",
+      });
+      const selected = new Map([
+        ["/personal", "personal"],
+        ["/work", "work"],
+        ["/work-copy", "work"],
+      ]);
+      const batches: Array<{ viewer: string; repositories: ReadonlyArray<string> }> = [];
+      const read = (input: { viewer: string; repositories: ReadonlyArray<string> }) =>
+        Effect.gen(function* () {
+          const viewer = yield* account;
+          assert.strictEqual(input.viewer, viewer);
+          batches.push({ viewer, repositories: input.repositories });
+          return {
+            items: input.repositories.map((repository) => ({
+              ...changeRequest(1, "2026-07-02T00:00:00Z"),
+              repository,
+              author: { login: viewer, name: null, avatarUrl: null },
+            })),
+            truncated: false,
+            continues: false,
+          };
+        });
+      const service = yield* makeService({
+        projects: [
+          project({
+            id: "personal",
+            title: "personal",
+            workspaceRoot: "/personal",
+            repository: "acme/shared",
+          }),
+          project({ id: "work", title: "work", workspaceRoot: "/work", repository: "acme/shared" }),
+          project({
+            id: "copy",
+            title: "work copy",
+            workspaceRoot: "/work-copy",
+            repository: "acme/shared",
+          }),
+        ],
+        providers: [
+          fakeProvider(SourceControlProviderKind.make("github"), {
+            getViewer: () =>
+              Effect.die("a host-wide viewer must not replace a verified checkout identity"),
+            withVerifiedCredential: ({ cwd }, use) =>
+              Effect.suspend(() => {
+                const viewer = selected.get(cwd)!;
+                return use({
+                  accountId: `id-${viewer}`,
+                  viewer,
+                  credentialFingerprint: `token-${viewer}`,
+                }).pipe(Effect.provideService(account, viewer));
+              }),
+            listChangeRequests: (input) =>
+              read({ viewer: input.viewer, repositories: [input.repository] }),
+            ...(listing === "batch" ? { listChangeRequestsAcross: read } : {}),
+          }),
+        ],
+      });
+      const input = {
+        state: "open" as const,
+        involvement: "authored" as const,
+        filters: { author: "me" },
+      };
+      const first = yield* service.list(input);
+      assert.deepStrictEqual(
+        first.entries.map((entry) => [
+          entry.projectId,
+          entry.viewer,
+          entry.author?.login,
+          entry.expectedAccountId,
+        ]),
+        [
+          ["personal", "personal", "personal", "id-personal"],
+          ["work", "work", "work", "id-work"],
+        ],
+      );
+      assert.strictEqual(first.providers.length, 1);
+      assert.strictEqual(batches.length, 2);
+      yield* service.list(input);
+      assert.strictEqual(batches.length, 2);
+      selected.set("/personal", "new-personal");
+      const switched = yield* service.list(input);
+      assert.strictEqual(
+        switched.entries.find((entry) => entry.projectId === "personal")?.viewer,
+        "new-personal",
+      );
+      assert.strictEqual(
+        switched.entries.find((entry) => entry.projectId === "personal")?.expectedAccountId,
+        "id-new-personal",
+      );
+      assert.ok(!JSON.stringify(switched).includes("token-"));
+      assert.strictEqual(batches.length, 4);
+    }),
 );
 
 it.effect("keeps a failed checkout identity from hiding another account on the same host", () =>
@@ -7755,15 +8039,85 @@ it.effect("scopes stats caches and mutations to the verified checkout account", 
       { projectId: "a" as ProjectId, repository: "acme/a", number: 1 },
       { projectId: "b" as ProjectId, repository: "acme/b", number: 1 },
     ];
-    assert.strictEqual((yield* service.listStats({ refs })).stats.length, 2);
-    yield* service.listStats({ refs });
+    const firstStats = (yield* service.listStats({ refs })).stats;
+    assert.deepStrictEqual(
+      firstStats.map((stat) => [stat.projectId, stat.host, stat.expectedAccountId, stat.additions]),
+      [
+        ["a", "github.com", "a", 1],
+        ["b", "github.com", "b", 2],
+      ],
+    );
+    assert.deepStrictEqual((yield* service.listStats({ refs })).stats, firstStats);
     assert.deepStrictEqual(statsCalls.toSorted(), ["a", "b"]);
     selected.set("/a", "new-a");
-    yield* service.listStats({ refs });
+    const switchedStats = (yield* service.listStats({ refs })).stats;
+    assert.deepStrictEqual(
+      switchedStats.map((stat) => [
+        stat.projectId,
+        stat.host,
+        stat.expectedAccountId,
+        stat.additions,
+      ]),
+      [
+        ["a", "github.com", "new-a", 2],
+        ["b", "github.com", "b", 2],
+      ],
+    );
     assert.deepStrictEqual(statsCalls.toSorted(), ["a", "b", "new-a"]);
+    assert.deepStrictEqual(
+      (yield* service.listStats({ refs: [{ ...refs[0]!, expectedAccountId: "a" }] })).stats,
+      [],
+    );
     yield* service.runAction({ ...refs[0]!, action: "close" });
     assert.strictEqual(actedAs, "new-a");
   }),
+);
+
+it.effect.each(["stale-first", "current-first"] as const)(
+  "keeps mixed-account stats for one checkout isolated with %s ordering",
+  (order) =>
+    Effect.gen(function* () {
+      const reads: number[][] = [];
+      const service = yield* makeService({
+        projects: [
+          project({ id: "p1", title: "web", workspaceRoot: "/web", repository: "acme/web" }),
+        ],
+        providers: [
+          fakeProvider(SourceControlProviderKind.make("github"), {
+            withVerifiedCredential: (_, use) =>
+              use({ accountId: "202", viewer: "work", credentialFingerprint: "work-token" }),
+            listChangeRequestStats: ({ changeRequests }) =>
+              Effect.sync(() => {
+                reads.push(changeRequests.map((ref) => ref.number));
+                return changeRequests.map((ref) => ({
+                  ...ref,
+                  additions: ref.number,
+                  deletions: 0,
+                }));
+              }),
+          }),
+        ],
+      });
+      const reference = {
+        projectId: "p1" as ProjectId,
+        repository: "acme/web",
+        host: "github.com",
+      };
+      const stale = { ...reference, number: 1, expectedAccountId: "101" };
+      const current = [
+        { ...reference, number: 2, expectedAccountId: "202" },
+        { ...reference, number: 3, expectedAccountId: "202" },
+      ];
+      const refs = order === "stale-first" ? [stale, ...current] : [...current, stale];
+      const result = yield* service.listStats({ refs });
+      assert.deepStrictEqual(reads, [[2, 3]]);
+      assert.deepStrictEqual(
+        result.stats,
+        current.map((ref) => ({ ...ref, additions: ref.number, deletions: 0 })),
+      );
+      assert.deepStrictEqual((yield* service.listStats({ refs })).stats, result.stats);
+      assert.deepStrictEqual(reads, [[2, 3]]);
+    }),
 );
 
 it.effect("discovers a requested account across checkouts without exposing project metadata", () =>

@@ -1,8 +1,12 @@
-import { SourceControlProviderKind } from "@t3tools/contracts";
+import { EnvironmentId, SourceControlProviderKind } from "@t3tools/contracts";
 import { ProjectId, type PullRequestSummary } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { newestPullRequestObservation, newestPullRequestSummary } from "./pullRequests";
+import {
+  newestPullRequestObservation,
+  newestPullRequestSummary,
+  pullRequestSummaryKey,
+} from "./pullRequests";
 
 function summary(overrides: Partial<PullRequestSummary> = {}): PullRequestSummary {
   return {
@@ -30,6 +34,35 @@ const observed = (value: PullRequestSummary, observedAt: number) => ({
 });
 
 describe("pull request summary cache", () => {
+  it("does not share status observations across accounts or hosts", () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const accountA = {
+      projectId: ProjectId.make("project-1"),
+      host: "github.com",
+      repository: "acme/widget",
+      number: 7,
+      expectedAccountId: "account-a",
+    };
+    const keyA = pullRequestSummaryKey(environmentId, accountA);
+    const observations = new Map([[keyA, observed(summary(), 100)]]);
+    expect(
+      observations.get(
+        pullRequestSummaryKey(environmentId, { ...accountA, expectedAccountId: "account-b" }),
+      ),
+    ).toBeUndefined();
+    expect(
+      observations.get(
+        pullRequestSummaryKey(environmentId, { ...accountA, expectedAccountId: undefined }),
+      ),
+    ).toBeUndefined();
+    expect(
+      observations.get(
+        pullRequestSummaryKey(environmentId, { ...accountA, host: "github.example.com" }),
+      ),
+    ).toBeUndefined();
+    expect(pullRequestSummaryKey(environmentId, { ...accountA, host: "GITHUB.COM" })).toBe(keyA);
+  });
+
   it("orders same-dated snapshots by the server's read time, not by arrival", () => {
     const stale = observed(summary({ observedAt: 200 }), 500);
     const held = observed(

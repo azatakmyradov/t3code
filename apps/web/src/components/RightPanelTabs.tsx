@@ -779,6 +779,9 @@ function PullRequestSurfaceIcon({
           environmentId: resolvedEnvironmentId,
           input: {
             projectId: surface.projectId as ProjectId,
+            ...(surface.expectedAccountId === undefined
+              ? {}
+              : { expectedAccountId: surface.expectedAccountId }),
             ...(capabilities?.threadPullRequests === true && surface.host !== undefined
               ? { host: surface.host }
               : {}),
@@ -790,10 +793,14 @@ function PullRequestSurfaceIcon({
   const reference = useMemo(
     () => ({
       projectId: surface.projectId as ProjectId,
+      ...(host === null ? {} : { host }),
+      ...(surface.expectedAccountId === undefined
+        ? {}
+        : { expectedAccountId: surface.expectedAccountId }),
       repository: surface.repository,
       number: surface.number,
     }),
-    [surface.projectId, surface.repository, surface.number],
+    [surface.projectId, surface.repository, surface.number, host, surface.expectedAccountId],
   );
   const sharedSummary = useSharedPullRequestSummary(resolvedEnvironmentId, reference, null);
   // The compact tab intentionally shows lifecycle and draft state only. Conflict warnings have

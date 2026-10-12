@@ -3,6 +3,7 @@
 import { act, type ComponentProps } from "react";
 import {
   EnvironmentId,
+  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
@@ -19,7 +20,7 @@ import {
 import { TooltipProvider } from "../ui/tooltip";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { ProviderUsageSection } from "./ProviderUsageSection";
-import { selectConfiguredUsageProviders } from "./providerUsage.logic";
+import { deriveUsageProviderEntries, selectConfiguredUsageProviders } from "./providerUsage.logic";
 import { useProviderUsagePreferencesStore } from "../../providerUsagePreferencesStore";
 
 vi.mock("../../hooks/useNowMinute", () => ({ useNowMinute: () => "2026-10-10T12:00" }));
@@ -549,10 +550,11 @@ it("honors settings disable immediately while the previous ready snapshot still 
   const snapshots = deriveProviderInstanceEntries([codex]);
   const disabled = {
     providerInstances: { [codex.instanceId]: { driver: codex.driver, enabled: false } },
+    projectSettingsOverrides: {},
   };
   await render({
     providers: selectConfiguredUsageProviders(
-      applyProviderInstanceSettings(snapshots, disabled),
+      applyProviderInstanceSettings(snapshots, disabled, null),
       disabled,
     ),
   });
@@ -560,14 +562,51 @@ it("honors settings disable immediately while the previous ready snapshot still 
   expect(host.querySelector('[role="progressbar"]')).toBeNull();
   const enabled = {
     providerInstances: { [codex.instanceId]: { driver: codex.driver, enabled: true } },
+    projectSettingsOverrides: {},
   };
   await render({
     providers: selectConfiguredUsageProviders(
-      applyProviderInstanceSettings(snapshots, enabled),
+      applyProviderInstanceSettings(snapshots, enabled, null),
       enabled,
     ),
   });
   expect(group("codex").textContent).toContain("88%");
+});
+
+it("keeps machine-wide quotas visible while project model availability changes", async () => {
+  const projectId = ProjectId.make("project-with-overrides");
+  const settings = {
+    providerInstances: {
+      [codex.instanceId]: { driver: codex.driver, enabled: true },
+      [personal.instanceId]: { driver: personal.driver, enabled: false },
+    },
+    projectSettingsOverrides: {
+      [projectId]: {
+        providerInstances: {
+          [codex.instanceId]: { enabled: false },
+          [personal.instanceId]: { enabled: true },
+        },
+      },
+    },
+  };
+  const snapshots = [codex, personal];
+  const projectEntries = applyProviderInstanceSettings(
+    deriveProviderInstanceEntries(snapshots),
+    settings,
+    projectId,
+  );
+  expect(projectEntries.map((entry) => [entry.instanceId, entry.enabled])).toEqual([
+    [codex.instanceId, false],
+    [personal.instanceId, true],
+  ]);
+  await render({ providers: deriveUsageProviderEntries(snapshots, settings) });
+  expect(group("codex").textContent).toContain("88%");
+  expect(host.querySelector('[data-provider-usage-instance="codex-personal"]')).toBeNull();
+  await render({
+    providers: deriveUsageProviderEntries(snapshots, { ...settings, projectSettingsOverrides: {} }),
+  });
+  expect(group("codex").textContent).toContain("88%");
+  expect(host.querySelector('[data-provider-usage-instance="codex-personal"]')).toBeNull();
 });
 
 it("keeps the narrow card open through quota details, visibility changes and recovery", async () => {

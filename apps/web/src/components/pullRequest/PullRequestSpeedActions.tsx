@@ -15,7 +15,14 @@ import {
 
 type PullRequestSpeedActionEntry = Pick<
   EnvironmentPullRequestEntry,
-  "environmentId" | "projectId" | "host" | "repository" | "number" | "state" | "isDraft"
+  | "environmentId"
+  | "projectId"
+  | "host"
+  | "expectedAccountId"
+  | "repository"
+  | "number"
+  | "state"
+  | "isDraft"
 > & { readonly stack?: object | undefined };
 
 export interface PullRequestSpeedActionResult<Entry = EnvironmentPullRequestEntry> {
@@ -52,6 +59,9 @@ export function PullRequestSpeedActions<Entry extends PullRequestSpeedActionEntr
   const reference = {
     projectId: entry.projectId,
     host: entry.host,
+    ...(entry.expectedAccountId === undefined
+      ? {}
+      : { expectedAccountId: entry.expectedAccountId }),
     repository: entry.repository,
     number: entry.number,
   };
