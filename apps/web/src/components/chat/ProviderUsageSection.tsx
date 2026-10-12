@@ -93,10 +93,10 @@ function ProviderQuotaGroup({
     unavailable !== null
       ? `${label}: ${unavailable}`
       : [
-          `${label} subscription usage.`,
+          `${label} subscription quota remaining.`,
           ...quota.windows.map(
             (window) =>
-              `${window.label}: ${window.usedPercent === null ? "awaiting refreshed usage" : `${formatStatusPercent(window.usedPercent)} used`}.`,
+              `${window.label}: ${window.remainingPercent === null ? "awaiting refreshed usage" : `${formatStatusPercent(window.remainingPercent)} left`}.`,
           ),
           quota.stale ? "Last reported usage; refresh failed." : "",
         ]
@@ -117,7 +117,7 @@ function ProviderQuotaGroup({
               acpRegistryAgentId={entry.acpRegistryAgentId}
               acpRegistryIconUrl={entry.acpRegistryIconUrl}
               showBadge={!entry.isDefault}
-              iconClassName="size-5"
+              iconClassName="size-4"
             />
             {quota.stale && unavailable === null ? (
               <span className="absolute -top-1 -left-1 size-1.5 rounded-full bg-warning" />
@@ -134,12 +134,15 @@ function ProviderQuotaGroup({
                 <span
                   key={window.id}
                   className={
-                    window.usedPercent !== null && window.usedPercent >= 90
+                    window.remainingPercent !== null && window.remainingPercent <= 10
                       ? "text-warning"
                       : undefined
                   }
                 >
-                  {formatStatusPercent(window.usedPercent)}
+                  {formatStatusPercent(window.remainingPercent)}
+                  {window.remainingPercent !== null ? (
+                    <span className="ml-0.5 text-3xs font-normal text-muted-foreground">left</span>
+                  ) : null}
                 </span>
               ))
             )}
@@ -166,40 +169,43 @@ function ProviderQuotaGroup({
               <p className="text-muted-foreground">{unavailable}</p>
             ) : (
               <>
-                <p className="text-2xs text-muted-foreground">Subscription quota used</p>
+                <p className="text-2xs text-muted-foreground">Subscription quota left</p>
                 {quota.windows.map((window) => {
-                  const percent = formatStatusPercent(window.usedPercent);
+                  const percent = formatStatusPercent(window.remainingPercent);
                   return (
                     <div key={window.id} className="space-y-1">
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-medium">{window.label}</span>
-                        <span className="font-semibold tabular-nums">{percent}</span>
+                        <span className="font-semibold tabular-nums">
+                          {percent}
+                          {window.remainingPercent !== null ? " left" : ""}
+                        </span>
                       </div>
                       <span
                         role="progressbar"
-                        aria-label={`${label} · ${window.label} quota used`}
+                        aria-label={`${label} · ${window.label} quota remaining`}
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        aria-valuenow={window.usedPercent ?? undefined}
+                        aria-valuenow={window.remainingPercent ?? undefined}
                         aria-valuetext={
-                          window.usedPercent === null
+                          window.remainingPercent === null
                             ? "Awaiting refreshed usage"
-                            : `${percent} used`
+                            : `${percent} left`
                         }
                         className="block h-1 w-full overflow-hidden rounded-full bg-muted-foreground/15"
                       >
-                        {window.usedPercent !== null ? (
+                        {window.remainingPercent !== null ? (
                           <span
                             className={
-                              window.usedPercent >= 90
+                              window.remainingPercent <= 10
                                 ? "block h-full bg-warning"
                                 : "block h-full bg-muted-foreground/60"
                             }
-                            style={{ width: `${window.usedPercent}%` }}
+                            style={{ width: `${window.remainingPercent}%` }}
                           />
                         ) : null}
                       </span>
-                      {window.usedPercent === null ? (
+                      {window.remainingPercent === null ? (
                         <p className="text-muted-foreground">Awaiting refreshed usage</p>
                       ) : null}
                       {window.resetsAt ? (

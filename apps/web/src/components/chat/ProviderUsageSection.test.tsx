@@ -153,13 +153,13 @@ function threadUsage() {
 
 it("shows every account and model-specific quota bucket independently of model selection", async () => {
   await render();
-  expect(group("codex").textContent).toContain("12%");
-  expect(group("codex-personal").textContent).toContain("34%");
+  expect(group("codex").textContent).toContain("88%");
+  expect(group("codex-personal").textContent).toContain("66%");
   expect(trigger("claude-work").getAttribute("aria-label")).toContain(
-    "Weekly · Opus: 71% used. Weekly · Sonnet: 84% used.",
+    "Weekly · Opus: 29% left. Weekly · Sonnet: 16% left.",
   );
-  expect(group("claude-work").textContent).toContain("56%71%+1");
-  expect(group("claude-work").textContent).not.toContain("84%");
+  expect(group("claude-work").textContent).toContain("44%left29%left+1");
+  expect(group("claude-work").textContent).not.toContain("16%");
   expect(threadUsage()?.textContent).toContain("Context5%");
   for (const element of host.querySelectorAll("[data-provider-usage-instance]")) {
     expect(element.textContent).not.toMatch(/Context|Turn average/);
@@ -175,10 +175,10 @@ it("shows every account and model-specific quota bucket independently of model s
   await render({ selectedModel: { ...selectedModel, model: "claude-sonnet-5-5" } });
   expect(threadUsage()).toBeNull();
   expect(trigger("claude-work").getAttribute("aria-label")).toContain(
-    "Weekly · Opus: 71% used. Weekly · Sonnet: 84% used.",
+    "Weekly · Opus: 29% left. Weekly · Sonnet: 16% left.",
   );
-  expect(group("claude-work").textContent).toContain("56%71%+1");
-  expect(group("claude-work").textContent).not.toContain("84%");
+  expect(group("claude-work").textContent).toContain("44%left29%left+1");
+  expect(group("claude-work").textContent).not.toContain("16%");
   await render();
   expect(threadUsage()?.textContent).toContain("Context5%");
   expect(threadUsage()?.querySelector('[role="group"]')?.getAttribute("aria-label")).toContain(
@@ -197,24 +197,82 @@ it("shows context only when it has a valid selected-model value, without a turn-
   expect(threadUsage()?.textContent).toBe("Context0%");
 });
 
+it.each([
+  [0, 100],
+  [89, 11],
+  [90, 10],
+  [100, 0],
+  [-5, 100],
+  [105, 0],
+])(
+  "shows %s used as %s left consistently in the summary and accessible meter",
+  async (used, remaining) => {
+    await render({ providers: deriveProviderInstanceEntries([provider("codex", "Codex", used!)]) });
+    expect(trigger("codex").textContent).toBe(`${remaining}%left`);
+    expect(trigger("codex").getAttribute("aria-label")).toContain(`${remaining}% left`);
+    expect(trigger("codex").querySelector(".text-warning") !== null).toBe(remaining! <= 10);
+    const popup = await openDetails("codex");
+    expect(popup.textContent).toContain(`${remaining}% left`);
+    const meter = popup.querySelector<HTMLElement>('[role="progressbar"]')!;
+    expect(meter.getAttribute("aria-label")).toBe("Codex · Session quota remaining");
+    expect(meter.getAttribute("aria-valuenow")).toBe(String(remaining));
+    expect(meter.getAttribute("aria-valuetext")).toBe(`${remaining}% left`);
+    expect((meter.firstElementChild as HTMLElement).style.width).toBe(`${remaining}%`);
+  },
+);
+
+it("does not turn unknown quota into a full remaining allowance", async () => {
+  await render({
+    providers: deriveProviderInstanceEntries([provider("codex", "Codex", Number.NaN)]),
+  });
+  expect(trigger("codex").textContent).toBe("—");
+  const popup = await openDetails("codex");
+  expect(popup.textContent).not.toContain("100%");
+  const meter = popup.querySelector('[role="progressbar"]')!;
+  expect(meter.getAttribute("aria-valuenow")).toBeNull();
+  expect(meter.getAttribute("aria-valuetext")).toBe("Awaiting refreshed usage");
+});
+
+it("keeps a provider's no-limit explanation without inventing a remaining percentage", async () => {
+  await render({
+    providers: deriveProviderInstanceEntries([
+      {
+        ...codex,
+        usageLimits: {
+          checkedAt: "2026-10-10T11:59:00Z",
+          windows: [],
+          unavailable: {
+            reason: "unsupported",
+            message: "This account has no subscription usage limit.",
+          },
+        },
+      },
+    ]),
+  });
+  expect(trigger("codex").textContent).toBe("—");
+  const popup = await openDetails("codex");
+  expect(popup.textContent).toContain("This account has no subscription usage limit.");
+  expect(popup.querySelector('[role="progressbar"]')).toBeNull();
+});
+
 it("keeps duplicate labels and same-driver accounts distinct through updates and removal", async () => {
   const sameName = { ...personal, displayName: "Codex" };
   await render({ providers: deriveProviderInstanceEntries([codex, sameName]) });
   expect(trigger("codex").getAttribute("aria-label")).toContain(
-    "Codex subscription usage. Session: 12% used.",
+    "Codex subscription quota remaining. Session: 88% left.",
   );
   // Instance display resolution humanizes a custom id when the server only gives the driver label.
   expect(trigger("codex-personal").getAttribute("aria-label")).toContain(
-    "Codex Personal subscription usage. Session: 34% used.",
+    "Codex Personal subscription quota remaining. Session: 66% left.",
   );
   const renamed = { ...codex, displayName: "Shared name" };
   const renamedPersonal = { ...personal, displayName: "Shared name" };
   await render({ providers: deriveProviderInstanceEntries([renamedPersonal, renamed]) });
   expect(trigger("codex").getAttribute("aria-label")).toContain(
-    "Shared name (codex) subscription usage. Session: 12% used.",
+    "Shared name (codex) subscription quota remaining. Session: 88% left.",
   );
   expect(trigger("codex-personal").getAttribute("aria-label")).toContain(
-    "Shared name (codex-personal) subscription usage. Session: 34% used.",
+    "Shared name (codex-personal) subscription quota remaining. Session: 66% left.",
   );
   await render({
     providers: deriveProviderInstanceEntries([{ ...personal, usageLimits: undefined }]),
@@ -223,14 +281,14 @@ it("keeps duplicate labels and same-driver accounts distinct through updates and
   expect(trigger("codex-personal").getAttribute("aria-label")).toContain(
     "Codex Personal: No subscription usage",
   );
-  expect(host.textContent).not.toMatch(/12%|34%/);
+  expect(host.textContent).not.toMatch(/88%|66%/);
 });
 
 it("retains all providers in multi-model mode but never assigns thread metrics to every account", async () => {
   await render({ multipleModels: true });
   expect(host.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(3);
   expect(threadUsage()).toBeNull();
-  expect(group("codex").textContent).toContain("12%");
+  expect(group("codex").textContent).toContain("88%");
   await render({ showContext: false });
   expect(threadUsage()).toBeNull();
 });
@@ -246,11 +304,11 @@ it("omits disabled providers and shows enabled unavailable instances without cac
   expect(trigger("claude-work").getAttribute("aria-label")).toContain(
     "Claude Work: This provider is unavailable",
   );
-  expect(group("claude-work").textContent).not.toMatch(/56%|71%|84%/);
+  expect(group("claude-work").textContent).not.toMatch(/44%|29%|16%/);
   expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
   expect(threadUsage()).toBeNull();
   await render();
-  expect(group("codex").textContent).toContain("12%");
+  expect(group("codex").textContent).toContain("88%");
 });
 
 it("explains unavailable summaries and supports keyboard dismissal and reopening", async () => {
@@ -282,9 +340,9 @@ it("keeps every bucket, reset and report time in the compact summary's details",
   await render();
   const popup = await openDetails("claude-work");
   expect(popup.textContent).toContain("Claude Work");
-  expect(popup.textContent).toContain("Subscription quota used");
-  expect(popup.textContent).toContain("Weekly · Opus71%");
-  expect(popup.textContent).toContain("Weekly · Sonnet84%");
+  expect(popup.textContent).toContain("Subscription quota left");
+  expect(popup.textContent).toContain("Weekly · Opus29% left");
+  expect(popup.textContent).toContain("Weekly · Sonnet16% left");
   expect(popup.querySelectorAll('[role="progressbar"]')).toHaveLength(3);
   expect(popup.textContent).toContain("Last reported");
   expect(popup.textContent).toContain(
@@ -298,12 +356,12 @@ it("keeps every bucket, reset and report time in the compact summary's details",
 it("updates an open account detail on disconnect and removes it when the account is hidden", async () => {
   await render();
   await openDetails("claude-work");
-  expect(details()?.textContent).toContain("71%");
+  expect(details()?.textContent).toContain("29%");
   await render({ disconnected: true });
   expect(details()?.textContent).toContain("Reconnect to see this provider's usage limits.");
-  expect(details()?.textContent).not.toMatch(/56%|71%|84%/);
+  expect(details()?.textContent).not.toMatch(/44%|29%|16%/);
   await render();
-  expect(details()?.textContent).toContain("71%");
+  expect(details()?.textContent).toContain("29%");
   await act(async () =>
     useProviderUsagePreferencesStore.getState().setHidden(environmentId, claude.instanceId, true),
   );
@@ -315,11 +373,11 @@ it("clears every account on disconnect and restores only its current report on r
   await render();
   await render({ disconnected: true });
   expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
-  expect(host.textContent).not.toMatch(/12%|34%|56%|71%|84%/);
+  expect(host.textContent).not.toMatch(/88%|66%|44%|29%|16%/);
   expect(threadUsage()).toBeNull();
   await render({ providers: deriveProviderInstanceEntries([provider("codex", "Codex", 2)]) });
-  expect(group("codex").textContent).toContain("2%");
-  expect(host.textContent).not.toMatch(/12%|34%|56%/);
+  expect(group("codex").textContent).toContain("98%");
+  expect(host.textContent).not.toMatch(/88%|66%|44%/);
 });
 
 it("keeps failed refreshes visibly stale and expired buckets unknown", async () => {
@@ -369,7 +427,7 @@ it("moves outside the composer and survives card closing and switching to a popo
     expect(host.textContent).toBe("");
     await render();
     expect(popover.textContent).toBe("");
-    expect(group("codex").textContent).toContain("12%");
+    expect(group("codex").textContent).toContain("88%");
   } finally {
     popover.remove();
   }
@@ -394,10 +452,10 @@ it("removes a deleted custom account before stale server snapshots reconcile", a
       },
     }),
   });
-  expect(group("codex-personal").textContent).toContain("34%");
+  expect(group("codex-personal").textContent).toContain("66%");
   await render({ providers: selectConfiguredUsageProviders(entries, { providerInstances: {} }) });
   expect(host.querySelector('[data-provider-usage-instance="codex-personal"]')).toBeNull();
-  expect(group("codex").textContent).toContain("12%");
+  expect(group("codex").textContent).toContain("88%");
 });
 
 it.each(["fork-driver", "acpRegistry", "constructor"])(
@@ -415,10 +473,10 @@ it.each(["fork-driver", "acpRegistry", "constructor"])(
         },
       }),
     });
-    expect(group(driver).textContent).toContain("78%");
+    expect(group(driver).textContent).toContain("22%");
     await render({ providers: selectConfiguredUsageProviders(entries, { providerInstances: {} }) });
     expect(host.querySelector(`[data-provider-usage-instance="${driver}"]`)).toBeNull();
-    expect(group("codex").textContent).toContain("12%");
+    expect(group("codex").textContent).toContain("88%");
   },
 );
 
@@ -439,7 +497,7 @@ it("hides and restores accounts through the menu without disabling them", async 
   expect(claude.enabled).toBe(true);
   expect(choice().getAttribute("aria-checked")).toBe("false");
   await act(async () => choice().click());
-  expect(group("claude-work").textContent).toContain("56%");
+  expect(group("claude-work").textContent).toContain("44%");
   expect(threadUsage()?.textContent).toBe("Context5%");
 });
 
@@ -483,7 +541,7 @@ it("excludes disabled providers from groups and choices and remembers hidden cho
     environmentId: EnvironmentId.make("other-environment"),
     providers: deriveProviderInstanceEntries([personal]),
   });
-  expect(group("codex-personal").textContent).toContain("34%");
+  expect(group("codex-personal").textContent).toContain("66%");
 });
 
 it("honors settings disable immediately while the previous ready snapshot still reports quota", async () => {
@@ -508,7 +566,7 @@ it("honors settings disable immediately while the previous ready snapshot still 
       enabled,
     ),
   });
-  expect(group("codex").textContent).toContain("12%");
+  expect(group("codex").textContent).toContain("88%");
 });
 
 it("keeps the narrow card open through quota details, visibility changes and recovery", async () => {
@@ -540,7 +598,7 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     const inner = () =>
       document.querySelector<HTMLElement>('[aria-label="Claude Work usage details"][data-open]');
     expect(outer()).not.toBeNull();
-    expect(inner()?.textContent).toContain("Weekly · Sonnet84%");
+    expect(inner()?.textContent).toContain("Weekly · Sonnet16% left");
     await act(async () => inner()!.click());
     expect(outer()).not.toBeNull();
     await act(async () =>

@@ -86,16 +86,19 @@ export function providerQuotaStatus(
     checkedAt: limits?.checkedAt ?? null,
     windows: windows
       .sort((left, right) => WINDOW_ORDER[left.kind] - WINDOW_ORDER[right.kind])
-      .map((window) => ({
-        ...window,
-        shortLabel: compactWindowLabel(window),
-        // A passed reset does not prove the account now has an empty bucket.
-        usedPercent:
-          !Number.isFinite(window.usedPercent) ||
-          (window.resetsAt !== undefined && Date.parse(window.resetsAt) <= now)
-            ? null
-            : Math.max(0, Math.min(100, window.usedPercent)),
-      })),
+      .map((window) => {
+        const { usedPercent, ...details } = window;
+        return {
+          ...details,
+          shortLabel: compactWindowLabel(window),
+          // An expired report does not prove the quota has reset to 100% available.
+          remainingPercent:
+            !Number.isFinite(usedPercent) ||
+            (window.resetsAt !== undefined && Date.parse(window.resetsAt) <= now)
+              ? null
+              : 100 - Math.max(0, Math.min(100, usedPercent)),
+        };
+      }),
   };
 }
 
