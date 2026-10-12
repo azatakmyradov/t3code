@@ -28,6 +28,7 @@ import { SettingsSection } from "./components/SettingsSection";
 import {
   canMaintainEnvironment,
   canUpdateEnvironmentProvider,
+  desktopEnvironmentUpdateTarget,
   findEnvironmentUpdate,
   supportsEnvironmentUpdate,
 } from "./environment-maintenance";
@@ -66,7 +67,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [release, setRelease] = useState<{
-    fromVersion: string;
+    sourceKey: string;
     targetVersion: string | null;
   } | null>(null);
   const checkController = useRef<AbortController | null>(null);
@@ -86,8 +87,15 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
   const busy = !connected || pending !== null || running || providerBusy;
   const disabled = !allowed || busy;
   const version = config?.environment.serverVersion;
-  const checkedRelease = release?.fromVersion === version ? release : null;
+  const releaseSourceKey = JSON.stringify([
+    version,
+    config?.environment.release,
+    config?.environment.capabilities.serverSelfUpdate,
+  ]);
+  const checkedRelease = release?.sourceKey === releaseSourceKey ? release : null;
   const capabilities = config?.environment.capabilities;
+  const desktopManaged = capabilities?.serverSelfUpdate === "desktop-managed";
+  const desktopUpdateTarget = desktopEnvironmentUpdateTarget(config?.environment);
 
   async function run(label: string, action: () => Promise<void>) {
     if (pendingRef.current) return;
@@ -107,13 +115,15 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
     }
   }
 
-  function requestServerUpdate() {
-    const targetVersion = checkedRelease?.targetVersion;
+  function requestServerUpdate(desktopTargetVersion?: string) {
+    const targetVersion = desktopTargetVersion ?? checkedRelease?.targetVersion;
     if (disabled || !targetVersion || !capabilities || !supportsEnvironmentUpdate(capabilities))
       return;
     Alert.alert(
       `Update ${environment?.environmentLabel ?? "environment"}?`,
-      `Install T3 Code ${targetVersion}. ${capabilities.serverSelfUpdate === "desktop-managed" ? "The desktop app will close and relaunch." : "The server will restart and reconnect."} Running threads may be interrupted.`,
+      capabilities.serverSelfUpdate === "desktop-managed"
+        ? "Check the desktop app's selected update feed and install any available update. If an update is available, the app will close and relaunch. Running threads may be interrupted."
+        : `Install T3 Code ${targetVersion}. The server will restart and reconnect. Running threads may be interrupted.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -142,7 +152,11 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
               });
               if (AsyncResult.isFailure(result)) throw squashAtomCommandFailure(result);
               setRelease(null);
-              setNotice(`Updated to ${result.value.targetVersion}.`);
+              setNotice(
+                result.value.outcome === "up-to-date"
+                  ? `Already up to date on ${result.value.targetVersion}.`
+                  : `Updated to ${result.value.targetVersion}.`,
+              );
             }),
         },
       ],
@@ -256,24 +270,35 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                       </Text>
                     ) : null}
                   </View>
+                  {desktopManaged &&
+                  desktopUpdateTarget === null &&
+                  supportsEnvironmentUpdate(config.environment.capabilities) ? (
+                    <Text className="px-4 pb-3 text-sm text-foreground-muted">
+                      Check for updates in the desktop app on this machine.
+                    </Text>
+                  ) : null}
                   <SettingsActionRow
                     icon="arrow.clockwise"
-                    label="Check for updates"
-                    disabled={disabled}
-                    loading={pending === "check"}
+                    label={desktopManaged ? "Check and update desktop app" : "Check for updates"}
+                    disabled={disabled || (desktopManaged && desktopUpdateTarget === null)}
+                    loading={desktopManaged ? pending === "server" || running : pending === "check"}
                     onPress={() => {
                       if (disabled) return;
+                      if (desktopManaged) {
+                        if (desktopUpdateTarget !== null) requestServerUpdate(desktopUpdateTarget);
+                        return;
+                      }
                       void run("check", async () => {
                         const controller = new AbortController();
                         checkController.current = controller;
                         const timeout = setTimeout(() => controller.abort(), 20_000);
                         try {
                           const targetVersion = await findEnvironmentUpdate(
-                            config.environment.serverVersion,
+                            config.environment,
                             controller.signal,
                           );
                           setRelease({
-                            fromVersion: config.environment.serverVersion,
+                            sourceKey: releaseSourceKey,
                             targetVersion,
                           });
                         } finally {
@@ -290,7 +315,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                       label={`Update to ${checkedRelease.targetVersion}`}
                       disabled={disabled}
                       loading={pending === "server" || running}
-                      onPress={requestServerUpdate}
+                      onPress={() => requestServerUpdate()}
                     />
                   ) : null}
                 </SettingsSection>

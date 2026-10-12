@@ -14,6 +14,25 @@ const descriptor = {
 } as const;
 
 describe("ExecutionEnvironmentDescriptor", () => {
+  it("keeps release identity optional and drops unrecognized metadata without blocking connection", () => {
+    expect(decodeDescriptor(descriptor).release).toBeUndefined();
+    const release = { distribution: "azatakmyradov/t3code", channel: "stable" };
+    expect(decodeDescriptor({ ...descriptor, release }).release).toEqual(release);
+    for (const release of [
+      { distribution: "azatakmyradov/t3code" },
+      { distribution: "azatakmyradov/t3code", channel: "future" },
+      { distribution: "", channel: "stable" },
+    ])
+      expect(decodeDescriptor({ ...descriptor, release }).release).toBeUndefined();
+    // Other distributions remain data, rather than being decoded into this fork.
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        release: { distribution: "pingdotgg/t3code", channel: "nightly" },
+      }).release?.distribution,
+    ).toBe("pingdotgg/t3code");
+  });
+
   it("decodes old, recognized and future manual installation descriptors", () => {
     expect(decodeDescriptor(descriptor).capabilities.serverInstallation).toBeUndefined();
     for (const installation of [{ kind: "npx" }, { kind: "npm-global", prefix: "/opt/node" }]) {

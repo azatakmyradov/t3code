@@ -3,13 +3,14 @@ import {
   sessionGrantsScope,
   type AuthSessionState,
   type ExecutionEnvironmentCapabilities,
+  type ExecutionEnvironmentDescriptor,
   type ServerProvider,
 } from "@t3tools/contracts";
+import { cliReleaseIndexPageUrl, newestCliReleaseVersion } from "@t3tools/shared/cliRelease";
 import {
-  cliReleaseChannelOf,
-  cliReleaseIndexPageUrl,
-  newestCliReleaseVersion,
-} from "@t3tools/shared/cliRelease";
+  canTargetServerRelease,
+  MANUAL_RELEASE_CHECK_GUIDANCE,
+} from "@t3tools/shared/releaseCompatibility";
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import * as Schema from "effect/Schema";
 
@@ -28,6 +29,20 @@ export function supportsEnvironmentUpdate(
     capabilities.serverSelfUpdate !== undefined &&
     (capabilities.serverSelfUpdate !== "desktop-managed" || capabilities.desktopAppUpdate === true)
   );
+}
+
+/** The desktop app chooses its own feed; the installed version is only the RPC's nominal target. */
+export function desktopEnvironmentUpdateTarget(
+  environment:
+    | Pick<ExecutionEnvironmentDescriptor, "serverVersion" | "release" | "capabilities">
+    | null
+    | undefined,
+): string | null {
+  return environment?.capabilities.serverSelfUpdate === "desktop-managed" &&
+    supportsEnvironmentUpdate(environment.capabilities) &&
+    canTargetServerRelease(environment, environment.serverVersion)
+    ? environment.serverVersion
+    : null;
 }
 
 export function canUpdateEnvironmentProvider(provider: ServerProvider) {
@@ -54,8 +69,22 @@ const Releases = Schema.Array(
 const decodeReleases = Schema.decodeUnknownSync(Releases);
 
 /** Preserve the host's release channel and never offer a downgrade. */
-export async function findEnvironmentUpdate(currentVersion: string, signal: AbortSignal) {
-  const channel = cliReleaseChannelOf(currentVersion);
+export async function findEnvironmentUpdate(
+  environment: Pick<ExecutionEnvironmentDescriptor, "serverVersion" | "release"> &
+    Partial<Pick<ExecutionEnvironmentDescriptor, "capabilities">>,
+  signal: AbortSignal,
+) {
+  if (environment.capabilities?.serverSelfUpdate === "desktop-managed") {
+    throw new Error("Check for updates using the desktop app's own update feed.");
+  }
+  const currentVersion = environment.serverVersion;
+  const channel = environment.release?.channel;
+  if (
+    !canTargetServerRelease(environment, currentVersion) ||
+    (channel !== "stable" && channel !== "nightly")
+  ) {
+    throw new Error(MANUAL_RELEASE_CHECK_GUIDANCE);
+  }
   for (let page = 1; ; page++) {
     const response = await fetch(cliReleaseIndexPageUrl(page), { signal });
     if (!response.ok) throw new Error(`Could not check releases (${response.status}). Try again.`);

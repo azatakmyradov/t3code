@@ -1,4 +1,5 @@
 import { EnvironmentId, type ServerSelfUpdateCapability } from "@t3tools/contracts";
+import { forkReleaseForVersion } from "@t3tools/shared/releaseCompatibility";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -24,6 +25,7 @@ function machine(
         label: id,
         platform: { os: "linux", arch: "x64" },
         serverVersion,
+        release: forkReleaseForVersion(serverVersion),
         capabilities: {
           repositoryIdentity: true,
           ...(selfUpdate ? { serverSelfUpdate: selfUpdate } : {}),
@@ -41,6 +43,32 @@ function machine(
 }
 
 describe("collectServerUpdateTargets", () => {
+  it("excludes unknown and foreign distributions from update-all, including desktops", () => {
+    const unknown = machine("unknown", "0.0.40", "boot-service");
+    const foreign = machine("upstream", "0.0.40", "desktop-managed");
+    const withoutRelease = { ...unknown.serverConfig!.environment };
+    delete withoutRelease.release;
+    expect(
+      collectServerUpdateTargets(
+        [
+          { ...unknown, serverConfig: { ...unknown.serverConfig!, environment: withoutRelease } },
+          {
+            ...foreign,
+            serverConfig: {
+              ...foreign.serverConfig!,
+              environment: {
+                ...foreign.serverConfig!.environment,
+                release: { distribution: "pingdotgg/t3code", channel: "stable" },
+              },
+            },
+          },
+          machine("fork", "0.0.40", "boot-service"),
+        ],
+        "0.0.50",
+      ).map((target) => target.serverLabel),
+    ).toEqual(["fork"]);
+  });
+
   it("updates only remote servers that can move to the target on their channel", () => {
     const targets = collectServerUpdateTargets(
       [
@@ -58,7 +86,6 @@ describe("collectServerUpdateTargets", () => {
 
     expect(targets.map((target) => [target.serverLabel, target.targetVersion])).toEqual([
       ["service", "0.0.50"],
-      ["other-desktop", "0.0.50"],
     ]);
   });
 });

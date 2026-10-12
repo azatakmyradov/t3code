@@ -1,3 +1,4 @@
+import { canTargetServerRelease } from "@t3tools/shared/releaseCompatibility";
 import { SessionPermissions } from "./SessionPermissions";
 import { AUTH_SCOPE_OPTIONS as PAIRING_SCOPE_OPTIONS } from "@t3tools/shared/authScopeOptions";
 import {
@@ -1599,7 +1600,7 @@ function SavedBackendListRow({
   const showUpdateAction =
     enabled &&
     isConnected &&
-    versionMismatch !== null &&
+    versionMismatch?.canUpdate === true &&
     (serverUpdateState.status === "idle" || serverUpdateState.status === "failed");
 
   const statusTooltip = `${
@@ -1610,7 +1611,11 @@ function SavedBackendListRow({
         : "Switched off"
   }${
     versionMismatch
-      ? `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.clientVersion}`
+      ? versionMismatch.canUpdate
+        ? resolveServerSelfUpdateCapability(environment.serverConfig) === "desktop-managed"
+          ? "\nCheck the desktop app's selected update feed."
+          : `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.clientVersion}`
+        : `\n${versionMismatch.hint}`
       : ""
   }`;
 
@@ -1715,6 +1720,10 @@ function SavedBackendListRow({
     >
       {unsupported &&
       environment.entry.serverUpdateRequired === true &&
+      canTargetServerRelease(
+        lastDescriptor ?? environment.serverConfig?.environment,
+        APP_VERSION,
+      ) &&
       serverUpdateState.status !== "running" ? (
         <OutdatedServerUpdateAction
           environmentId={environmentId}
@@ -1733,7 +1742,13 @@ function SavedBackendListRow({
           desktopAppUpdate={supportsDesktopAppUpdate(environment.serverConfig)}
           threadContinuation={supportsServerUpdateThreadContinuation(environment.serverConfig)}
           targetVersion={versionMismatch.clientVersion}
-          label={serverUpdateState.status === "failed" ? "Retry update" : "Update"}
+          label={
+            serverUpdateState.status === "failed"
+              ? "Retry update"
+              : resolveServerSelfUpdateCapability(environment.serverConfig) === "desktop-managed"
+                ? "Check desktop updates"
+                : "Update"
+          }
           appearance="icon"
         />
       ) : null}
@@ -2093,7 +2108,7 @@ export function ConnectionsSettings() {
         const selfUpdate = resolveServerSelfUpdateCapability(environment.serverConfig);
         const desktopAppUpdate = supportsDesktopAppUpdate(environment.serverConfig);
         if (
-          !mismatch ||
+          !mismatch?.canUpdate ||
           updateStatus === "running" ||
           !environment.entry.enabled ||
           environment.connection.phase !== "connected" ||
@@ -3668,7 +3683,7 @@ export function ConnectionsSettings() {
                   )
                 }
                 control={
-                  primaryVersionMismatch &&
+                  primaryVersionMismatch?.canUpdate &&
                   primaryEnvironmentId !== null &&
                   primaryServerUpdateState.status !== "running" ? (
                     <ServerUpdateAction
@@ -3689,11 +3704,19 @@ export function ConnectionsSettings() {
                       label={
                         primaryServerUpdateState.status === "failed"
                           ? "Retry update"
-                          : `Update to ${primaryVersionMismatch.clientVersion}`
+                          : resolveServerSelfUpdateCapability(primaryServerConfig) ===
+                              "desktop-managed"
+                            ? "Check desktop updates"
+                            : `Update to ${primaryVersionMismatch.clientVersion}`
                       }
                     />
                   ) : primaryServerUpdateState.status === "idle" && primaryServerConfig ? (
-                    <span className="text-xs text-muted-foreground">Up to date</span>
+                    <span className="text-xs text-muted-foreground">
+                      {primaryVersionMismatch?.hint ??
+                        (canTargetServerRelease(primaryServerConfig.environment, APP_VERSION)
+                          ? "Up to date"
+                          : "Check for updates on this machine")}
+                    </span>
                   ) : undefined
                 }
               />

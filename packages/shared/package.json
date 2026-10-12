@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./releaseCompatibility": {
+      "types": "./src/releaseCompatibility.ts",
+      "import": "./src/releaseCompatibility.ts"
+    },
     "./githubMarkdownLinks": {
       "types": "./src/githubMarkdownLinks.ts",
       "import": "./src/githubMarkdownLinks.ts"

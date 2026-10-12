@@ -3192,28 +3192,43 @@ export default function ChatView(props: ChatViewProps) {
                     type="button"
                     className="block max-w-full cursor-help truncate rounded-sm text-left"
                   >
-                    Server update available
+                    {versionMismatch.canUpdate
+                      ? versionMismatchSelfUpdate === "desktop-managed"
+                        ? "Check desktop updates"
+                        : "Server update available"
+                      : "Different server version"}
                   </button>
                 }
               />
               <TooltipPopup side="top">
-                {versionMismatchServerLabel} {versionMismatch.serverVersion}{" "}
-                <span aria-hidden="true">→</span> {versionMismatch.clientVersion}
+                {versionMismatch.canUpdate && versionMismatchSelfUpdate === "desktop-managed" ? (
+                  "The desktop app checks its own selected update feed."
+                ) : versionMismatch.canUpdate ? (
+                  <>
+                    {versionMismatchServerLabel} {versionMismatch.serverVersion}{" "}
+                    <span aria-hidden="true">→</span> {versionMismatch.clientVersion}
+                  </>
+                ) : (
+                  versionMismatch.hint
+                )}
               </TooltipPopup>
             </Tooltip>
           ) : (
             "Server update available"
           ),
         description:
-          !updateInProgress &&
-          !updateFailed &&
-          versionMismatchSelfUpdate !== null &&
-          (versionMismatchSelfUpdate !== "desktop-managed" || !versionMismatchDesktopAppUpdate)
-            ? serverUpdateGuidance(versionMismatchSelfUpdate)
-            : undefined,
+          !updateInProgress && !updateFailed && versionMismatch?.canUpdate === false
+            ? versionMismatch.hint
+            : !updateInProgress &&
+                !updateFailed &&
+                versionMismatchSelfUpdate !== null &&
+                (versionMismatchSelfUpdate !== "desktop-managed" ||
+                  !versionMismatchDesktopAppUpdate)
+              ? serverUpdateGuidance(versionMismatchSelfUpdate)
+              : undefined,
         actions: updateInProgress ? (
           disconnectAction
-        ) : !versionMismatch ||
+        ) : !versionMismatch?.canUpdate ||
           (versionMismatchSelfUpdate === "desktop-managed" &&
             !versionMismatchDesktopAppUpdate) ? undefined : (
           <ServerUpdateAction
@@ -3224,7 +3239,13 @@ export default function ChatView(props: ChatViewProps) {
             desktopAppUpdate={versionMismatchDesktopAppUpdate}
             threadContinuation={versionMismatchThreadContinuation}
             targetVersion={versionMismatch.clientVersion}
-            label={updateFailed ? "Retry" : "Update"}
+            label={
+              updateFailed
+                ? "Retry"
+                : versionMismatchSelfUpdate === "desktop-managed"
+                  ? "Check desktop updates"
+                  : "Update"
+            }
             variant="ghost"
           />
         ),

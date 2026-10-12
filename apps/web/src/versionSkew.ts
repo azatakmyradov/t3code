@@ -1,3 +1,7 @@
+import {
+  canTargetServerRelease,
+  MANUAL_RELEASE_CHECK_GUIDANCE,
+} from "@t3tools/shared/releaseCompatibility";
 import { FORK_NPM_PACKAGE } from "@t3tools/shared/forkIdentity";
 import type {
   EnvironmentId,
@@ -16,6 +20,7 @@ export interface VersionMismatch {
   readonly clientVersion: string;
   readonly serverVersion: string;
   readonly hint: string;
+  readonly canUpdate?: boolean;
 }
 
 const VERSION_MISMATCH_DISMISSALS_STORAGE_KEY = "t3code:version-mismatch-dismissals:v1";
@@ -95,7 +100,14 @@ export function resolveVersionMismatch(
 export function resolveServerConfigVersionMismatch(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): VersionMismatch | null {
-  return resolveVersionMismatch(serverConfig?.environment.serverVersion);
+  const mismatch = resolveVersionMismatch(serverConfig?.environment.serverVersion);
+  if (mismatch === null) return null;
+  const canUpdate = canTargetServerRelease(serverConfig?.environment, APP_VERSION);
+  return {
+    ...mismatch,
+    canUpdate,
+    hint: canUpdate ? mismatch.hint : MANUAL_RELEASE_CHECK_GUIDANCE,
+  };
 }
 
 /** The update path the connected server offers, or null when it only
@@ -142,9 +154,11 @@ export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): st
 
 export function buildVersionMismatchDismissalKey(
   environmentId: EnvironmentId,
-  mismatch: Pick<VersionMismatch, "clientVersion" | "serverVersion">,
+  mismatch: Pick<VersionMismatch, "clientVersion" | "serverVersion" | "canUpdate">,
 ): string {
-  return `${environmentId}:${mismatch.clientVersion}:${mismatch.serverVersion}`;
+  // Newly proven release metadata must not inherit a dismissed manual-only notice.
+  const action = mismatch.canUpdate === undefined ? "" : mismatch.canUpdate ? ":update" : ":manual";
+  return `${environmentId}:${mismatch.clientVersion}:${mismatch.serverVersion}${action}`;
 }
 
 function readVersionMismatchDismissals(): VersionMismatchDismissals {

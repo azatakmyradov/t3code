@@ -1,6 +1,6 @@
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import type { EnvironmentId, ServerConfig } from "@t3tools/contracts";
-import { cliReleaseChannelOf } from "@t3tools/shared/cliRelease";
+import { canTargetServerRelease } from "@t3tools/shared/releaseCompatibility";
 
 import {
   resolveServerSelfUpdateCapability,
@@ -67,9 +67,8 @@ export function collectRestartingMachines(
  * The servers that "update everything" moves to `targetVersion`: connected,
  * permitted, able to update over RPC, and behind the target. Two kinds stay
  * out. Servers this app hosts would relaunch the app mid-run, and the app's
- * own install updates them anyway. A service on another release channel
- * stays there; a desktop-managed server follows its own app's update feed, so
- * the channel rule does not apply to it.
+ * own install updates them anyway. A host on an unknown or different release
+ * distribution/channel cannot be promised this client's target version.
  */
 export function collectServerUpdateTargets(
   machines: ReadonlyArray<UpdateEverythingMachine>,
@@ -93,10 +92,7 @@ export function collectServerUpdateTargets(
     }
     const serverVersion = config.environment.serverVersion;
     if (resolveVersionMismatch(serverVersion, targetVersion) === null) return [];
-    if (
-      selfUpdate !== "desktop-managed" &&
-      cliReleaseChannelOf(serverVersion) !== cliReleaseChannelOf(targetVersion)
-    ) {
+    if (!canTargetServerRelease(config.environment, targetVersion)) {
       return [];
     }
     return [

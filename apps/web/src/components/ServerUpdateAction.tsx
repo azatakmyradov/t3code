@@ -91,6 +91,14 @@ export function useServerUpdate() {
         if (isAtomCommandInterrupted(result)) return;
         throw squashAtomCommandFailure(result);
       }
+      if (result.value.outcome === "up-to-date") {
+        toastManager.add({
+          type: "info",
+          title: `${serverLabel} is up to date`,
+          description: `No newer desktop update is available on this machine’s update channel (${result.value.targetVersion}).`,
+        });
+        return;
+      }
       toastManager.add({
         type: "success",
         title: `${serverLabel} updated`,
@@ -141,7 +149,7 @@ export function ServerUpdatesAction({
       if (desktopTargets.length > 0) {
         const confirmed =
           (await requestConfirmDialog(
-            `Update the T3 Code desktop apps on ${desktopTargets.map((target) => target.serverLabel).join(", ")}? They will close and relaunch on those machines.`,
+            `Update the T3 Code desktop apps on ${desktopTargets.map((target) => target.serverLabel).join(", ")}? If updates are available, they will close and relaunch on those machines.`,
           )) ?? true;
         if (!confirmed) return;
       }
@@ -268,7 +276,7 @@ export function ServerUpdateAction({
       // remote machine installs without asking anyone there.
       const confirmed =
         (await requestConfirmDialog(
-          `Update the T3 Code desktop app that runs the ${serverLabel}? It will close and relaunch on that machine.`,
+          `Update the T3 Code desktop app that runs the ${serverLabel}? If an update is available, it will close and relaunch on that machine.`,
         )) ?? true;
       if (!confirmed) {
         return;
@@ -372,6 +380,14 @@ export function OutdatedServerUpdateAction({
       if (result._tag === "Failure") {
         if (isAtomCommandInterrupted(result)) return;
         throw squashAtomCommandFailure(result);
+      }
+      if (result.value.outcome === "up-to-date") {
+        toastManager.add({
+          type: "info",
+          title: `${serverLabel} is up to date`,
+          description: `No newer desktop update is available on this machine’s update channel (${result.value.targetVersion}).`,
+        });
+        return;
       }
       toastManager.add({
         type: "success",

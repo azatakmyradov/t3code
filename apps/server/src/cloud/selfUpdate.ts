@@ -201,7 +201,14 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       // update feed decides what it downloads, and the result carries what
       // it actually got.
       if (desktopAppUpdate.available) {
-        return yield* desktopAppUpdate.run(reportProgress);
+        const result = yield* desktopAppUpdate.run(reportProgress);
+        // Old clients interpret every success as a restart acknowledgement.
+        if (result.outcome === "up-to-date" && input.reportUpToDate !== true) {
+          return yield* failWith(
+            `The T3 Code desktop app on this machine is already up to date on ${result.targetVersion}.`,
+          );
+        }
+        return result;
       }
       return yield* failWith(
         "This server is managed by the T3 Code desktop app on its machine; update the desktop app to update it.",
