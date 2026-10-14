@@ -402,6 +402,24 @@ describe("mobile PR scan and filters", () => {
       ),
     ).toHaveLength(0);
   });
+  it("keeps a shared repository's rows scoped to their environment, project, and account", () => {
+    const personal = { ...entry(1, { expectedAccountId: "101" }), environmentId: "laptop" };
+    const work = { ...entry(1, { expectedAccountId: "202" }), environmentId: "laptop" };
+    const otherProject = {
+      ...personal,
+      projectId: ProjectId.make("other-project"),
+    };
+    const otherEnvironment = { ...personal, environmentId: "server" };
+    expect(
+      filterPullRequestList(
+        [personal, work, otherProject, otherEnvironment, { ...personal }],
+        DEFAULT_PR_LIST_CONTROLS,
+        {},
+        "",
+        new Set(),
+      ),
+    ).toEqual([personal, work, otherProject, otherEnvironment]);
+  });
   it("sorts loaded rows and builds unique author and label options", () => {
     const rows = [
       entry(1, { labels: [{ name: "bug", color: null }] }),
