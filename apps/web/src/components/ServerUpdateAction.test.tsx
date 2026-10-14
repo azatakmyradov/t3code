@@ -57,6 +57,7 @@ import {
   ServerUpdateAction,
   ServerUpdateProgress,
   ServerUpdatesAction,
+  useServerUpdate,
   type ServerUpdateTarget,
 } from "./ServerUpdateAction";
 
@@ -219,6 +220,28 @@ describe("ServerUpdateAction", () => {
       description:
         "No newer desktop update is available on this machine’s update channel (0.0.30).",
     });
+  });
+
+  it("quietly skips an already-current desktop without counting it as updated", async () => {
+    testState.updateServer.mockResolvedValue(
+      AsyncResult.success({
+        targetVersion: "0.0.30",
+        method: "desktop-app" as const,
+        outcome: "up-to-date" as const,
+      }),
+    );
+    const outcome = await useServerUpdate()(
+      {
+        environmentId: "env-test" as EnvironmentId,
+        serverLabel: "Test server",
+        selfUpdate: "desktop-managed",
+        desktopAppUpdate: true,
+        targetVersion: "0.0.31",
+      },
+      { quiet: true },
+    );
+    expect(outcome).toEqual({ status: "skipped" });
+    expect(testState.toast).not.toHaveBeenCalled();
   });
 
   it("reports success only after the shared update flow reconnects", async () => {
@@ -516,13 +539,12 @@ describe("ServerUpdateProgress", () => {
 
     expect(markup).toContain("Restarting…");
     // The wait state is monochrome and calm: no versions, no step rail, no
-    // success/warning colors, one duty-cycled pulse on the dot.
+    // success/warning colors, and a static dot that never repaints.
     expect(markup).not.toContain("0.0.30");
     expect(markup).not.toContain("Resum");
     expect(markup).not.toContain("text-success");
     expect(markup).not.toContain("text-primary");
-    expect(markup).toContain("animate-status-pulse");
-    expect(markup).not.toContain("animate-spin");
+    expect(markup).not.toContain("animate-");
   });
 
   it("folds the sub-second installing handoff into the download phase", () => {
