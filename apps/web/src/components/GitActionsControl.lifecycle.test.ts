@@ -2,6 +2,8 @@
 import { AuthSourceControlWriteScope, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { Dialog } from "~/components/ui/dialog";
+import { MenuItem, MenuItemLabel } from "~/components/ui/menu";
 
 const state = vi.hoisted(() => ({
   actions: [] as {
@@ -11,6 +13,7 @@ const state = vi.hoisted(() => ({
   toasts: [] as { type?: string; description?: string; actionProps?: { onClick: () => void } }[],
   scopes: new Set<string>(),
   primaryScopes: new Set<string>(),
+  isDefaultRef: false,
 }));
 
 vi.mock("@effect/atom-react", () => ({
@@ -18,7 +21,8 @@ vi.mock("@effect/atom-react", () => ({
 }));
 vi.mock("~/state/entities", () => ({
   useThreadProjection: () => null,
-  useThreadShell: (ref: { threadId: string }) => ({ branch: "main", id: ref.threadId }),
+  useThreadShell: (ref: { threadId: string } | null) =>
+    ref === null ? null : { branch: "main", id: ref.threadId },
 }));
 vi.mock("~/state/session", () => ({
   useEnvironmentScope: (environmentId: unknown, scope: string) =>
@@ -42,7 +46,7 @@ vi.mock("~/state/query", () => ({
       sourceControlProviders: [],
       isRepo: true,
       refName: "main",
-      isDefaultRef: false,
+      isDefaultRef: state.isDefaultRef,
       hasPrimaryRemote: true,
       hasWorkingTreeChanges: true,
       workingTree: {
@@ -191,6 +195,7 @@ beforeEach(() => {
   state.primaryScopes = new Set([AuthSourceControlWriteScope]);
   state.actions = [];
   state.toasts = [];
+  state.isDefaultRef = false;
 });
 
 afterEach(async () => {
@@ -230,5 +235,90 @@ describe("Git action targets across thread navigation", () => {
       await clickQuickAction(renderer);
       expect(state.actions.at(-1)).toMatchObject({ scope: { cwd }, input: { threadId: thread } });
     }
+  });
+});
+
+describe.each([
+  {
+    previous: "an initially empty context",
+    initialProps: { gitCwd: null, activeThreadRef: null },
+  },
+  {
+    previous: "an unavailable previous environment",
+    initialProps: {
+      gitCwd: "/previous",
+      activeThreadRef: {
+        environmentId: EnvironmentId.make("previous"),
+        threadId: ThreadId.make("previous"),
+      },
+    },
+  },
+])("Git actions after $previous", ({ initialProps }) => {
+  async function renderCurrentActions() {
+    state.isDefaultRef = true;
+    let renderer!: ReturnType<typeof create>;
+    await act(async () => {
+      renderer = create(
+        createElement(MemoGitActionsControl, { ...initialProps, displayMode: "panel" }),
+      );
+    });
+    renderers.push(renderer);
+    // The old connection loses its grant; the current environment still allows writes.
+    state.primaryScopes.clear();
+    await act(async () => {
+      renderer.update(
+        createElement(MemoGitActionsControl, {
+          ...props("current", "/current"),
+          displayMode: "panel",
+        }),
+      );
+    });
+    return renderer;
+  }
+
+  it("confirms and dispatches Commit & push in the current environment", async () => {
+    const renderer = await renderCurrentActions();
+    await clickQuickAction(renderer);
+    const dialog = renderer.root.findAllByType(Dialog).find((dialog) => dialog.props.open);
+    expect(dialog).toBeDefined();
+    const confirm = dialog!
+      .findAllByType("button")
+      .find((button) => button.props.children === "Commit & push to main");
+    expect(confirm).toBeDefined();
+    expect(state.actions).toHaveLength(0);
+    await act(async () => {
+      confirm!.props.onClick();
+    });
+    expect(state.actions).toHaveLength(1);
+    expect(state.actions[0]).toMatchObject({
+      scope: { environmentId: "environment", cwd: "/current" },
+      input: { threadId: "current", action: "commit_push" },
+    });
+  });
+
+  it("dispatches the enabled Commit dialog button in the current environment", async () => {
+    const renderer = await renderCurrentActions();
+    const menuItem = renderer.root
+      .findAllByType(MenuItem)
+      .find((item) => item.findByType(MenuItemLabel).props.children === "Commit");
+    expect(menuItem?.props.disabled).toBe(false);
+    await act(async () => {
+      menuItem!.props.onClick();
+    });
+    const dialog = renderer.root.findAllByType(Dialog).find((dialog) => dialog.props.open);
+    expect(dialog).toBeDefined();
+    const commit = dialog!
+      .findAllByType("button")
+      .find((button) => button.props.children === "Commit");
+    expect(commit?.props.disabled).toBe(false);
+    expect(state.actions).toHaveLength(0);
+    await act(async () => {
+      commit!.props.onClick();
+    });
+    expect(state.actions).toHaveLength(1);
+    expect(state.actions[0]).toMatchObject({
+      scope: { environmentId: "environment", cwd: "/current" },
+      input: { threadId: "current", action: "commit" },
+    });
   });
 });

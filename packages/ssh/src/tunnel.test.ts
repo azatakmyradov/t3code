@@ -4,6 +4,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { FORK_HOME_DIRECTORY } from "@t3tools/shared/forkIdentity";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -1008,13 +1009,13 @@ server.listen(Number(flag("--port")), "127.0.0.1", () => {
   const launchResult = (stdout: string) => JSON.parse(stdout.trim().split("\n").at(-1) ?? "");
 
   // Writes the launch script for a fake server into a temporary HOME. The
-  // seeded remembered port keeps the test off the default 3773, which a live
+  // seeded remembered port keeps the test off the default port, which a live
   // T3 on this machine may own.
   const prepareLaunch = Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-launch-script-" });
     const home = `${root}/home`;
-    const stateDir = `${home}/.t3/ssh-launch/test-state`;
+    const stateDir = `${home}/${FORK_HOME_DIRECTORY}/ssh-launch/test-state`;
     const fakeServer = `${root}/fake-t3.cjs`;
     const launch = `${root}/launch.sh`;
     yield* fs.makeDirectory(stateDir, { recursive: true });
@@ -1065,7 +1066,15 @@ server.listen(Number(flag("--port")), "127.0.0.1", () => {
     ) =>
       Effect.gen(function* () {
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        const args = [fakeServer, "serve", "--port", "0", "--base-dir", `${home}/.t3`, ...flags];
+        const args = [
+          fakeServer,
+          "serve",
+          "--port",
+          "0",
+          "--base-dir",
+          `${home}/${FORK_HOME_DIRECTORY}`,
+          ...flags,
+        ];
         const server = yield* spawner.spawn(
           options?.unreaped
             ? ChildProcess.make("sh", ["-c", 'node "$@" & exec sleep 600', "sh", ...args])
@@ -1222,7 +1231,7 @@ server.listen(Number(flag("--port")), "127.0.0.1", () => {
         assert.include((yield* runScript(home, ["-c", `ps -o stat= -p ${zombie}`])).stdout, "Z");
         yield* fs.writeFileString(`${stateDir}/pid`, `${zombie}\n`);
         yield* fs.writeFileString(
-          `${home}/.t3/userdata/server-runtime.json`,
+          `${home}/${FORK_HOME_DIRECTORY}/userdata/server-runtime.json`,
           JSON.stringify({
             version: 1,
             pid: zombie,
