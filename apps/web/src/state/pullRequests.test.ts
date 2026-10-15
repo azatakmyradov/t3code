@@ -6,6 +6,7 @@ import {
   newestPullRequestObservation,
   newestPullRequestSummary,
   pullRequestSummaryKey,
+  threadPullRequestLinkToSummary,
 } from "./pullRequests";
 
 function summary(overrides: Partial<PullRequestSummary> = {}): PullRequestSummary {
@@ -113,5 +114,36 @@ describe("pull request summary cache", () => {
     const older = summary({ updatedAt: "2026-09-11T00:00:00Z", observedAt: 999 });
     expect(newestPullRequestSummary(older, reopened)).toBe(reopened);
     expect(newestPullRequestSummary(reopened, older)).toBe(reopened);
+  });
+
+  it("reuses saved thread state while detail is stale and lets newer detail replace it", () => {
+    const stale = summary();
+    const link = {
+      host: "github.com",
+      repository: stale.repository,
+      number: stale.number,
+      url: stale.url,
+      source: "manual" as const,
+      linkedAt: stale.updatedAt,
+      stack: null,
+      snapshot: {
+        ...stale,
+        state: "closed" as const,
+        isDraft: false,
+        updatedAt: "2026-09-11T00:00:00Z",
+        syncedAt: "2026-09-12T00:00:00Z",
+      },
+    };
+    const saved = threadPullRequestLinkToSummary(link, stale.projectId);
+    expect(newestPullRequestSummary(stale, saved)?.state).toBe("closed");
+    const fresh = summary({ isDraft: true, updatedAt: "2026-09-13T00:00:00Z" });
+    expect(newestPullRequestSummary(fresh, saved)).toBe(fresh);
+    expect(threadPullRequestLinkToSummary({ ...link, snapshot: null }, stale.projectId)).toBeNull();
+    expect(
+      threadPullRequestLinkToSummary(
+        { ...link, snapshot: { ...link.snapshot, updatedAt: null } },
+        stale.projectId,
+      ),
+    ).toBeNull();
   });
 });
