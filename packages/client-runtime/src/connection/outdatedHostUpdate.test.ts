@@ -54,7 +54,6 @@ const encodeDescriptor = Schema.encodeSync(Schema.fromJsonString(ExecutionEnviro
 
 type Listener = (event: { readonly type: string; readonly data?: unknown }) => void;
 
-/** Answers update RPCs the way a protocol-1 server does. */
 class OutdatedHostSocket {
   static readonly OPEN = 1;
   readyState = 0;

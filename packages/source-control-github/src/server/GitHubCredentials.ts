@@ -19,9 +19,7 @@ import type { ServerSettings } from "@t3tools/contracts";
 
 import * as GitHubClient from "../client/definition.ts";
 
-/** How long a token is reused before `gh` is asked again, so a `gh auth switch` applies soon. */
 const TOKEN_TTL = Duration.minutes(5);
-/** No credential is retried sooner, so a fresh `gh auth login` takes effect on the next read. */
 const MISSING_TTL = Duration.seconds(10);
 
 const CredentialCacheKey = Schema.fromJsonString(
@@ -46,11 +44,9 @@ export interface GitHubCredential {
   readonly host: string;
   readonly token: Redacted.Redacted<string>;
   readonly source: GitHubCredentialSource;
-  /** A digest of host and token: safe for cache keys and rate-limit scopes, never the token. */
   readonly fingerprint: string;
 }
 
-/** Nothing in the environment, and no `gh` on PATH to ask. */
 export class GitHubCliMissingError extends Schema.TaggedError<GitHubCliMissingError>()(
   "GitHubCliMissingError",
   { host: Schema.String },
@@ -60,7 +56,6 @@ export class GitHubCliMissingError extends Schema.TaggedError<GitHubCliMissingEr
   }
 }
 
-/** `gh` is installed but holds no login for the host, or not the account chosen in Settings. */
 export class GitHubNotSignedInError extends Schema.TaggedError<GitHubNotSignedInError>()(
   "GitHubNotSignedInError",
   { host: Schema.String, account: Schema.optional(Schema.String) },
@@ -72,7 +67,6 @@ export class GitHubNotSignedInError extends Schema.TaggedError<GitHubNotSignedIn
   }
 }
 
-/** The user turned the host off in Settings. */
 export class GitHubHostDisabledError extends Schema.TaggedError<GitHubHostDisabledError>()(
   "GitHubHostDisabledError",
   { host: Schema.String },
@@ -82,7 +76,6 @@ export class GitHubHostDisabledError extends Schema.TaggedError<GitHubHostDisabl
   }
 }
 
-/** `gh auth token` timed out or failed for a reason other than having no login. */
 export class GitHubCliFailedError extends Schema.TaggedError<GitHubCliFailedError>()(
   "GitHubCliFailedError",
   { host: Schema.String, cause: Schema.Defect() },
@@ -109,10 +102,6 @@ export type GitHubCredentialUnavailableError =
   | GitHubCliFailedError
   | GitHubAccountResolutionError;
 
-/**
- * Where GitHub tokens come from. Callers ask per host and never see how the token was found,
- * so another source (an in-app OAuth login) slots in here without touching any of them.
- */
 export class GitHubCredentials extends Context.Service<
   GitHubCredentials,
   {
@@ -120,7 +109,6 @@ export class GitHubCredentials extends Context.Service<
       host: string,
       context?: GitHubCredentialContext,
     ) => Effect.Effect<GitHubCredential, GitHubCredentialUnavailableError>;
-    /** Drops the held token after GitHub refused it, so the next read asks its source again. */
     readonly invalidate: (host: string) => Effect.Effect<void>;
   }
 >()("@t3tools/source-control-github/server/GitHubCredentials") {}
@@ -163,11 +151,9 @@ export const make = Effect.gen(function* () {
   const environment = yield* HostProcess.Environment;
   const workingDirectory = yield* HostProcess.WorkingDirectory;
 
-  /** `host:sha256(token)`, safe for cache keys and rate-limit scopes. */
   const fingerprintOf = (host: string, token: string) =>
     crypto.digest("SHA-256", new TextEncoder().encode(token)).pipe(
       Effect.map((digest) => `${host}:${Hex.encode(digest)}`),
-      // Hashing a string in memory has no platform failure worth a typed error.
       Effect.orDie,
     );
 
@@ -223,14 +209,12 @@ export const make = Effect.gen(function* () {
       settings.sourceControlHosts[GitHubClient.definition.kind],
     );
 
-  /** Unreadable settings must not silently replace a saved account choice. */
   const hostChoice = (host: string) =>
     sourceControlHost.settings.get.pipe(
       Effect.map((settings) => readSettings(settings).hosts[host]),
       Effect.mapError((cause) => new GitHubAccountResolutionError({ host, cause })),
     );
 
-  /** A token saved in Settings for the host, read fresh so a saved or removed one applies at once. */
   const savedToken = (host: string) =>
     sourceControlHost.settings.get.pipe(
       Effect.map((settings) => readSettings(settings).tokens[host]?.trim() || null),
@@ -323,8 +307,6 @@ export const make = Effect.gen(function* () {
       if (choice?.enabled === false) {
         return yield* new GitHubHostDisabledError({ host });
       }
-      // A token saved in Settings is the most deliberate choice, so it comes before the
-      // environment and gh. It is read from the secret store each time, so it needs no cache.
       const saved = yield* savedToken(host);
       if (saved !== null) {
         return {

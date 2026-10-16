@@ -31,7 +31,6 @@ const matchesStat = (ref: PullRequestRef, stat: PullRequestDiffStat) =>
     ref.expectedAccountId === undefined ||
     stat.expectedAccountId === ref.expectedAccountId);
 
-/** Visible rows are batched differently after a restart, so store their counts individually. */
 export function persistPullRequestStats(): QueryPersistence<PullRequestListStatsResult> {
   const row = persistQuery(PullRequestDiffStat);
   return {

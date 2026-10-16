@@ -2,7 +2,6 @@ import { ProjectId } from "@t3tools/contracts";
 import type { NavigationState } from "@react-navigation/native";
 import { pullRequestListKey } from "./pullRequestList";
 
-/** Follow the displayed PR through its detail routes and sheets, not an older stack entry. */
 export function selectedPullRequestKey(state: Pick<NavigationState, "routes" | "index">) {
   for (let index = state.index; index >= 0; index--) {
     const route = state.routes[index];

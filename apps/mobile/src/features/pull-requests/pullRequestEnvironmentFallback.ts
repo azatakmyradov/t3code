@@ -6,11 +6,6 @@ export type PullRequestEnvironmentTarget = Pick<
   "environmentId" | "projectId" | "repository" | "host" | "expectedAccountId" | "initialSummary"
 >;
 
-/**
- * Another connected environment holding the pull request's repository, for when the one it was
- * opened in is unreachable. List selections and account-pinned routes retain their owner:
- * rebinding the route would also redirect workspace-bound actions.
- */
 export function pullRequestFallbackEnvironment(
   target: PullRequestEnvironmentTarget,
   projects: ReadonlyArray<EnvironmentProject>,

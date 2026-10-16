@@ -7,7 +7,6 @@ import {
   THREAD_DETAILS_PANEL_TEXT_CLASS,
 } from "./threadDetailsPanelStyles";
 
-/** Sections share header and content insets in both the sidebar and popover. */
 export function ThreadDetailsSection({
   headingId,
   title,
