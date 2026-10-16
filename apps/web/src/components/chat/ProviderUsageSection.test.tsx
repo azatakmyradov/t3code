@@ -613,8 +613,11 @@ it("keeps machine-wide quotas visible while project model availability changes",
 });
 
 it("keeps the narrow card open through quota details, visibility changes and recovery", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const outerContainer = document.createElement("div");
-  document.body.append(outerContainer);
+  const otherCardControl = document.createElement("button");
+  otherCardControl.dataset.threadDetailsOwner = "another-card";
+  document.body.append(outerContainer, otherCardControl);
   const outerRoot = createRoot(outerContainer);
   let nestedHost: HTMLDivElement | null = null;
   const threadRef = { environmentId, threadId: ThreadId.make("usage-card-test") };
@@ -694,16 +697,16 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     await pointerClick(showAll);
     expect(outer()).not.toBeNull();
     expect(outer()?.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(3);
-    const otherCardControl = document.createElement("button");
-    otherCardControl.dataset.threadDetailsOwner = "another-card";
-    document.body.append(otherCardControl);
+    // Flush Base UI's per-event inside-tree marker before the next native gesture.
+    await act(async () => vi.advanceTimersByTimeAsync(0));
     await pointerClick(otherCardControl);
     expect(outer()).toBeNull();
-    otherCardControl.remove();
   } finally {
     await render({ host: null });
     await act(async () => outerRoot.unmount());
     useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", false);
     outerContainer.remove();
+    otherCardControl.remove();
+    vi.useRealTimers();
   }
 });

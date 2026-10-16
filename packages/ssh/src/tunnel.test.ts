@@ -1184,7 +1184,12 @@ server.listen(Number(flag("--port")), "127.0.0.1", () => {
         // A crashed server whose parent never reaps it stays a zombie, which
         // kill -0 still reports. Its pid file and runtime record keep naming it.
         const parent = yield* spawner.spawn(
-          ChildProcess.make("sh", ["-c", "sleep 600 & echo $!; exec sleep 600"]),
+          ChildProcess.make("sh", [
+            "-c",
+            // Report readiness only after exec: the shell can reap the child if
+            // it is killed between echo and exec. Node did not spawn this child.
+            "sleep 600 & child=$!; exec node -e 'console.log(process.argv[1]); setInterval(() => {}, 600000)' \"$child\"",
+          ]),
         );
         const zombie = Number(
           Option.getOrThrow(
