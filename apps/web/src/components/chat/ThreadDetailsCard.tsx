@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
+import { useId, useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
@@ -26,6 +26,7 @@ export function ThreadDetailsCard({
   onPresentationChange: (presentation: ThreadPanelPresentation) => void;
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
+  const cardId = useId();
   const canvas = useChatCanvas();
   const preferredPlacement = canvas
     ? resolveThreadDetailsCardLayout({
@@ -118,6 +119,7 @@ export function ThreadDetailsCard({
   }, [contentElement, density, measurementKey]);
   const card = (
     <div
+      id={cardId}
       className={cn(
         "dropdown-glass isolate contain-paint grid max-h-full grid-rows-[minmax(0,1fr)] overflow-hidden rounded-3xl",
         mode === "popover" &&
@@ -142,7 +144,15 @@ export function ThreadDetailsCard({
             : details.reason === "outside-press"
               ? details.event.target
               : null;
-        if (!open && target instanceof Element && target.closest("[data-thread-find-bar]")) {
+        // Usage controls are DOM-portaled into this card from a separate React tree.
+        if (
+          !open &&
+          target instanceof Element &&
+          (target.closest("[data-thread-find-bar]") ||
+            target
+              .closest("[data-thread-details-owner]")
+              ?.getAttribute("data-thread-details-owner") === cardId)
+        ) {
           details.cancel();
           return;
         }
