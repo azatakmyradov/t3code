@@ -79,8 +79,10 @@ function ProviderQuotaGroup({
   label,
   now,
   disconnected,
+  detailsCardId,
 }: {
   entry: ProviderInstanceEntry;
+  detailsCardId: string | undefined;
   label: string;
   now: number;
   disconnected: boolean;
@@ -150,7 +152,13 @@ function ProviderQuotaGroup({
             </span>
           ) : null}
         </PopoverTrigger>
-        <PopoverPopup side="top" width="sm" padding="compact" aria-label={`${label} usage details`}>
+        <PopoverPopup
+          data-thread-details-owner={detailsCardId}
+          side="top"
+          width="sm"
+          padding="compact"
+          aria-label={`${label} usage details`}
+        >
           <div className="space-y-2.5 text-xs">
             <div className="flex min-w-0 items-center gap-2 border-b border-border/60 pb-2">
               <ProviderInstanceIcon
@@ -275,6 +283,7 @@ export function ProviderUsageSection({
   });
   const contextPercent = disconnected ? null : (threadContext?.usedPercentage ?? null);
   if (host === null) return null;
+  const detailsCardId = host.closest("[data-thread-details-card]")?.id;
 
   return createPortal(
     <ThreadDetailsSection
@@ -284,6 +293,7 @@ export function ProviderUsageSection({
     >
       <div
         data-provider-usage-section
+        data-thread-details-owner={detailsCardId}
         className="min-w-0 text-2xs leading-4 text-muted-foreground tabular-nums"
       >
         <div className="flex min-w-0 items-start gap-1">
@@ -299,7 +309,11 @@ export function ProviderUsageSection({
             ) : visibleProviders.length === 0 ? (
               <div className="flex min-h-8 flex-wrap items-center gap-x-2 px-1.5">
                 <p>All providers hidden</p>
-                <ThreadDetailsControl part="meta" onClick={() => showAll(environmentId)}>
+                <ThreadDetailsControl
+                  data-thread-details-owner={detailsCardId}
+                  part="meta"
+                  onClick={() => showAll(environmentId)}
+                >
                   Show all
                 </ThreadDetailsControl>
               </div>
@@ -308,6 +322,7 @@ export function ProviderUsageSection({
                 <ProviderQuotaGroup
                   key={entry.instanceId}
                   entry={entry}
+                  detailsCardId={detailsCardId}
                   label={instanceLabel(entry, enabledProviders)}
                   now={Date.parse(`${minute}:00Z`)}
                   disconnected={disconnected}
@@ -333,7 +348,7 @@ export function ProviderUsageSection({
                   />
                   <TooltipPopup>Show or hide providers</TooltipPopup>
                 </Tooltip>
-                <MenuPopup align="end">
+                <MenuPopup align="end" data-thread-details-owner={detailsCardId}>
                   <MenuGroup>
                     <MenuGroupLabel>Shown in this sidebar</MenuGroupLabel>
                     {enabledProviders.map((entry) => (

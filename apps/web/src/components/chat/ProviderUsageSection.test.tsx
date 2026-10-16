@@ -3,6 +3,7 @@
 import { act, type ComponentProps } from "react";
 import {
   EnvironmentId,
+  ThreadId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -18,7 +19,9 @@ import {
   NO_PROVIDER_MODEL_SELECTION,
 } from "../../providerInstances";
 import { TooltipProvider } from "../ui/tooltip";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { PopoverCreateHandle } from "../ui/popover";
+import { ThreadDetailsCard } from "./ThreadDetailsCard";
+import { useRightPanelStore } from "../../rightPanelStore";
 import { ProviderUsageSection } from "./ProviderUsageSection";
 import { deriveUsageProviderEntries, selectConfiguredUsageProviders } from "./providerUsage.logic";
 import { useProviderUsagePreferencesStore } from "../../providerUsagePreferencesStore";
@@ -610,23 +613,33 @@ it("keeps machine-wide quotas visible while project model availability changes",
 });
 
 it("keeps the narrow card open through quota details, visibility changes and recovery", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const outerContainer = document.createElement("div");
-  document.body.append(outerContainer);
+  const otherCardControl = document.createElement("button");
+  otherCardControl.dataset.threadDetailsOwner = "another-card";
+  document.body.append(outerContainer, otherCardControl);
   const outerRoot = createRoot(outerContainer);
   let nestedHost: HTMLDivElement | null = null;
+  const threadRef = { environmentId, threadId: ThreadId.make("usage-card-test") };
+  const handle = PopoverCreateHandle();
+  useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", true);
   try {
     await act(async () =>
       outerRoot.render(
-        <Popover defaultOpen>
-          <PopoverTrigger>Thread details</PopoverTrigger>
-          <PopoverPopup aria-label="Thread details test">
+        <ThreadDetailsCard
+          threadRef={threadRef}
+          anchor={{ current: outerContainer }}
+          handle={handle}
+          onPresentationChange={() => undefined}
+        >
+          {() => (
             <div
               ref={(element) => {
                 nestedHost = element;
               }}
             />
-          </PopoverPopup>
-        </Popover>,
+          )}
+        </ThreadDetailsCard>,
       ),
     );
     await render({ host: nestedHost });
@@ -634,7 +647,10 @@ it("keeps the narrow card open through quota details, visibility changes and rec
       '[data-provider-usage-instance="claude-work"] button',
     )!;
     await act(async () => quotaTrigger.click());
-    const outer = () => document.querySelector('[aria-label="Thread details test"][data-open]');
+    const outer = () =>
+      document.querySelector(
+        '[data-slot="popover-popup"][data-open] [data-thread-details-panel="popover"]',
+      );
     const inner = () =>
       document.querySelector<HTMLElement>('[aria-label="Claude Work usage details"][data-open]');
     expect(outer()).not.toBeNull();
@@ -681,9 +697,16 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     await pointerClick(showAll);
     expect(outer()).not.toBeNull();
     expect(outer()?.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(3);
+    // Flush Base UI's per-event inside-tree marker before the next native gesture.
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    await pointerClick(otherCardControl);
+    expect(outer()).toBeNull();
   } finally {
     await render({ host: null });
     await act(async () => outerRoot.unmount());
+    useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", false);
     outerContainer.remove();
+    otherCardControl.remove();
+    vi.useRealTimers();
   }
 });

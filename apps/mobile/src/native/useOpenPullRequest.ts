@@ -11,7 +11,6 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useThreadShell } from "../state/entities";
 import { tryOpenExternalUrl } from "../lib/openExternalUrl";
 
-/** Use the thread's environment; the shared router resolves the repository's project there. */
 export function useOpenPullRequest(options?: {
   readonly replace?: boolean;
   readonly context?: PullRequestNavigationContext;

@@ -59,8 +59,6 @@ const CONFIG = {
   observability: null,
   providers: [],
   settings: {},
-  // Capabilities drive version-skew behaviour in the projection, so the
-  // fixture carries them rather than leaving the field absent.
   environment: { capabilities: { environmentThemes: true } },
 } as unknown as ServerConfig;
 
@@ -182,8 +180,6 @@ describe("update restart reconnect nudges", () => {
         interval: Duration.zero,
       });
 
-      // Three backoff entries, three nudges. The old one-shot behavior fired
-      // once and then let the supervisor's ladder stretch to 16-second gaps.
       expect(yield* Ref.get(retries)).toBe(3);
     }),
   );
@@ -200,7 +196,6 @@ describe("update restart reconnect nudges", () => {
         { startImmediately: true },
       );
 
-      // Each nudge waits out the interval first, so nothing fires immediately.
       yield* TestClock.adjust(Duration.millis(999));
       expect(yield* Ref.get(retries)).toBe(0);
 
@@ -320,6 +315,12 @@ describe("server state projection", () => {
       fromVersion: "0.0.30",
       targetVersion: "0.0.31",
     });
+    expect(
+      serverUpdateStateForProgressEvent("0.0.30", "0.0.31", {
+        type: "complete",
+        result: { targetVersion: "0.0.31", method: "desktop-app", desktopUpdateToken: "token" },
+      }),
+    ).toMatchObject({ stage: "installing" });
   });
 
   it("does not project a completed no-op as restarting", () => {
@@ -457,8 +458,6 @@ describe("server state projection", () => {
     });
     expect(Option.getOrThrow(published).config.environmentThemes).toEqual(themes);
 
-    // A machine that stops publishing has to clear the palettes, not freeze
-    // clients on the last set it sent.
     const unpublished = applyServerConfigProjection(published, {
       version: 1,
       type: "environmentThemesUpdated",
@@ -467,8 +466,6 @@ describe("server state projection", () => {
     expect(Option.getOrThrow(unpublished).config.environmentThemes).toBeUndefined();
   });
 
-  // A snapshot never carries published themes, so taking it wholesale would
-  // clear them on every reconnect and repaint anyone wearing one.
   it("keeps published themes across a reconnect snapshot", () => {
     const themes = [
       {
@@ -493,8 +490,6 @@ describe("server state projection", () => {
     });
     expect(Option.getOrThrow(afterReconnect).config.environmentThemes).toEqual(themes);
 
-    // A server that predates the feature never sends another theme event, so
-    // carrying the set forward would leave a palette nothing can update.
     const downgraded = applyServerConfigProjection(withThemes, {
       version: 1,
       type: "snapshot",
@@ -578,8 +573,6 @@ describe("server state projection", () => {
           );
           yield* Deferred.await(firstSubscribed);
 
-          // Model the point after the ref changed but before either subscriber
-          // processed its publication.
           supervisorSession.value = Option.some(secondSession);
           const handled = yield* SubscriptionRef.changes(state).pipe(
             Stream.filter(

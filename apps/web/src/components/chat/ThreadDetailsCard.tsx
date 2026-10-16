@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
+import { useId, useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
@@ -13,7 +13,6 @@ import {
 } from "./threadDetailsCardLayout";
 import { observeResize } from "../../lib/observeResize";
 
-/** One card owns its placement and folds content only when that content cannot fit. */
 export function ThreadDetailsCard({
   threadRef,
   anchor,
@@ -27,6 +26,7 @@ export function ThreadDetailsCard({
   onPresentationChange: (presentation: ThreadPanelPresentation) => void;
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
+  const cardId = useId();
   const canvas = useChatCanvas();
   const preferredPlacement = canvas
     ? resolveThreadDetailsCardLayout({
@@ -89,13 +89,9 @@ export function ThreadDetailsCard({
   useLayoutEffect(() => {
     const element = contentElement;
     if (!element || density === "essential") return;
-    // Measure the single content tree before the scroll viewport clips it. Retain each
-    // observed height so increasing available space restores the detail it can hold.
     const measure = () => {
       const frame = element.closest<HTMLElement>("[data-thread-details-card]");
       const next = element.offsetHeight + (frame ? frame.offsetHeight - frame.clientHeight : 0);
-      // Variable lists scroll instead of hiding workspace/folder controls as
-      // relationships or provider accounts are added. Keep their headings counted.
       const lineage = element.querySelector<HTMLElement>("[data-thread-relationships-panel]");
       const usage = element.querySelector<HTMLElement>("[data-provider-usage-section]");
       const fittingHeight = next - (lineage?.offsetHeight ?? 0) - (usage?.offsetHeight ?? 0);
@@ -123,6 +119,7 @@ export function ThreadDetailsCard({
   }, [contentElement, density, measurementKey]);
   const card = (
     <div
+      id={cardId}
       className={cn(
         "dropdown-glass isolate contain-paint grid max-h-full grid-rows-[minmax(0,1fr)] overflow-hidden rounded-3xl",
         mode === "popover" &&
@@ -141,15 +138,21 @@ export function ThreadDetailsCard({
       handle={handle}
       open={mode === "popover" && popoverOpen}
       onOpenChange={(open, details) => {
-        // The find bar sits beside the card, so clicking or focusing it does not
-        // dismiss the card. Escape still does.
         const target =
           details.reason === "focus-out"
             ? (details.event as FocusEvent).relatedTarget
             : details.reason === "outside-press"
               ? details.event.target
               : null;
-        if (!open && target instanceof Element && target.closest("[data-thread-find-bar]")) {
+        // Usage controls are DOM-portaled into this card from a separate React tree.
+        if (
+          !open &&
+          target instanceof Element &&
+          (target.closest("[data-thread-find-bar]") ||
+            target
+              .closest("[data-thread-details-owner]")
+              ?.getAttribute("data-thread-details-owner") === cardId)
+        ) {
           details.cancel();
           return;
         }
@@ -169,8 +172,6 @@ export function ThreadDetailsCard({
                 "transition-[top] duration-150 ease-out motion-reduce:transition-none",
             )}
             style={{
-              // Anchored to the right edge like the find bar, so both follow a resizing
-              // canvas in the same frame instead of waiting for its next measurement.
               right: placement.right,
               top: placement.y,
               width: placement.width,
