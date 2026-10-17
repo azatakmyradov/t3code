@@ -1,3 +1,4 @@
+import { FORK_CLI_COMMAND } from "@t3tools/shared/forkIdentity";
 import { useAtomValue } from "@effect/atom-react";
 import {
   AuthEnvironmentMaintainScope,
@@ -242,8 +243,8 @@ export function ServerUpdateAction({
           installation?.kind === "npm-global" ? "Update command copied" : "Relaunch command copied",
         description:
           installation?.kind === "npm-global"
-            ? `Run \`${command}\` on ${serverLabel}, then restart t3 with your usual options.`
-            : `Stop t3 on ${serverLabel}, then relaunch with \`${command}\` using the same subcommand and options. This does not update an installed t3 command.`,
+            ? `Run \`${command}\` on ${serverLabel}, then restart ${FORK_CLI_COMMAND} with your usual options.`
+            : `Stop ${FORK_CLI_COMMAND} on ${serverLabel}, then relaunch with \`${command}\` using the same subcommand and options. This does not update an installed ${FORK_CLI_COMMAND} command.`,
       });
     },
     onError: (error) => {

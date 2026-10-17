@@ -652,7 +652,7 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     await act(async () => userEvent.keyboard("{Escape}"));
     expect(inner()).toBeNull();
     expect(outer()).not.toBeNull();
-    expect(document.activeElement).toBe(quotaTrigger);
+    await expect.element(quotaTrigger).toHaveFocus();
     await act(async () => userEvent.click(quotaTrigger));
     expect(inner()).not.toBeNull();
     await act(async () => userEvent.keyboard("{Escape}"));
@@ -674,7 +674,7 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     await act(async () => userEvent.keyboard("{Escape}"));
     await expect.element(page.getByRole("menuitemcheckbox").first()).not.toBeInTheDocument();
     expect(outer()).not.toBeNull();
-    expect(document.activeElement).toBe(visibility);
+    await expect.element(visibility).toHaveFocus();
     const showAll = [...outer()!.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "Show all",
     )!;
