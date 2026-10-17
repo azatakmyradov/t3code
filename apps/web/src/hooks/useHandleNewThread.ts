@@ -282,7 +282,6 @@ export function useNewThreadHandler() {
         const opened = {
           draftId: emptyStoredDraftThread.draftId,
           threadId: emptyStoredDraftThread.threadId,
-          ...environmentOptions,
         };
         const routeTargetAfterWrites = getCurrentRouteTarget();
         if (
@@ -326,7 +325,6 @@ export function useNewThreadHandler() {
       return Promise.resolve({
         draftId: currentRouteTarget.draftId,
         threadId: latestActiveDraftThread.threadId,
-        ...environmentOptions,
       });
     }
 
