@@ -685,6 +685,7 @@ describe("ChatMarkdown thread find", () => {
     container: HTMLElement;
     query: string;
     activeOccurrence?: number;
+    onActiveRange?: (range: Range | null) => void;
     children: ReactElement;
   }) {
     useThreadFindHighlights({
@@ -692,7 +693,7 @@ describe("ChatMarkdown thread find", () => {
       query: props.query,
       activeRowId: "row",
       activeOccurrence: props.activeOccurrence ?? 0,
-      onActiveRange: () => {},
+      onActiveRange: props.onActiveRange ?? (() => {}),
     });
     return (
       <div data-timeline-row-id="row">
@@ -813,11 +814,24 @@ describe("ChatMarkdown thread find", () => {
     async ({ text, query, count, lineBreaks, user, withTemplate }) => {
       const skills = [{ name: "test-t3-app", displayName: "T3 App Testing" }];
       const container = document.body.appendChild(document.createElement("div"));
+      let resolvePainted!: () => void;
+      const painted = new Promise<void>((resolve) => {
+        resolvePainted = resolve;
+      });
+      const onActiveRange = (range: Range | null) => {
+        // Mermaid reveals its source and then asynchronously replaces the plain
+        // code fallback with Shiki. Await a paint over that final DOM, since a
+        // range over the removed fallback becomes empty after a single frame.
+        const sourceReady =
+          !text.startsWith("```mermaid") ||
+          Boolean(range?.startContainer.parentElement?.closest(".chat-markdown-shiki"));
+        if (count === 0 || (range?.toString() === query && sourceReady)) resolvePainted();
+      };
       const root = createRoot(container);
       roots.push(root);
       await act(() =>
         root.render(
-          <FindProbe container={container} query={query}>
+          <FindProbe container={container} query={query} onActiveRange={onActiveRange}>
             <ChatMarkdown
               text={text}
               cwd={undefined}
@@ -829,7 +843,7 @@ describe("ChatMarkdown thread find", () => {
           </FindProbe>,
         ),
       );
-      await frame();
+      await painted;
       const ranges = [...CSS.highlights.values()].flatMap((value) => [...value]);
       expect(ranges.map((range) => (range as Range).toString())).toEqual(
         Array.from({ length: count }, () => query),
