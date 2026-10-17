@@ -1,6 +1,6 @@
 import type { EnvironmentId, ModelSelection } from "@t3tools/contracts";
 import { MoreHorizontalIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
@@ -282,6 +282,7 @@ export function ProviderUsageSection({
     contextModelSelection,
   });
   const contextPercent = disconnected ? null : (threadContext?.usedPercentage ?? null);
+  const visibilityTriggerRef = useRef<HTMLButtonElement>(null);
   if (host === null) return null;
   const detailsCardId = host.closest("[data-thread-details-card]")?.id;
 
@@ -338,6 +339,7 @@ export function ProviderUsageSection({
                   <TooltipTrigger
                     render={
                       <MenuTrigger
+                        ref={visibilityTriggerRef}
                         render={
                           <ThreadDetailsControl part="icon" aria-label="Choose visible providers" />
                         }
@@ -348,7 +350,11 @@ export function ProviderUsageSection({
                   />
                   <TooltipPopup>Show or hide providers</TooltipPopup>
                 </Tooltip>
-                <MenuPopup align="end" data-thread-details-owner={detailsCardId}>
+                <MenuPopup
+                  align="end"
+                  data-thread-details-owner={detailsCardId}
+                  finalFocus={visibilityTriggerRef}
+                >
                   <MenuGroup>
                     <MenuGroupLabel>Shown in this sidebar</MenuGroupLabel>
                     {enabledProviders.map((entry) => (
