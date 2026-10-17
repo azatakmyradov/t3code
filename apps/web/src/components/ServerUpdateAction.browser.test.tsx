@@ -214,23 +214,23 @@ describe("ServerUpdateAction", () => {
     [
       { kind: "npm-global", prefix: "/opt/node" },
       "Copy update command",
-      "npm install --global --prefix '/opt/node' t3@0.0.45",
+      "npm install --global --prefix '/opt/node' @azatakmyradov/t3-fork@0.0.45",
       "Update command copied",
-      "then restart t3",
+      "then restart t3-fork",
     ],
     [
       { kind: "npx" },
       "Copy relaunch command",
-      "npx t3@0.0.45",
+      "npx @azatakmyradov/t3-fork@0.0.45",
       "Relaunch command copied",
-      "This does not update an installed t3 command.",
+      "This does not update an installed t3-fork command.",
     ],
     [
       undefined,
       "Copy relaunch command",
-      "npx t3@0.0.45",
+      "npx @azatakmyradov/t3-fork@0.0.45",
       "Relaunch command copied",
-      "This does not update an installed t3 command.",
+      "This does not update an installed t3-fork command.",
     ],
   ] satisfies ReadonlyArray<
     readonly [ServerInstallation | undefined, string, string, string, string]

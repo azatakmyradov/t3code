@@ -9,6 +9,8 @@ import {
 } from "@t3tools/contracts";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
+import "~/index.css";
 
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
 import {
@@ -133,16 +135,6 @@ function details() {
 async function openDetails(id: string) {
   await act(async () => trigger(id).click());
   return details()!;
-}
-async function pointerClick(element: HTMLElement) {
-  await act(async () => {
-    element.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, buttons: 1 }));
-    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, buttons: 1 }));
-    element.focus();
-    element.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
-    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    element.click();
-  });
 }
 async function closeDetails() {
   await act(async () => {
@@ -611,10 +603,12 @@ it("keeps machine-wide quotas visible while project model availability changes",
 });
 
 it("keeps the narrow card open through quota details, visibility changes and recovery", async () => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const outerContainer = document.createElement("div");
   const otherCardControl = document.createElement("button");
   otherCardControl.dataset.threadDetailsOwner = "another-card";
+  otherCardControl.textContent = "Other card";
+  otherCardControl.style.cssText = "position: fixed; right: 0; bottom: 0";
+  outerContainer.style.width = "360px";
   document.body.append(outerContainer, otherCardControl);
   const outerRoot = createRoot(outerContainer);
   let nestedHost: HTMLDivElement | null = null;
@@ -644,7 +638,7 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     const quotaTrigger = document.querySelector<HTMLButtonElement>(
       '[data-provider-usage-instance="claude-work"] button',
     )!;
-    await act(async () => quotaTrigger.click());
+    await act(async () => userEvent.click(quotaTrigger));
     const outer = () =>
       document.querySelector(
         '[data-slot="popover-popup"][data-open] [data-thread-details-panel="popover"]',
@@ -653,51 +647,41 @@ it("keeps the narrow card open through quota details, visibility changes and rec
       document.querySelector<HTMLElement>('[aria-label="Claude Work usage details"][data-open]');
     expect(outer()).not.toBeNull();
     expect(inner()?.textContent).toContain("Weekly · Sonnet16%");
-    await act(async () => inner()!.click());
+    await act(async () => userEvent.click(inner()!));
     expect(outer()).not.toBeNull();
-    await act(async () =>
-      inner()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
-    );
+    await act(async () => userEvent.keyboard("{Escape}"));
     expect(inner()).toBeNull();
     expect(outer()).not.toBeNull();
     expect(document.activeElement).toBe(quotaTrigger);
-    await act(async () => quotaTrigger.click());
+    await act(async () => userEvent.click(quotaTrigger));
     expect(inner()).not.toBeNull();
-    await act(async () =>
-      inner()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
-    );
+    await act(async () => userEvent.keyboard("{Escape}"));
     const visibility = document.querySelector<HTMLButtonElement>(
       '[aria-label="Choose visible providers"]',
     )!;
-    await act(async () => visibility.click());
+    await act(async () => userEvent.click(visibility));
     const choice = document.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!;
-    await pointerClick(choice);
+    await act(async () => userEvent.click(choice));
     expect(outer()).not.toBeNull();
     expect(document.querySelector('[data-provider-usage-instance="codex"]')).toBeNull();
     for (const item of document.querySelectorAll<HTMLElement>(
       '[role="menuitemcheckbox"][aria-checked="true"]',
     )) {
-      await pointerClick(item);
+      await act(async () => userEvent.click(item));
       expect(outer()).not.toBeNull();
     }
     expect(outer()?.textContent).toContain("All providers hidden");
-    await act(async () =>
-      document.activeElement!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      ),
-    );
-    expect(document.querySelector('[role="menuitemcheckbox"]')).toBeNull();
+    await act(async () => userEvent.keyboard("{Escape}"));
+    await expect.element(page.getByRole("menuitemcheckbox").first()).not.toBeInTheDocument();
     expect(outer()).not.toBeNull();
     expect(document.activeElement).toBe(visibility);
     const showAll = [...outer()!.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "Show all",
     )!;
-    await pointerClick(showAll);
+    await act(async () => userEvent.click(showAll));
     expect(outer()).not.toBeNull();
     expect(outer()?.querySelectorAll("[data-provider-usage-instance]")).toHaveLength(3);
-    // Flush Base UI's per-event inside-tree marker before the next native gesture.
-    await act(async () => vi.advanceTimersByTimeAsync(0));
-    await pointerClick(otherCardControl);
+    await act(async () => userEvent.click(otherCardControl));
     expect(outer()).toBeNull();
   } finally {
     await render({ host: null });
@@ -705,6 +689,5 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", false);
     outerContainer.remove();
     otherCardControl.remove();
-    vi.useRealTimers();
   }
 });

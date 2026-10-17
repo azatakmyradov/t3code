@@ -198,6 +198,7 @@ it.effect("preserves released bot data and migration history", () => {
         ...before.migrations,
         { migration_id: 62, name: "PullRequestReviewGuides" },
         { migration_id: 63, name: "ThreadFailureLookupIndex" },
+        { migration_id: 64, name: "DropUnusedV1Projections" },
       ],
     });
   }).pipe(
