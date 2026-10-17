@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { FolderIcon } from "lucide-react";
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { buildProjectFolderChoices } from "@t3tools/client-runtime/state/project-grouping";
@@ -48,29 +47,23 @@ export function ProjectFolderPicker({
   const projectKey = activeProject
     ? deriveLogicalProjectKeyFromSettings(activeProject, settings)
     : null;
-  const members = useMemo(
-    () =>
-      projectKey === null
-        ? []
-        : projects.filter(
-            (project) => deriveLogicalProjectKeyFromSettings(project, settings) === projectKey,
-          ),
-    [projectKey, projects, settings],
-  );
-  const folders = useMemo(
-    () =>
-      buildProjectFolderChoices(members, projectRef).find(
-        (choice) => choice.environmentId === projectRef.environmentId,
-      )?.projects ?? [],
-    [members, projectRef],
-  );
+  const members =
+    projectKey === null
+      ? []
+      : projects.filter(
+          (project) => deriveLogicalProjectKeyFromSettings(project, settings) === projectKey,
+        );
+  const folders =
+    buildProjectFolderChoices(members, projectRef).find(
+      (choice) => choice.environmentId === projectRef.environmentId,
+    )?.projects ?? [];
   const path = draftId
     ? (activeProject?.workspaceRoot ?? "")
     : (workspacePath ?? activeProject?.workspaceRoot ?? "");
-  const folderLabels = useMemo(
-    () => buildProjectFolderLabels([...folders.map((folder) => folder.workspaceRoot), path]),
-    [folders, path],
-  );
+  const folderLabels = buildProjectFolderLabels([
+    ...folders.map((folder) => folder.workspaceRoot),
+    path,
+  ]);
   if (!activeProject || projectKey === null || members.length <= 1) return null;
 
   const canSelect = draftId !== null && !locked && folders.length > 1;

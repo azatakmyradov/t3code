@@ -66,6 +66,7 @@ import Migration0060 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 import Migration0061 from "./Migrations/061_Bots.ts";
 import Migration0062 from "./Migrations/062_PullRequestReviewGuides.ts";
 import Migration0063 from "./Migrations/063_ThreadFailureLookupIndex.ts";
+import Migration0064 from "./Migrations/064_DropUnusedV1Projections.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -133,6 +134,7 @@ export const migrationEntries = [
   [61, "Bots", Migration0061],
   [62, "PullRequestReviewGuides", Migration0062],
   [63, "ThreadFailureLookupIndex", Migration0063],
+  [64, "DropUnusedV1Projections", Migration0064],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -188,7 +190,7 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
 
 // Upstream released review guides at 61 and the failure index at 62. This fork
 // already released Bots at 61 and guides at 62, so keep those fork identities.
-// Normalize only the two known upstream histories, preserving their schema,
+// Normalize only known upstream histories, preserving their schema,
 // data, and migration timestamps. Unknown later histories must fail untouched.
 const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(function* (
   throughId?: number,
@@ -214,7 +216,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         !recorded.every(
           (row) =>
             (row.migration_id === 61 && row.name === "PullRequestReviewGuides") ||
-            (row.migration_id === 62 && row.name === "ThreadFailureLookupIndex"),
+            (row.migration_id === 62 && row.name === "ThreadFailureLookupIndex") ||
+            (row.migration_id === 63 && row.name === "DropUnusedV1Projections"),
         )
       ) {
         return yield* new Migrator.MigrationError({
@@ -223,11 +226,17 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         });
       }
       const hasFailureIndex = recorded.some((row) => row.migration_id === 62);
+      const hasCleanup = recorded.some((row) => row.migration_id === 63);
+      if (hasCleanup && throughId !== undefined && throughId < 64) return [];
       // Moving the index to 63 would exceed a caller's requested migration limit.
       if (hasFailureIndex && throughId === 62) return [];
       yield* assertV2MigrationsCanRun(60);
       yield* Migration0061;
-      // Move the later entry first to avoid a primary-key collision.
+      // Move later entries first to avoid primary-key collisions while preserving timestamps.
+      yield* sql`
+        UPDATE effect_sql_migrations SET migration_id = 64
+        WHERE migration_id = 63 AND name = 'DropUnusedV1Projections'
+      `;
       yield* sql`
         UPDATE effect_sql_migrations SET migration_id = 63
         WHERE migration_id = 62 AND name = 'ThreadFailureLookupIndex'

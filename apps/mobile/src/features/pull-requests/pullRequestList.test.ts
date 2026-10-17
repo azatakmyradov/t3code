@@ -13,8 +13,10 @@ import {
   mergePullRequestListEntries,
   mergeEnvironmentPullRequestPages,
   nextPullRequestListInput,
+  PR_LIST_PAGE_SIZE,
   pullRequestListFacets,
   pullRequestListHead,
+  pullRequestListInput,
   pullRequestListReviewStatus,
   pullRequestLabelColor,
   scopedPullRequestListKey,
@@ -321,6 +323,11 @@ describe("mobile PR scan and filters", () => {
         new Set(),
       ).map((row) => row.number),
     ).toEqual([1]);
+    expect(
+      filterPullRequestList(rows, DEFAULT_PR_LIST_CONTROLS, viewers, "author:@me", new Set()).map(
+        (row) => row.number,
+      ),
+    ).toEqual([1]);
   });
   it("prefers each project's viewer for authored and author:me on the same host", () => {
     const personal = entry(1, {
@@ -381,6 +388,29 @@ describe("mobile PR scan and filters", () => {
       filterPullRequestList(rows, { ...DEFAULT_PR_LIST_CONTROLS, filters }, {}, "", new Set()).map(
         (row) => row.number,
       ),
+    ).toEqual([1]);
+  });
+  it("reads a typed draft qualifier as a filter and searches only the text left over", () => {
+    expect(pullRequestListInput(DEFAULT_PR_LIST_CONTROLS, "draft:false fix")).toEqual({
+      state: "open",
+      involvement: "all",
+      filters: { draft: "hide" },
+      limit: PR_LIST_PAGE_SIZE,
+      query: "fix",
+    });
+    const rows = [
+      entry(1, { title: "Fix parser" }),
+      entry(2, { title: "Fix drafts", isDraft: true }),
+      entry(3),
+    ];
+    expect(
+      filterPullRequestList(
+        rows,
+        DEFAULT_PR_LIST_CONTROLS,
+        {},
+        "draft:false fix",
+        new Set(["github.com"]),
+      ).map((row) => row.number),
     ).toEqual([1]);
   });
   it("does not label unsupported review summaries as reviewed or match text locally on host-search results", () => {

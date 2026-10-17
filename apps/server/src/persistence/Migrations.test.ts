@@ -7,6 +7,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { migrationManifest, runMigrations } from "./Migrations.ts";
 import PullRequestReviewGuides from "./Migrations/062_PullRequestReviewGuides.ts";
 import ThreadFailureLookupIndex from "./Migrations/063_ThreadFailureLookupIndex.ts";
+import DropUnusedV1Projections from "./Migrations/064_DropUnusedV1Projections.ts";
 
 const v2Migrations = migrationManifest.filter(([id]) => id >= 55);
 const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
@@ -64,12 +65,16 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
     VALUES ('github.com', 'test/repo', 7, '{"title":"Saved review"}')
   `;
-  if (throughId === 62) {
+  if (throughId >= 62) {
     yield* ThreadFailureLookupIndex;
     yield* sql`
       INSERT INTO effect_sql_migrations (migration_id, name, created_at)
       VALUES (62, 'ThreadFailureLookupIndex', '2026-10-02 12:00:00')
     `;
+  }
+  if (throughId >= 63) {
+    yield* DropUnusedV1Projections;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (63, 'DropUnusedV1Projections', '2026-10-03 12:00:00')`;
   }
 });
 
@@ -123,7 +128,10 @@ describe("runMigrations", () => {
       const guides = yield* sql`SELECT * FROM pull_request_review_guides`;
       const releasedHistory = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
 
-      assert.deepStrictEqual(yield* runMigrations(), [[63, "ThreadFailureLookupIndex"]]);
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [63, "ThreadFailureLookupIndex"],
+        [64, "DropUnusedV1Projections"],
+      ]);
 
       assert.deepStrictEqual(yield* history, migrationManifest);
       assert.deepStrictEqual(yield* sql`SELECT * FROM bots`, bots);
@@ -137,7 +145,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62])("reconciles upstream %s without replaying its migrations", (id) =>
+  it.effect.each([61, 62, 63])("reconciles upstream %s without replaying its migrations", (id) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* seedUpstream(id);
@@ -157,8 +165,14 @@ describe("runMigrations", () => {
           ? [
               [61, "Bots"],
               [63, "ThreadFailureLookupIndex"],
+              [64, "DropUnusedV1Projections"],
             ]
-          : [[61, "Bots"]],
+          : id === 62
+            ? [
+                [61, "Bots"],
+                [64, "DropUnusedV1Projections"],
+              ]
+            : [[61, "Bots"]],
       );
 
       assert.deepStrictEqual(yield* history, migrationManifest);
@@ -205,18 +219,20 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("does not reconcile upstream ids beyond the requested migration limit", () =>
-    Effect.gen(function* () {
-      yield* seedUpstream(62);
-      const before = yield* history;
-      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 60 }), []);
+  it.effect.each([62, 63])(
+    "does not reconcile upstream %s beyond the requested migration limit",
+    (id) =>
+      Effect.gen(function* () {
+        yield* seedUpstream(id);
+        const before = yield* history;
+        assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 60 }), []);
 
-      const exit = yield* Effect.exit(runMigrations({ toMigrationInclusive: 62 }));
+        const exit = yield* Effect.exit(runMigrations({ toMigrationInclusive: id }));
 
-      assert.isTrue(Exit.isFailure(exit));
-      assert.deepStrictEqual(yield* history, before);
-      assert.deepStrictEqual(yield* botTables, []);
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+        assert.isTrue(Exit.isFailure(exit));
+        assert.deepStrictEqual(yield* history, before);
+        assert.deepStrictEqual(yield* botTables, []);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
   it.effect("rolls back upstream reconciliation if creating the fork schema fails", () =>
