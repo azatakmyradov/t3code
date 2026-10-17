@@ -32,6 +32,30 @@ import {
   selectThreadContext,
 } from "./providerUsage.logic";
 
+// A hover-exit close can follow Escape before a portaled popup finishes closing.
+// Retain keyboard dismissal intent until the transition completes, so the outer
+// card's focus lifecycle cannot leave focus on a removed popup.
+function useEscapeReturnFocus() {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const restoreAfterClose = useRef(false);
+  return {
+    triggerRef,
+    onOpenChange(open: boolean, details: { reason: string }) {
+      if (open || details.reason === "outside-press") {
+        restoreAfterClose.current = false;
+      } else if (details.reason === "escape-key") {
+        restoreAfterClose.current = true;
+      }
+    },
+    onOpenChangeComplete(open: boolean) {
+      if (!open && restoreAfterClose.current) {
+        restoreAfterClose.current = false;
+        triggerRef.current?.focus({ preventScroll: true });
+      }
+    },
+  };
+}
+
 function UsageDetail({
   children,
   description,
@@ -87,6 +111,11 @@ function ProviderQuotaGroup({
   now: number;
   disconnected: boolean;
 }) {
+  const {
+    triggerRef: quotaTriggerRef,
+    onOpenChange: onQuotaOpenChange,
+    onOpenChangeComplete: onQuotaOpenChangeComplete,
+  } = useEscapeReturnFocus();
   const quota = providerQuotaStatus(entry.snapshot, now, disconnected);
   const unavailable = !entry.isAvailable
     ? "This provider is unavailable in the current environment."
@@ -106,8 +135,9 @@ function ProviderQuotaGroup({
           .join(" ");
   return (
     <div data-provider-usage-instance={entry.instanceId} className="shrink-0">
-      <Popover>
+      <Popover onOpenChange={onQuotaOpenChange} onOpenChangeComplete={onQuotaOpenChangeComplete}>
         <PopoverTrigger
+          ref={quotaTriggerRef}
           openOnHover
           delay={150}
           render={<ThreadDetailsControl part="usage" aria-label={summary} />}
@@ -282,7 +312,11 @@ export function ProviderUsageSection({
     contextModelSelection,
   });
   const contextPercent = disconnected ? null : (threadContext?.usedPercentage ?? null);
-  const visibilityTriggerRef = useRef<HTMLButtonElement>(null);
+  const {
+    triggerRef: visibilityTriggerRef,
+    onOpenChange: onVisibilityOpenChange,
+    onOpenChangeComplete: onVisibilityOpenChangeComplete,
+  } = useEscapeReturnFocus();
   if (host === null) return null;
   const detailsCardId = host.closest("[data-thread-details-card]")?.id;
 
@@ -334,7 +368,11 @@ export function ProviderUsageSection({
           {enabledProviders.length > 0 ? (
             <div className="shrink-0 pt-1">
               {/* A modal menu dismisses the containing card across this DOM-only portal. */}
-              <Menu modal={false}>
+              <Menu
+                modal={false}
+                onOpenChange={onVisibilityOpenChange}
+                onOpenChangeComplete={onVisibilityOpenChangeComplete}
+              >
                 <Tooltip>
                   <TooltipTrigger
                     render={

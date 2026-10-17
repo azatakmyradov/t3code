@@ -652,8 +652,8 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     await act(async () => userEvent.keyboard("{Escape}"));
     expect(inner()).toBeNull();
     expect(outer()).not.toBeNull();
-    // Hoverable popovers suppress return focus after the pointer leaves their
-    // trigger. Exercise keyboard restoration separately from the pointer path.
+    await expect.element(quotaTrigger).toHaveFocus();
+    // Also exercise an opening initiated entirely from the keyboard.
     await userEvent.hover(otherCardControl);
     await act(async () => quotaTrigger.focus());
     await act(async () => userEvent.keyboard("{Enter}"));
