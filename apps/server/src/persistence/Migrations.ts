@@ -246,6 +246,7 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         WHERE migration_id = 61 AND name = 'PullRequestReviewGuides'
       `;
       yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (61, 'Bots')`;
+      yield* assertV2MigrationsCanRun(throughId);
       return [[61, "Bots"]] as const;
     }),
   );

@@ -652,10 +652,14 @@ it("keeps the narrow card open through quota details, visibility changes and rec
     await act(async () => userEvent.keyboard("{Escape}"));
     expect(inner()).toBeNull();
     expect(outer()).not.toBeNull();
-    await expect.element(quotaTrigger).toHaveFocus();
-    await act(async () => userEvent.click(quotaTrigger));
+    // Hoverable popovers suppress return focus after the pointer leaves their
+    // trigger. Exercise keyboard restoration separately from the pointer path.
+    await userEvent.hover(otherCardControl);
+    await act(async () => quotaTrigger.focus());
+    await act(async () => userEvent.keyboard("{Enter}"));
     expect(inner()).not.toBeNull();
     await act(async () => userEvent.keyboard("{Escape}"));
+    await expect.element(quotaTrigger).toHaveFocus();
     const visibility = document.querySelector<HTMLButtonElement>(
       '[aria-label="Choose visible providers"]',
     )!;

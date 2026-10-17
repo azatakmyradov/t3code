@@ -187,6 +187,25 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
+  it.effect("rolls back reconciliation when a known upstream ledger has a gap", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* seedUpstream(63);
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 62`;
+      const before = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
+      const guides = yield* sql`SELECT * FROM pull_request_review_guides`;
+      const exit = yield* Effect.exit(runMigrations());
+      assert.isTrue(Exit.isFailure(exit));
+      assert.include(String(exit), "63_ThreadFailureLookupIndex");
+      assert.deepStrictEqual(
+        yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`,
+        before,
+      );
+      assert.deepStrictEqual(yield* sql`SELECT * FROM pull_request_review_guides`, guides);
+      assert.deepStrictEqual(yield* botTables, []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("leaves unknown upstream histories untouched", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
