@@ -2820,99 +2820,6 @@ it.effect.each([
   }),
 );
 
-it.effect("verifies and isolates expected accounts for linked PRs without a checkout", () =>
-  Effect.gen(function* () {
-    let accountId = "101";
-    const seen: Array<{ cwd: string; repository: string; host: string; accountId: string }> = [];
-    const verified: Array<{ cwd: string; host: string }> = [];
-    const service = yield* makeService({
-      projects: [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })],
-      providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
-          withVerifiedCredential: (input, use) =>
-            Effect.suspend(() => {
-              verified.push(input);
-              return use({ accountId, viewer: accountId, credentialFingerprint: accountId });
-            }),
-          getChangeRequestSummary: (input) =>
-            Effect.sync(() => {
-              seen.push({
-                cwd: input.cwd,
-                repository: input.repository,
-                host: input.host,
-                accountId,
-              });
-              return { ...changeRequest(7, "2026-07-02T00:00:00Z"), title: accountId };
-            }),
-        }),
-      ],
-    });
-    const reference = {
-      projectId: "inbox" as ProjectId,
-      host: "github.com",
-      repository: "acme/api",
-      number: 7,
-      expectedAccountId: "101",
-    };
-    const read = (ref: typeof reference) =>
-      service.withRoutingCredential(ref, service.summary(ref, { recoverTransientFailure: false }));
-    assert.strictEqual((yield* read(reference)).title, "101");
-    assert.strictEqual((yield* read(reference)).title, "101");
-    accountId = "202";
-    const mismatch = yield* Effect.flip(read(reference));
-    assert.strictEqual(mismatch._tag, "PullRequestOperationError");
-    if (mismatch._tag === "PullRequestOperationError")
-      assert.strictEqual(mismatch.operation, "routeIdentity");
-    assert.strictEqual((yield* read({ ...reference, expectedAccountId: "202" })).title, "202");
-    assert.deepStrictEqual(seen, [
-      { cwd: "/home/alex", repository: "acme/api", host: "github.com", accountId: "101" },
-      { cwd: "/home/alex", repository: "acme/api", host: "github.com", accountId: "202" },
-    ]);
-    assert.deepStrictEqual(
-      verified,
-      Array.from({ length: 4 }, () => ({ cwd: "/home/alex", host: "github.com" })),
-    );
-  }),
-);
-
-it.effect("rejects a deleted fallback project before serving its cached linked PR", () =>
-  Effect.gen(function* () {
-    const projects = [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })];
-    let reads = 0;
-    let verifications = 0;
-    const service = yield* makeService({
-      projects,
-      providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
-          withVerifiedCredential: (_, use) =>
-            Effect.suspend(() => {
-              verifications++;
-              return use({ accountId: "101", viewer: "alex", credentialFingerprint: "101" });
-            }),
-          getChangeRequestSummary: () =>
-            Effect.sync(() => {
-              reads++;
-              return changeRequest(7, "2026-07-02T00:00:00Z");
-            }),
-        }),
-      ],
-    });
-    const reference = {
-      projectId: "inbox" as ProjectId,
-      host: "github.com",
-      repository: "acme/api",
-      number: 7,
-      expectedAccountId: "101",
-    };
-    yield* service.summary(reference);
-    projects.splice(0);
-    const error = yield* Effect.flip(service.summary(reference));
-    assert.strictEqual(error._tag, "PullRequestUnavailableError");
-    assert.strictEqual(reads, 1);
-    assert.strictEqual(verifications, 1);
-  }),
-);
-
 it.effect("prefers a matching checkout over a non-repository project's directory", () =>
   Effect.gen(function* () {
     const seen: string[] = [];
@@ -7814,6 +7721,126 @@ it.effect.each([
     }),
 );
 
+it.effect("expands only files the change request changes, across every slice of its diff", () =>
+  Effect.gen(function* () {
+    const read: Array<string> = [];
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
+      ],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          getDiff: (input) =>
+            Effect.succeed(
+              input.cursor === undefined
+                ? {
+                    patch: [
+                      "diff --git a/src/old.ts b/src/new.ts",
+                      "rename from src/old.ts",
+                      "rename to src/new.ts",
+                      "--- a/src/old.ts",
+                      "+++ b/src/new.ts",
+                      "",
+                    ].join("\n"),
+                    truncated: false,
+                    nextCursor: "2",
+                  }
+                : {
+                    patch: [
+                      "diff --git a/gone.md b/gone.md",
+                      "deleted file mode 100644",
+                      "--- a/gone.md",
+                      "+++ /dev/null",
+                      "",
+                    ].join("\n"),
+                    truncated: false,
+                    nextCursor: null,
+                  },
+            ),
+          getDiffFileContents: (input) =>
+            Effect.sync(() => {
+              read.push(`${input.oldPath}->${input.newPath}`);
+              return { oldContents: "old", newContents: "new" };
+            }),
+        }),
+      ],
+    });
+    const ref = { projectId: "p1" as ProjectId, repository: "pingdotgg/t3code", number: 1 };
+
+    yield* service.diffFileContents({
+      ...ref,
+      changeType: "rename-changed",
+      oldPath: "src/old.ts",
+      newPath: "src/new.ts",
+    });
+    yield* service.diffFileContents({
+      ...ref,
+      changeType: "deleted",
+      oldPath: "gone.md",
+      newPath: "gone.md",
+    });
+    const outside = yield* service
+      .diffFileContents({ ...ref, changeType: "deleted", oldPath: ".env", newPath: ".env" })
+      .pipe(Effect.flip);
+    const halfRename = yield* service
+      .diffFileContents({
+        ...ref,
+        changeType: "change",
+        oldPath: "src/secret.ts",
+        newPath: "src/new.ts",
+      })
+      .pipe(Effect.flip);
+
+    assert.strictEqual(outside._tag, "PullRequestOperationError");
+    assert.strictEqual(halfRename._tag, "PullRequestOperationError");
+    assert.deepStrictEqual(read, ["src/old.ts->src/new.ts", "gone.md->gone.md"]);
+  }),
+);
+
+it.effect("checks expanded files against a diff too large to cache without fetching it again", () =>
+  Effect.gen(function* () {
+    let diffReads = 0;
+    const filler = `+${"x".repeat(300 * 1024)}`;
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
+      ],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          getDiff: () =>
+            Effect.sync(() => {
+              diffReads += 1;
+              return {
+                patch: ["a.ts", "b.ts"]
+                  .flatMap((name) => [
+                    `diff --git a/${name} b/${name}`,
+                    `--- a/${name}`,
+                    `+++ b/${name}`,
+                    "@@ -0,0 +1 @@",
+                    filler,
+                  ])
+                  .join("\n"),
+                truncated: false,
+                nextCursor: null,
+              };
+            }),
+          getDiffFileContents: () => Effect.succeed({ oldContents: "old", newContents: "new" }),
+        }),
+      ],
+    });
+    const ref = { projectId: "p1" as ProjectId, repository: "pingdotgg/t3code", number: 1 };
+    for (const name of ["a.ts", "b.ts"]) {
+      yield* service.diffFileContents({
+        ...ref,
+        changeType: "change",
+        oldPath: name,
+        newPath: name,
+      });
+    }
+    assert.strictEqual(diffReads, 1);
+  }),
+);
+
 it.effect.each(["repository", "batch"] as const)(
   "isolates repository viewers, %s listings, and listing caches by verified credential",
   (listing) =>
@@ -8444,5 +8471,98 @@ it.effect("finds a matching account while an earlier checkout is stalled", () =>
       "202",
     );
     assert.strictEqual(interrupted, true);
+  }),
+);
+
+it.effect("verifies and isolates expected accounts for linked PRs without a checkout", () =>
+  Effect.gen(function* () {
+    let accountId = "101";
+    const seen: Array<{ cwd: string; repository: string; host: string; accountId: string }> = [];
+    const verified: Array<{ cwd: string; host: string }> = [];
+    const service = yield* makeService({
+      projects: [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          withVerifiedCredential: (input, use) =>
+            Effect.suspend(() => {
+              verified.push(input);
+              return use({ accountId, viewer: accountId, credentialFingerprint: accountId });
+            }),
+          getChangeRequestSummary: (input) =>
+            Effect.sync(() => {
+              seen.push({
+                cwd: input.cwd,
+                repository: input.repository,
+                host: input.host,
+                accountId,
+              });
+              return { ...changeRequest(7, "2026-07-02T00:00:00Z"), title: accountId };
+            }),
+        }),
+      ],
+    });
+    const reference = {
+      projectId: "inbox" as ProjectId,
+      host: "github.com",
+      repository: "acme/api",
+      number: 7,
+      expectedAccountId: "101",
+    };
+    const read = (ref: typeof reference) =>
+      service.withRoutingCredential(ref, service.summary(ref, { recoverTransientFailure: false }));
+    assert.strictEqual((yield* read(reference)).title, "101");
+    assert.strictEqual((yield* read(reference)).title, "101");
+    accountId = "202";
+    const mismatch = yield* Effect.flip(read(reference));
+    assert.strictEqual(mismatch._tag, "PullRequestOperationError");
+    if (mismatch._tag === "PullRequestOperationError")
+      assert.strictEqual(mismatch.operation, "routeIdentity");
+    assert.strictEqual((yield* read({ ...reference, expectedAccountId: "202" })).title, "202");
+    assert.deepStrictEqual(seen, [
+      { cwd: "/home/alex", repository: "acme/api", host: "github.com", accountId: "101" },
+      { cwd: "/home/alex", repository: "acme/api", host: "github.com", accountId: "202" },
+    ]);
+    assert.deepStrictEqual(
+      verified,
+      Array.from({ length: 4 }, () => ({ cwd: "/home/alex", host: "github.com" })),
+    );
+  }),
+);
+
+it.effect("rejects a deleted fallback project before serving its cached linked PR", () =>
+  Effect.gen(function* () {
+    const projects = [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })];
+    let reads = 0;
+    let verifications = 0;
+    const service = yield* makeService({
+      projects,
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          withVerifiedCredential: (_, use) =>
+            Effect.suspend(() => {
+              verifications++;
+              return use({ accountId: "101", viewer: "alex", credentialFingerprint: "101" });
+            }),
+          getChangeRequestSummary: () =>
+            Effect.sync(() => {
+              reads++;
+              return changeRequest(7, "2026-07-02T00:00:00Z");
+            }),
+        }),
+      ],
+    });
+    const reference = {
+      projectId: "inbox" as ProjectId,
+      host: "github.com",
+      repository: "acme/api",
+      number: 7,
+      expectedAccountId: "101",
+    };
+    yield* service.summary(reference);
+    projects.splice(0);
+    const error = yield* Effect.flip(service.summary(reference));
+    assert.strictEqual(error._tag, "PullRequestUnavailableError");
+    assert.strictEqual(reads, 1);
+    assert.strictEqual(verifications, 1);
   }),
 );
