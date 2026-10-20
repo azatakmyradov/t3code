@@ -1,3 +1,4 @@
+import { ComposerSurface } from "./chat/ComposerSurface";
 import type { ServerUpdateTarget } from "./ServerUpdateAction";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { act, type ComponentProps } from "react";
@@ -55,22 +56,24 @@ afterEach(async () => {
 function render(props: Partial<ComponentProps<typeof BranchToolbar>>) {
   return act(async () =>
     root.render(
-      <BranchToolbar
-        layout="panel"
-        panelSection="workspace"
-        environmentId={EnvironmentId.make("local")}
-        threadId={ThreadId.make("thread")}
-        projectId={ProjectId.make("project")}
-        worktreePath={state.worktreePath}
-        isServerThread
-        showGitControls
-        envMode="local"
-        envLocked={false}
-        startFromOrigin={false}
-        onStartFromOriginChange={vi.fn()}
-        onEnvModeChange={vi.fn()}
-        {...props}
-      />,
+      <ComposerSurface.Shell>
+        <BranchToolbar
+          layout="panel"
+          panelSection="workspace"
+          environmentId={EnvironmentId.make("local")}
+          threadId={ThreadId.make("thread")}
+          projectId={ProjectId.make("project")}
+          worktreePath={state.worktreePath}
+          isServerThread
+          showGitControls
+          envMode="local"
+          envLocked={false}
+          startFromOrigin={false}
+          onStartFromOriginChange={vi.fn()}
+          onEnvModeChange={vi.fn()}
+          {...props}
+        />
+      </ComposerSurface.Shell>,
     ),
   );
 }
