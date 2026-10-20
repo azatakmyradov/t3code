@@ -52,6 +52,24 @@ describe("desktop preload bundle verifier", () => {
     );
   });
 
+  it("executes window callbacks with Electron zoom and document APIs", () => {
+    assert.doesNotThrow(() =>
+      verifyPreloadBundle(`${validPreload}
+      window.addEventListener("DOMContentLoaded", () => {
+        document.documentElement.style.setProperty("--desktop-window-controls-inset",
+          String(90 / electron.webFrame.getZoomFactor()));
+      });
+    `),
+    );
+    assert.throws(
+      () =>
+        verifyPreloadBundle(`${validPreload}
+      window.addEventListener("resize", () => { throw new Error("broken callback"); });
+    `),
+      /broken callback/,
+    );
+  });
+
   it("rejects dynamic imports with comments before the opening parenthesis", () => {
     assert.throws(
       () =>

@@ -28,11 +28,13 @@ import * as Context from "effect/Context";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
@@ -62,7 +64,7 @@ export interface ProviderEventRoutingState {
   readonly rootTurnEnded: boolean;
   readonly workflowMemberParents: ReadonlyMap<ThreadId, ThreadId>;
   readonly ownedProviderThreadIds: ReadonlySet<ProviderThreadId>;
-  readonly ownedProviderTurnIds: ReadonlySet<ProviderTurnId>;
+  readonly ownedProviderTurns: ReadonlyMap<ProviderTurnId, ProviderThreadId>;
   readonly inheritedBackgroundTurnItems: ReadonlyMap<TurnItemId, OrchestrationV2Run["id"]>;
   readonly rootProviderTurnId: ProviderTurnId | null;
 }
@@ -339,8 +341,10 @@ export function makeProviderEventRoutingState(input: {
       input.identity.providerThreadId,
       ...(input.relatedProviderThreadIds ?? []),
     ]),
-    ownedProviderTurnIds:
-      input.providerTurnId === null ? new Set() : new Set([input.providerTurnId]),
+    ownedProviderTurns:
+      input.providerTurnId === null
+        ? new Map()
+        : new Map([[input.providerTurnId, input.identity.providerThreadId]]),
     inheritedBackgroundTurnItems: new Map(
       (input.inheritedBackgroundTurnItems ?? []).map((item) => [item.id, item.runId]),
     ),
@@ -363,10 +367,11 @@ export function routeProviderEvent(
   });
   const addProviderTurn = (
     providerTurnId: ProviderTurnId,
+    providerThreadId: ProviderThreadId,
     root: boolean,
   ): ProviderEventRoutingState => ({
     ...state,
-    ownedProviderTurnIds: new Set([...state.ownedProviderTurnIds, providerTurnId]),
+    ownedProviderTurns: new Map(state.ownedProviderTurns).set(providerTurnId, providerThreadId),
     rootProviderTurnId: root ? providerTurnId : state.rootProviderTurnId,
   });
 
@@ -407,9 +412,14 @@ export function routeProviderEvent(
         isRoot ||
         (event.providerTurn.providerThreadId !== input.providerThreadId &&
           state.ownedProviderThreadIds.has(event.providerTurn.providerThreadId)) ||
-        state.ownedProviderTurnIds.has(event.providerTurn.id) ||
+        state.ownedProviderTurns.has(event.providerTurn.id) ||
         (event.threadId !== undefined && ownsChildThread(event.threadId));
-      return belongs ? [true, addProviderTurn(event.providerTurn.id, isRoot)] : [false, state];
+      return belongs
+        ? [
+            true,
+            addProviderTurn(event.providerTurn.id, event.providerTurn.providerThreadId, isRoot),
+          ]
+        : [false, state];
     }
     case "node.updated": {
       const belongs = ownsRun(event.node.runId) || ownsChildThread(event.node.threadId);
@@ -419,6 +429,25 @@ export function routeProviderEvent(
       return [true, addProviderThread(event.node.providerThreadId)];
     }
     case "subagent.updated": {
+      const moved = event.subagent;
+      if (
+        moved.origin === "provider_native" &&
+        moved.threadId === input.threadId &&
+        moved.runId !== null &&
+        !ownsRun(moved.runId) &&
+        moved.childThreadId !== null &&
+        ownsChildThread(moved.childThreadId)
+      ) {
+        const ownedThreadIds = new Set(state.ownedThreadIds);
+        ownedThreadIds.delete(moved.childThreadId);
+        const ownedProviderThreadIds = new Set(state.ownedProviderThreadIds);
+        if (moved.providerThreadId !== null) ownedProviderThreadIds.delete(moved.providerThreadId);
+        const ownedProviderTurns = new Map(state.ownedProviderTurns);
+        for (const [turnId, threadId] of ownedProviderTurns) {
+          if (threadId === moved.providerThreadId) ownedProviderTurns.delete(turnId);
+        }
+        return [false, { ...state, ownedThreadIds, ownedProviderThreadIds, ownedProviderTurns }];
+      }
       const belongs = ownsRun(event.subagent.runId) || ownsChildThread(event.subagent.threadId);
       const coordinator = event.subagent;
       // A provider-native subagent's child thread follows the live run it is
@@ -480,7 +509,7 @@ export function routeProviderEvent(
       return [
         (event.threadId !== undefined && ownsChildThread(event.threadId)) ||
           (event.runtimeRequest.providerTurnId !== null &&
-            state.ownedProviderTurnIds.has(event.runtimeRequest.providerTurnId)),
+            state.ownedProviderTurns.has(event.runtimeRequest.providerTurnId)),
         state,
       ];
     case "command_output.delta":
@@ -575,6 +604,7 @@ export const layer: Layer.Layer<
 > = Layer.effect(
   RunExecutionServiceV2,
   Effect.gen(function* () {
+    const scope = yield* Effect.scope;
     const checkpointService = yield* CheckpointService.CheckpointServiceV2;
     const eventSink = yield* EventSink.EventSinkV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -598,6 +628,7 @@ export const layer: Layer.Layer<
         readonly interruptionMessage?: string;
         /** Tool calls cut off by a planned detach cannot deliver another update. */
         readonly orphanedTurnItems?: ReadonlyArray<OrchestrationV2TurnItem>;
+        readonly completedAt?: DateTime.Utc;
         readonly failureItemPersisted: boolean;
         readonly refreshAfterTurn: Effect.Effect<void>;
         readonly writeIfRunCurrent?: {
@@ -605,7 +636,7 @@ export const layer: Layer.Layer<
           readonly expectedStatus: OrchestrationV2Run["status"];
         };
       }) {
-        const completedAt = yield* DateTime.now;
+        const completedAt = input.completedAt ?? (yield* DateTime.now);
         const finalizedAttempt: OrchestrationV2RunAttempt | null = {
           ...input.attempt,
           status: input.terminal.status,
@@ -1005,7 +1036,7 @@ export const layer: Layer.Layer<
         const workspaceDetached = yield* Deferred.make<void>();
         const providerThreadOwnerLost = yield* Ref.make(false);
         const activeChildProviderTurns = yield* Ref.make<ReadonlySet<ProviderTurnId>>(new Set());
-        const activeChildSubagents = yield* Ref.make<ReadonlySet<NodeId>>(new Set());
+        const activeChildSubagents = yield* Ref.make<ReadonlyMap<NodeId, ThreadId>>(new Map());
         const activeBackgroundTurnItems = yield* Ref.make<
           ReadonlyMap<OrchestrationV2TurnItem["id"], OrchestrationV2TurnItem | undefined>
         >(new Map(Array.from(inheritedBackgroundTurnItemsById.keys(), (id) => [id, undefined])));
@@ -1095,11 +1126,11 @@ export const layer: Layer.Layer<
               routing.ownedThreadIds.has(event.subagent.threadId);
             if (belongsToRootRun || belongsToOwnedChildThread) {
               yield* Ref.update(activeChildSubagents, (current) => {
-                const next = new Set(current);
+                const next = new Map(current);
                 if (isSettledSubagentStatus(event.subagent.status)) {
                   next.delete(event.subagent.id);
                 } else {
-                  next.add(event.subagent.id);
+                  next.set(event.subagent.id, event.subagent.threadId);
                 }
                 return next;
               });
@@ -1288,10 +1319,10 @@ export const layer: Layer.Layer<
                         ? {
                             ...state,
                             rootProviderTurnId: terminal.providerTurnId,
-                            ownedProviderTurnIds: new Set([
-                              ...state.ownedProviderTurnIds,
+                            ownedProviderTurns: new Map(state.ownedProviderTurns).set(
                               terminal.providerTurnId,
-                            ]),
+                              input.providerThread.id,
+                            ),
                           }
                         : state,
                     );
@@ -1314,11 +1345,84 @@ export const layer: Layer.Layer<
                   }),
                 ),
           ),
-          Stream.filterEffect((event) =>
-            Ref.modify(eventRouting, (state) => routeProviderEvent(event, routeIdentity, state)),
-          ),
-          Stream.tap((event) =>
+          Stream.mapEffect((event) =>
             Effect.gen(function* () {
+              const previous = yield* Ref.get(eventRouting);
+              const [accepted, routing] = routeProviderEvent(event, routeIdentity, previous);
+              yield* Ref.set(eventRouting, routing);
+              if (
+                event.type === "subagent.updated" &&
+                event.subagent.childThreadId !== null &&
+                previous.ownedThreadIds.has(event.subagent.childThreadId) &&
+                !routing.ownedThreadIds.has(event.subagent.childThreadId)
+              ) {
+                const moved = event.subagent;
+                const detached = yield* Ref.modify(openRunOwnedSubagents, (current) => {
+                  const subagentIds = new Set([moved.id]);
+                  for (const subagent of current.subagents.values()) {
+                    if (subagent.threadId === moved.childThreadId) subagentIds.add(subagent.id);
+                  }
+                  const childTurnItems = new Map(
+                    [...current.childTurnItems].filter(
+                      ([, item]) => item.threadId !== moved.childThreadId,
+                    ),
+                  );
+                  const turnItems = new Map(current.turnItems);
+                  turnItems.delete(moved.id);
+                  const detachedItems = new Set(
+                    [...current.childTurnItems.values(), ...current.turnItems.values()]
+                      .filter(
+                        (item) => item.threadId === moved.childThreadId || item.nodeId === moved.id,
+                      )
+                      .map((item) => item.id),
+                  );
+                  return [
+                    { itemIds: detachedItems, subagentIds },
+                    {
+                      subagents: new Map(
+                        [...current.subagents].filter(([id]) => !subagentIds.has(id)),
+                      ),
+                      turnItems,
+                      childTurnItems,
+                      nodes: new Map(
+                        [...current.nodes].filter(
+                          ([id, node]) => id !== moved.id && node.threadId !== moved.childThreadId,
+                        ),
+                      ),
+                      linkedChildThreadIds: new Set(
+                        [...current.linkedChildThreadIds].filter(
+                          (id) => id !== moved.childThreadId,
+                        ),
+                      ),
+                    },
+                  ];
+                });
+                yield* Ref.update(
+                  activeChildSubagents,
+                  (current) =>
+                    new Map(
+                      [...current].filter(
+                        ([id, threadId]) =>
+                          !detached.subagentIds.has(id) && threadId !== moved.childThreadId,
+                      ),
+                    ),
+                );
+                yield* Ref.update(
+                  activeChildProviderTurns,
+                  (current) =>
+                    new Set([...current].filter((id) => routing.ownedProviderTurns.has(id))),
+                );
+                yield* Ref.update(
+                  activeBackgroundTurnItems,
+                  (current) => new Map([...current].filter(([id]) => !detached.itemIds.has(id))),
+                );
+              }
+              return { event, accepted };
+            }),
+          ),
+          Stream.tap(({ event, accepted }) =>
+            Effect.gen(function* () {
+              if (!accepted) return;
               let storedEventCount = 0;
               const deliveredEvent = filterAssistantEvent(
                 event,
@@ -1436,60 +1540,73 @@ export const layer: Layer.Layer<
           Effect.catchCauseIf(
             (cause) => !Cause.hasInterruptsOnly(cause),
             (cause) =>
-              Ref.get(rootRunFinalized).pipe(
-                Effect.flatMap((finalized) =>
-                  Effect.logWarning("orchestration V2 provider event ingestion failed", {
-                    runId: input.run.id,
-                    cause,
-                  }).pipe(
-                    Effect.andThen(
-                      finalized
-                        ? Effect.void
-                        : Ref.get(latestProviderThread).pipe(
-                            Effect.flatMap((providerThread) =>
-                              Ref.get(latestTurnItemOrdinal).pipe(
-                                Effect.flatMap((latestItemOrdinal) =>
-                                  Ref.get(openRunOwnedSubagents).pipe(
-                                    Effect.flatMap((openSubagents) =>
-                                      writeFinalRunEvents({
-                                        run: input.run,
-                                        rootNode: input.rootNode,
-                                        checkpointScope: input.checkpointScope,
-                                        providerThread,
-                                        attempt: input.attempt,
-                                        writeIfRunCurrent: {
-                                          activeAttemptId: input.attempt.id,
-                                          expectedStatus: "running",
-                                        },
-                                        openRunOwnedSubagents: openSubagents,
-                                        terminal: makeFailedTerminalEvent(
-                                          makeProviderFailure({
-                                            cause: Cause.squash(cause),
-                                            class: "unknown",
-                                          }),
-                                          latestItemOrdinal + 1,
-                                        ),
-                                        failureItemPersisted: false,
-                                        refreshAfterTurn,
-                                      }),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                    ),
-                    Effect.mapError(
-                      (writeCause) =>
-                        new RunExecutionIngestError({
-                          runId: input.run.id,
-                          cause: { ingest: cause, write: writeCause },
-                        }),
-                    ),
+              Effect.gen(function* () {
+                const completedAt = yield* DateTime.now;
+                yield* Effect.logWarning("orchestration V2 provider event ingestion failed", {
+                  runId: input.run.id,
+                  cause,
+                });
+                if (yield* Ref.get(rootRunFinalized)) return;
+                const providerThread = yield* Ref.get(latestProviderThread);
+                const latestItemOrdinal = yield* Ref.get(latestTurnItemOrdinal);
+                const openSubagents = yield* Ref.get(openRunOwnedSubagents);
+                let nextRetryWarningAt = completedAt;
+                yield* writeFinalRunEvents({
+                  run: input.run,
+                  rootNode: input.rootNode,
+                  checkpointScope: input.checkpointScope,
+                  providerThread,
+                  attempt: input.attempt,
+                  writeIfRunCurrent: {
+                    activeAttemptId: input.attempt.id,
+                    expectedStatus: "running",
+                  },
+                  openRunOwnedSubagents: openSubagents,
+                  completedAt,
+                  terminal: makeFailedTerminalEvent(
+                    makeProviderFailure({ cause: Cause.squash(cause), class: "unknown" }),
+                    latestItemOrdinal + 1,
                   ),
-                ),
-              ),
+                  failureItemPersisted: false,
+                  refreshAfterTurn,
+                }).pipe(
+                  // Storage failures can be defects; retry both failure channels.
+                  Effect.catchCause((writeCause) =>
+                    Effect.gen(function* () {
+                      if (Cause.hasInterruptsOnly(writeCause)) {
+                        return yield* Effect.failCause(writeCause);
+                      }
+                      const now = yield* DateTime.now;
+                      if (DateTime.isGreaterThanOrEqualTo(now, nextRetryWarningAt)) {
+                        yield* Effect.logWarning(
+                          "orchestration V2 run failure finalization retry",
+                          {
+                            runId: input.run.id,
+                            attemptId: input.attempt.id,
+                            cause: writeCause,
+                          },
+                        );
+                        // Persistent storage failures must not flood the same disk.
+                        nextRetryWarningAt = DateTime.add(now, { minutes: 10 });
+                      }
+                      return yield* Effect.fail(writeCause);
+                    }),
+                  ),
+                  Effect.retry({
+                    schedule: Schedule.exponential("1 second").pipe(
+                      Schedule.modifyDelay(({ duration }) =>
+                        Effect.succeed(Duration.min(duration, Duration.seconds(30))),
+                      ),
+                    ),
+                  }),
+                  // Startup may cancel the consumer and fail its own terminal
+                  // write. Only service shutdown or the atomic gate ends recovery.
+                  Effect.forkIn(scope),
+                  Effect.flatMap(Fiber.join),
+                );
+              }),
           ),
+          Effect.mapError((cause) => new RunExecutionIngestError({ runId: input.run.id, cause })),
           Effect.ensuring(eventSubscription.close),
           Effect.forkDetach,
         );
@@ -1497,7 +1614,13 @@ export const layer: Layer.Layer<
         // A provider turn is a sign that the session is still alive. Keep
         // its already-issued MCP credential valid even when the agent goes
         // a long time between browser-tool calls.
-        yield* McpSessionRegistry.touchActiveMcpThread(input.run.threadId);
+        const touchMcpCredential = McpSessionRegistry.touchActiveMcpThread(input.run.threadId).pipe(
+          Effect.ignoreCause({
+            log: true,
+            message: "Failed to refresh MCP credential liveness.",
+          }),
+        );
+        yield* touchMcpCredential;
         const appContext = (yield* mcpAppModelContext
           .forThread(input.run.threadId)
           .pipe(
@@ -1571,6 +1694,12 @@ export const layer: Layer.Layer<
           }),
           Deferred.await(workspaceDetached),
         ).pipe(
+          Effect.tap(() =>
+            Fiber.await(providerEventFiber).pipe(
+              Effect.raceFirst(touchMcpCredential.pipe(Effect.delay("1 hour"), Effect.forever)),
+              Effect.forkDetach,
+            ),
+          ),
           Effect.andThen(
             Effect.gen(function* () {
               if (yield* Deferred.isDone(workspaceDetached)) {

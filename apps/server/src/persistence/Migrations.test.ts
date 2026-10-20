@@ -10,6 +10,9 @@ import ThreadFailureLookupIndex from "./Migrations/063_ThreadFailureLookupIndex.
 import DropUnusedV1Projections from "./Migrations/064_DropUnusedV1Projections.ts";
 import CanonicalizeThreadPullRequestLinks from "./Migrations/065_CanonicalizeThreadPullRequestLinks.ts";
 
+import CodexUsageNativeTurnIndex from "./Migrations/066_CodexUsageNativeTurnIndex.ts";
+import RepairClientSettlementTimestamps from "./Migrations/067_RepairClientSettlementTimestamps.ts";
+
 const v2Migrations = migrationManifest.filter(([id]) => id >= 55);
 const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
 
@@ -81,6 +84,14 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* CanonicalizeThreadPullRequestLinks;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (64, 'CanonicalizeThreadPullRequestLinks', '2026-10-04 12:00:00')`;
   }
+  if (throughId >= 65) {
+    yield* CodexUsageNativeTurnIndex;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (65, 'CodexUsageNativeTurnIndex', '2026-10-05 12:00:00')`;
+  }
+  if (throughId >= 66) {
+    yield* RepairClientSettlementTimestamps;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (66, 'RepairClientSettlementTimestamps', '2026-10-06 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -117,7 +128,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 64])(
+  it.effect.each([62, 63, 64, 65])(
     "upgrades released fork %s while keeping bot and review data unchanged",
     (id) =>
       Effect.gen(function* () {
@@ -153,7 +164,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64])(
+  it.effect.each([61, 62, 63, 64, 65, 66])(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -237,7 +248,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64])(
+  it.effect.each([62, 63, 64, 65, 66])(
     "does not reconcile upstream %s beyond the requested migration limit",
     (id) =>
       Effect.gen(function* () {

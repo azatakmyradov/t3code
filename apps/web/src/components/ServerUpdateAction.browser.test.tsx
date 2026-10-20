@@ -1,14 +1,15 @@
+import "~/index.css";
+import { page, userEvent } from "vite-plus/test/browser";
+import { useState } from "react";
+import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { RegistryContext } from "@effect/atom-react";
 import { AuthSessionState, type EnvironmentId, type ServerInstallation } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { act, useState, type ReactNode } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
-
-import "~/index.css";
 
 type SessionResult = AsyncResult.AsyncResult<AuthSessionState, Error>;
 const testState = vi.hoisted(() => ({
@@ -59,8 +60,8 @@ vi.mock(import("./ui/toast"), async (original) => {
 });
 
 import {
-  completeConfirmDialogClose,
   readConfirmDialogState,
+  completeConfirmDialogClose,
   registerConfirmDialogHost,
   resetConfirmDialogForTests,
   respondToConfirmDialog,
@@ -73,8 +74,6 @@ import {
   useServerUpdate,
   type ServerUpdateTarget,
 } from "./ServerUpdateAction";
-
-import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 
 const decodeSessionState = Schema.decodeUnknownSync(AuthSessionState);
 

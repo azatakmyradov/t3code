@@ -74,7 +74,7 @@ export function useNewThreadHandler() {
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
       replace?: boolean;
-      environmentSelection?: "manual";
+      environmentSelection?: "auto" | "manual";
     },
   ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
     const projects = readProjects();

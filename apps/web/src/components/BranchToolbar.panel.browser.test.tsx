@@ -1,3 +1,5 @@
+import { ComposerSurface } from "./chat/ComposerSurface";
+import type { ServerUpdateTarget } from "./ServerUpdateAction";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -30,18 +32,11 @@ vi.mock(import("./BranchToolbarBranchSelector"), async (original) => ({
 }));
 vi.mock(import("../state/entities"), async (original) => ({
   ...(await original()),
-  useQuietThreadShell: (() => ({
-    environmentId: "local",
-    projectId: "project",
-    worktreePath: state.worktreePath,
-  })) as never,
   useProject: (() => ({ workspaceRoot: "/tmp/project" })) as never,
   useThreadShellsForProjectRefs: () => [],
 }));
 
 import { BranchToolbar } from "./BranchToolbar";
-import { ComposerSurface } from "./chat/ComposerSurface";
-import type { ServerUpdateTarget } from "./ServerUpdateAction";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -71,6 +66,9 @@ function render(props: Partial<ComponentProps<typeof BranchToolbar>>) {
           panelSection="workspace"
           environmentId={EnvironmentId.make("local")}
           threadId={ThreadId.make("thread")}
+          projectId={ProjectId.make("project")}
+          worktreePath={state.worktreePath}
+          isServerThread
           showGitControls
           envMode="local"
           envLocked={false}
@@ -134,6 +132,7 @@ it.each([
   ["local", null, "/tmp/project"],
   ["worktree", null, null],
   ["worktree", "/tmp/worktree", "/tmp/worktree"],
+  ["worktree", "C:/repo/worktree", String.raw`C:\repo\worktree`],
 ] as const)(
   "copies only an existing workspace path with mode %s and worktree %s",
   async (envMode, worktreePath, copiedPath) => {

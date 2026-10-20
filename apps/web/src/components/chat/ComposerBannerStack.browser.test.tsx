@@ -92,7 +92,9 @@ it("keeps only the usage limit attached while an active goal waits in the collap
   const limit = page.getByText("Usage limit reached", { exact: true });
   const goal = page.getByText("Goal active", { exact: true });
 
-  expect(visibleBanners()).toHaveLength(1);
+  // A pointer retained over the stack can expand it when the new fixture mounts.
+  await act(async () => userEvent.hover(limit));
+  await expect.poll(visibleBanners).toHaveLength(1);
   await expect.element(limit).toBeVisible();
   await expect.element(goal).not.toBeVisible();
   expect(container.querySelector('[data-slot="composer-banner-attachment"]')?.textContent).toBe(
@@ -108,4 +110,36 @@ it("keeps only the usage limit attached while an active goal waits in the collap
   await expect.element(goal).not.toBeVisible();
   await expect.element(limit).toBeVisible();
   expect(visibleBanners()).toHaveLength(1);
+});
+
+it("reveals the full running command only while its title is clipped", async () => {
+  const command =
+    "Running: /usr/bin/zsh -lc 'sleep 600 > /tmp/t3-background-command-with-a-long-log-filename-for-truncation.log 2>&1'";
+  container.style.width = "240px";
+  await act(async () =>
+    root.render(
+      <ComposerBannerStack
+        items={[
+          {
+            id: "background-work",
+            variant: "default",
+            priority: "activity",
+            icon: null,
+            title: command,
+          },
+        ]}
+      />,
+    ),
+  );
+
+  const details = page.getByRole("button", { name: "Show title details", exact: true });
+  await expect.element(details).toBeVisible();
+  await userEvent.hover(details);
+  const popup = page.getByRole("dialog", { name: "Notice details", exact: true });
+  await expect.element(popup).toBeVisible();
+  await expect.element(popup).toHaveTextContent(command);
+
+  container.style.width = "4000px";
+  await expect.element(details).not.toBeInTheDocument();
+  await expect.element(popup).not.toBeInTheDocument();
 });
