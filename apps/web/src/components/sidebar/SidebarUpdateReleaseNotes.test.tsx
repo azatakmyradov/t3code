@@ -71,6 +71,7 @@ function renderNotes(state: DesktopUpdateState, openExternal = vi.fn().mockResol
 
 describe("SidebarUpdateReleaseNotes", () => {
   beforeEach(() => {
+    vi.stubEnv("T3CODE_DESKTOP_UPDATE_REPOSITORY", "azatakmyradov/t3code");
     testState.addToast.mockReset();
   });
 
