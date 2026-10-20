@@ -1,6 +1,7 @@
 import type {
   EditorId,
   EnvironmentId,
+  ProjectId,
   ProjectScript,
   ResolvedKeybindingsConfig,
   ScopedProjectRef,
@@ -34,6 +35,9 @@ export interface ThreadDetailsPanelProps extends Pick<
   onProviderUsageHostChange?: (host: HTMLDivElement | null) => void;
   environmentId: EnvironmentId;
   threadId: ThreadId;
+  projectId: ProjectId;
+  worktreePath: string | null;
+  isServerThread: boolean;
   draftId?: DraftId;
   activeProjectRef?: ScopedProjectRef | null;
   folderSelectionLocked?: boolean;
@@ -79,6 +83,9 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     showGitControls: props.isGitRepo,
     environmentId: props.environmentId,
     threadId: props.threadId,
+    projectId: props.projectId,
+    worktreePath: props.worktreePath,
+    isServerThread: props.isServerThread,
     ...(props.draftId ? { draftId: props.draftId } : {}),
     onEnvModeChange: props.onEnvModeChange,
     startFromOrigin: props.startFromOrigin,
