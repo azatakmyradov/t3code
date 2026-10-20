@@ -69,6 +69,7 @@ const createSandboxModules = (exposedGlobals) => {
       exposeInMainWorld: (name, api) => exposedGlobals.set(name, api),
     },
     ipcRenderer,
+    webFrame: { getZoomFactor: () => 1 },
     webUtils: {
       getPathForFile: () => "",
     },
@@ -108,6 +109,8 @@ const executeBundle = (source, sandboxModules) => {
     {
       process: sandboxProcess,
       require: requireSandboxModule,
+      window: { addEventListener: (_event, listener) => listener() },
+      document: { documentElement: { style: { setProperty: () => undefined } } },
     },
     {
       filename: "desktop-preload.cjs",
