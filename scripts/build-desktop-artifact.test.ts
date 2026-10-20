@@ -335,7 +335,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ),
         ),
       );
-      assert.notProperty(config, "publish");
+      assert.isNull(config.publish);
     }),
   );
 
@@ -411,8 +411,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
 
-      assert.notProperty(preview, "publish");
-      assert.notProperty(previewChannel, "publish");
+      assert.isNull(preview.publish);
+      assert.isNull(previewChannel.publish);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
@@ -430,6 +430,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ),
       ),
     ),
+  );
+
+  it.effect("pins local builds to the fork feed instead of repository auto-detection", () =>
+    Effect.gen(function* () {
+      const local = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.33",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
+      assert.deepStrictEqual(local.publish, [
+        { provider: "github", owner: "azatakmyradov", repo: "t3code", releaseType: "release" },
+      ]);
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
   it("stages only the desktop main-process externals", () => {
@@ -550,7 +568,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const { allowBuilds = {} } = yield* readWorkspaceConfig();
       const repoRoot = path.join(import.meta.dirname, "..");
       for (const key of Object.keys(allowBuilds)) {
-        const tarball = key.split("@file:")[1];
+        const tarball = key.split("@file:")[1]?.replace(/\(patch_hash=[a-f0-9]+\)$/, "");
         if (tarball === undefined) continue;
         assert.isTrue(
           yield* fs.exists(path.join(repoRoot, tarball)),
@@ -721,7 +739,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ...DESKTOP_EXTRA_RESOURCES,
         ...WINDOWS_SERVER_EXTRA_RESOURCES,
       ]);
-      assert.deepStrictEqual(win.nsis, { differentialPackage: true });
+      assert.deepStrictEqual(win.nsis, {
+        differentialPackage: true,
+        include: "apps/desktop/resources/installer.nsh",
+      });
       assert.deepStrictEqual(WINDOWS_SERVER_ASAR_IGNORE_GLOBS, [
         "**/node_modules/@cursor/sdk-*",
         "**/node_modules/@cursor/sdk-*/**",

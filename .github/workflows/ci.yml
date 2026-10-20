@@ -356,7 +356,37 @@ jobs:
       - name: Lint mobile native sources
         run: vp run lint:mobile
 
-  # Keep the aggregate check name stable for repository rules and PR review.
+  release_smoke:
+    name: Release Smoke
+    needs: lint
+    if: ${{ needs.lint.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+            !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Exercise release-only workflow steps
+        run: node scripts/release-smoke.ts
+
+  # Branch protection requires this job by its name, `Check`. It fails when any
+  # other job fails, is cancelled, or is skipped without a reason, so splitting
+  # or resharding jobs needs no ruleset change. Add every new job to `needs`.
+  # `always()` rather than `!cancelled()`: a skipped job reports success to
+  # branch protection, so a cancelled run must still produce a failing check.
   check:
     name: Check
     if: ${{ always() }}
@@ -371,6 +401,7 @@ jobs:
         test_server,
         rust,
         mobile_native_static_analysis,
+        release_smoke,
       ]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

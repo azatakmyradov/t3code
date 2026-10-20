@@ -67,6 +67,7 @@ import Migration0061 from "./Migrations/061_Bots.ts";
 import Migration0062 from "./Migrations/062_PullRequestReviewGuides.ts";
 import Migration0063 from "./Migrations/063_ThreadFailureLookupIndex.ts";
 import Migration0064 from "./Migrations/064_DropUnusedV1Projections.ts";
+import Migration0065 from "./Migrations/065_CanonicalizeThreadPullRequestLinks.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -135,6 +136,7 @@ export const migrationEntries = [
   [62, "PullRequestReviewGuides", Migration0062],
   [63, "ThreadFailureLookupIndex", Migration0063],
   [64, "DropUnusedV1Projections", Migration0064],
+  [65, "CanonicalizeThreadPullRequestLinks", Migration0065],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -217,7 +219,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
           (row) =>
             (row.migration_id === 61 && row.name === "PullRequestReviewGuides") ||
             (row.migration_id === 62 && row.name === "ThreadFailureLookupIndex") ||
-            (row.migration_id === 63 && row.name === "DropUnusedV1Projections"),
+            (row.migration_id === 63 && row.name === "DropUnusedV1Projections") ||
+            (row.migration_id === 64 && row.name === "CanonicalizeThreadPullRequestLinks"),
         )
       ) {
         return yield* new Migrator.MigrationError({
@@ -227,12 +230,18 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
       }
       const hasFailureIndex = recorded.some((row) => row.migration_id === 62);
       const hasCleanup = recorded.some((row) => row.migration_id === 63);
+      const hasCanonicalLinks = recorded.some((row) => row.migration_id === 64);
+      if (hasCanonicalLinks && throughId !== undefined && throughId < 65) return [];
       if (hasCleanup && throughId !== undefined && throughId < 64) return [];
       // Moving the index to 63 would exceed a caller's requested migration limit.
       if (hasFailureIndex && throughId === 62) return [];
       yield* assertV2MigrationsCanRun(60);
       yield* Migration0061;
       // Move later entries first to avoid primary-key collisions while preserving timestamps.
+      yield* sql`
+        UPDATE effect_sql_migrations SET migration_id = 65
+        WHERE migration_id = 64 AND name = 'CanonicalizeThreadPullRequestLinks'
+      `;
       yield* sql`
         UPDATE effect_sql_migrations SET migration_id = 64
         WHERE migration_id = 63 AND name = 'DropUnusedV1Projections'
