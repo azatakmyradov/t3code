@@ -8,6 +8,7 @@ import { migrationManifest, runMigrations } from "./Migrations.ts";
 import PullRequestReviewGuides from "./Migrations/062_PullRequestReviewGuides.ts";
 import ThreadFailureLookupIndex from "./Migrations/063_ThreadFailureLookupIndex.ts";
 import DropUnusedV1Projections from "./Migrations/064_DropUnusedV1Projections.ts";
+import CanonicalizeThreadPullRequestLinks from "./Migrations/065_CanonicalizeThreadPullRequestLinks.ts";
 
 const v2Migrations = migrationManifest.filter(([id]) => id >= 55);
 const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
@@ -76,6 +77,10 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* DropUnusedV1Projections;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (63, 'DropUnusedV1Projections', '2026-10-03 12:00:00')`;
   }
+  if (throughId >= 64) {
+    yield* CanonicalizeThreadPullRequestLinks;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (64, 'CanonicalizeThreadPullRequestLinks', '2026-10-04 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -112,85 +117,79 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("upgrades released fork 62 while keeping bot and review data unchanged", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 62 });
-      yield* sql`
+  it.effect.each([62, 64])(
+    "upgrades released fork %s while keeping bot and review data unchanged",
+    (id) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: id });
+        yield* sql`
         INSERT INTO bots (id, thread_id, revision, body)
         VALUES ('saved-bot', 'saved-thread', 3, '{"name":"Saved bot"}')
       `;
-      yield* sql`
+        yield* sql`
         INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'test/repo', 7, '{"title":"Saved review"}')
       `;
-      const bots = yield* sql`SELECT * FROM bots`;
-      const guides = yield* sql`SELECT * FROM pull_request_review_guides`;
-      const releasedHistory = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
+        const bots = yield* sql`SELECT * FROM bots`;
+        const guides = yield* sql`SELECT * FROM pull_request_review_guides`;
+        const releasedHistory =
+          yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
 
-      assert.deepStrictEqual(yield* runMigrations(), [
-        [63, "ThreadFailureLookupIndex"],
-        [64, "DropUnusedV1Projections"],
-      ]);
+        assert.deepStrictEqual(
+          yield* runMigrations(),
+          migrationManifest.filter(([migrationId]) => migrationId > id),
+        );
 
-      assert.deepStrictEqual(yield* history, migrationManifest);
-      assert.deepStrictEqual(yield* sql`SELECT * FROM bots`, bots);
-      assert.deepStrictEqual(yield* sql`SELECT * FROM pull_request_review_guides`, guides);
-      assert.deepStrictEqual(
-        yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 62 ORDER BY migration_id`,
-        releasedHistory,
-      );
-      assert.deepStrictEqual(yield* failureIndexColumns, expectedFailureIndexColumns);
-      assert.deepStrictEqual(yield* runMigrations(), []);
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+        assert.deepStrictEqual(yield* history, migrationManifest);
+        assert.deepStrictEqual(yield* sql`SELECT * FROM bots`, bots);
+        assert.deepStrictEqual(yield* sql`SELECT * FROM pull_request_review_guides`, guides);
+        assert.deepStrictEqual(
+          yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= ${id} ORDER BY migration_id`,
+          releasedHistory,
+        );
+        assert.deepStrictEqual(yield* failureIndexColumns, expectedFailureIndexColumns);
+        assert.deepStrictEqual(yield* runMigrations(), []);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63])("reconciles upstream %s without replaying its migrations", (id) =>
+  it.effect.each([61, 62, 63, 64])(
+    "reconciles upstream %s without replaying its migrations",
+    (id) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* seedUpstream(id);
+        const guides = yield* sql`SELECT * FROM pull_request_review_guides`;
+        const upstreamHistory = yield* sql<{
+          readonly migration_id: number;
+          readonly name: string;
+          readonly created_at: string;
+        }>`
+        SELECT * FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id
+      `;
+        assert.deepStrictEqual(yield* botTables, []);
+
+        assert.deepStrictEqual(yield* runMigrations(), [
+          [61, "Bots"],
+          ...migrationManifest.filter(([migrationId]) => migrationId > id + 1),
+        ]);
+
+        assert.deepStrictEqual(yield* history, migrationManifest);
+        assert.deepStrictEqual(yield* sql`SELECT * FROM pull_request_review_guides`, guides);
+        assert.deepStrictEqual(
+          yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id >= 62 AND migration_id <= ${id + 1} ORDER BY migration_id`,
+          upstreamHistory.map((row) => ({ ...row, migration_id: row.migration_id + 1 })),
+        );
+        assert.lengthOf(yield* botTables, 5);
+        assert.deepStrictEqual(yield* failureIndexColumns, expectedFailureIndexColumns);
+        assert.deepStrictEqual(yield* runMigrations(), []);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect.each([63, 64])("rolls back reconciliation when upstream %s has a ledger gap", (id) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* seedUpstream(id);
-      const guides = yield* sql`SELECT * FROM pull_request_review_guides`;
-      const upstreamHistory = yield* sql<{
-        readonly migration_id: number;
-        readonly name: string;
-        readonly created_at: string;
-      }>`
-        SELECT * FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id
-      `;
-      assert.deepStrictEqual(yield* botTables, []);
-
-      assert.deepStrictEqual(
-        yield* runMigrations(),
-        id === 61
-          ? [
-              [61, "Bots"],
-              [63, "ThreadFailureLookupIndex"],
-              [64, "DropUnusedV1Projections"],
-            ]
-          : id === 62
-            ? [
-                [61, "Bots"],
-                [64, "DropUnusedV1Projections"],
-              ]
-            : [[61, "Bots"]],
-      );
-
-      assert.deepStrictEqual(yield* history, migrationManifest);
-      assert.deepStrictEqual(yield* sql`SELECT * FROM pull_request_review_guides`, guides);
-      assert.deepStrictEqual(
-        yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id >= 62 AND migration_id <= ${id + 1} ORDER BY migration_id`,
-        upstreamHistory.map((row) => ({ ...row, migration_id: row.migration_id + 1 })),
-      );
-      assert.lengthOf(yield* botTables, 5);
-      assert.deepStrictEqual(yield* failureIndexColumns, expectedFailureIndexColumns);
-      assert.deepStrictEqual(yield* runMigrations(), []);
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
-  );
-
-  it.effect("rolls back reconciliation when a known upstream ledger has a gap", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* seedUpstream(63);
       yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 62`;
       const before = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
       const guides = yield* sql`SELECT * FROM pull_request_review_guides`;
@@ -238,7 +237,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63])(
+  it.effect.each([62, 63, 64])(
     "does not reconcile upstream %s beyond the requested migration limit",
     (id) =>
       Effect.gen(function* () {

@@ -74,6 +74,24 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
     const { prepared, descriptor } = yield* Effect.firstSuccessOf(
       usableRoutes(entry).map((route) => resolver.prepareForUpdate(routeEntry(entry, route))),
     );
+    // Discovery still holds the old relay descriptor and would re-block the
+    // environment from it, so replace that before clearing the block.
+    const switchBackOn = Effect.gen(function* () {
+      if (hasRelayRoute(entry)) {
+        const discovery = yield* RelayEnvironmentDiscovery.RelayEnvironmentDiscovery;
+        yield* discovery.refresh;
+      }
+      yield* registry.setCompatibility(environmentId, null);
+      yield* registry.setEnabled(environmentId, true);
+    });
+
+    // A host updated by hand is already compatible, and a bare socket would be
+    // rejected with 426, so there is nothing to update.
+    if (isCompatibleDescriptor(descriptor)) {
+      yield* switchBackOn;
+      return { targetVersion: descriptor.serverVersion, outcome: "up-to-date" as const };
+    }
+
     // Recheck the live descriptor: a cached UI offer may belong to an older installation.
     if (!canTargetServerRelease(descriptor, input.targetVersion)) {
       return yield* new OutdatedHostUpdateError({
@@ -206,14 +224,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
       });
     }
 
-    // Discovery still holds the old relay descriptor and would re-block the
-    // environment from it, so replace that before clearing the block.
-    if (hasRelayRoute(entry)) {
-      const discovery = yield* RelayEnvironmentDiscovery.RelayEnvironmentDiscovery;
-      yield* discovery.refresh;
-    }
-    yield* registry.setCompatibility(environmentId, null);
-    yield* registry.setEnabled(environmentId, true);
+    yield* switchBackOn;
     return { ...result, targetVersion: resumed.value.serverVersion };
   },
 );

@@ -747,14 +747,15 @@ export function createServerEnvironmentAtoms<R, E>(
             const supportsProgress =
               currentConfig?.environment.capabilities.serverSelfUpdateProgress === true;
             const updateInput = { ...target.input, reportUpToDate: true };
-            const beforeDispatch = (session: RpcSession) =>
-              Effect.gen(function* () {
-                const liveConfig = yield* session.initialConfig;
-                if (!canTargetServerRelease(liveConfig.environment, targetVersion)) {
-                  return yield* new ServerUpdateReleaseMismatchError({});
-                }
-                fromVersion = liveConfig.environment.serverVersion;
-              });
+            const beforeDispatch = Effect.fn("ServerUpdate.beforeDispatch")(function* (
+              session: RpcSession,
+            ) {
+              const liveConfig = yield* session.initialConfig;
+              if (!canTargetServerRelease(liveConfig.environment, targetVersion)) {
+                return yield* new ServerUpdateReleaseMismatchError({});
+              }
+              fromVersion = liveConfig.environment.serverVersion;
+            });
             const update = supportsProgress
               ? Effect.gen(function* () {
                   const terminal = yield* Ref.make<Option.Option<ServerSelfUpdateResult>>(

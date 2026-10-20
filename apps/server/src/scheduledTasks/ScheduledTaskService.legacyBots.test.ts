@@ -11,6 +11,7 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 
@@ -62,6 +63,10 @@ const serviceLayer = (dispatched: string[], runDueAtStart = false) =>
     Layer.provide(
       Layer.mergeAll(
         NodeCrypto.layer,
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          isScratchProject: () => Effect.succeed(false),
+          namedProjectsRoot: "/test/managed-projects",
+        }),
         Layer.mock(Scheduler.Scheduler)({
           // A completed registered pass is a deterministic receipt, with no sleeps or polling.
           register: (_name, runDueWork) => (runDueAtStart ? Effect.orDie(runDueWork) : Effect.void),

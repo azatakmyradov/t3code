@@ -428,7 +428,7 @@ function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
   return (
     <NodeViewWrapper
       as="span"
-      className="inline-flex min-w-0 max-w-full select-none"
+      className={cn(CHIP_NODE_SELECTION_CLASS_NAME, "min-w-0 max-w-full")}
       contentEditable={false}
       spellCheck={false}
       data-composer-citation-chip="true"
@@ -1106,11 +1106,19 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
       editorProps: {
         attributes: editorAttributes,
         handleKeyDown: (view, event) => {
+          const boundary = event.metaKey
+            ? event.key === "ArrowLeft" || event.key === "ArrowRight"
+              ? "lineboundary"
+              : event.key === "ArrowUp" || event.key === "ArrowDown"
+                ? "documentboundary"
+                : null
+            : event.key === "Home" || event.key === "End"
+              ? "lineboundary"
+              : null;
           if (
             isMacPlatform(navigator.platform) &&
-            (event.key === "Home" || event.key === "End") &&
+            boundary &&
             !event.altKey &&
-            !event.metaKey &&
             !event.ctrlKey &&
             !event.isComposing
           ) {
@@ -1122,23 +1130,28 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
             ) {
               event.preventDefault();
               event.stopPropagation();
+              const backward =
+                event.key === "Home" || event.key === "ArrowLeft" || event.key === "ArrowUp";
               selection.modify(
                 event.shiftKey ? "extend" : "move",
-                event.key === "Home" ? "backward" : "forward",
-                "lineboundary",
+                backward ? "backward" : "forward",
+                boundary,
               );
               if (selection.anchorNode && selection.focusNode) {
-                view.dispatch(
-                  view.state.tr
-                    .setSelection(
-                      TextSelection.create(
-                        view.state.doc,
-                        view.posAtDOM(selection.anchorNode, selection.anchorOffset),
-                        view.posAtDOM(selection.focusNode, selection.focusOffset),
-                      ),
-                    )
-                    .scrollIntoView(),
+                const tr = view.state.tr.setSelection(
+                  TextSelection.create(
+                    view.state.doc,
+                    view.posAtDOM(selection.anchorNode, selection.anchorOffset),
+                    view.posAtDOM(selection.focusNode, selection.focusOffset),
+                  ),
                 );
+                // A marker has two caret stops at one document position. Keep
+                // the outer stop when native navigation reaches a boundary.
+                if (richText && tr.selection.empty) {
+                  const { $head } = tr.selection;
+                  tr.setStoredMarks((backward ? $head.nodeBefore : $head.nodeAfter)?.marks ?? []);
+                }
+                view.dispatch(tr.scrollIntoView());
               }
               return true;
             }
@@ -1296,9 +1309,19 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
           return handled;
         },
         handleTextInput: (view, from, to, text) => {
-          if (literalText || text.length !== 1) return false;
+          if (literalText || view.composing || text.length !== 1) return false;
           const closer = SURROUND_CLOSE[text];
-          if (!closer || from === to) return false;
+          const { selection } = view.state;
+          // Compose preedit updates replace a range even without a user selection.
+          if (
+            !closer ||
+            !(selection instanceof TextSelection) ||
+            selection.empty ||
+            selection.from !== from ||
+            selection.to !== to
+          ) {
+            return false;
+          }
           // Never wrap chips or other atoms, and never wrap styled text: the
           // default replace keeps marks intact, wrapping would drop them.
           let touchesSpecial = false;
