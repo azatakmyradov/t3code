@@ -200,7 +200,7 @@ it.each([
     await userEvent.click(chip);
     await vi.waitFor(() =>
       expect(state.writeTextToClipboard).toHaveBeenCalledWith(
-        "npm install --global --prefix '/opt/node' t3@0.0.31",
+        "npm install --global --prefix '/opt/node' @azatakmyradov/t3-fork@0.0.31",
         "update command",
       ),
     );
