@@ -209,6 +209,8 @@ it.effect("preserves released bot data and migration history", () => {
         { migration_id: 63, name: "ThreadFailureLookupIndex" },
         { migration_id: 64, name: "DropUnusedV1Projections" },
         { migration_id: 65, name: "CanonicalizeThreadPullRequestLinks" },
+        { migration_id: 66, name: "CodexUsageNativeTurnIndex" },
+        { migration_id: 67, name: "RepairClientSettlementTimestamps" },
       ],
     });
   }).pipe(

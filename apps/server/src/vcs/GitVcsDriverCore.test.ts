@@ -690,7 +690,8 @@ describe("pullCurrentBranch", () => {
         writeFakeCli({
           directory,
           name: "git",
-          source: `process.on("SIGTERM", () => {}); ${processProbeSource(probe.port)}`,
+          source: `if (!process.argv.slice(2).includes("fetch")) process.exit(1);
+            process.on("SIGTERM", () => {}); ${processProbeSource(probe.port)}`,
         });
         const run = yield* driver
           .execute({
