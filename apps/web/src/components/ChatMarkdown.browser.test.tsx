@@ -1160,7 +1160,7 @@ describe("ChatMarkdown thread find", () => {
 
     await show("needle", 1);
     await expect.poll(openStates).toEqual(["false", "true", "true"]);
-    expect(CSS.highlights.get("t3-thread-find-active")?.size).toBe(1);
+    await expect.poll(() => CSS.highlights.get("t3-thread-find-active")?.size).toBe(1);
   });
 
   it("keeps Mermaid diagrams rendered until find selects a match in their source", async () => {
