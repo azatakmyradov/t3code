@@ -1,6 +1,8 @@
+// Retain the fork's shared rerender fixtures and their explicit afterEach teardown.
+/* oxlint-disable t3code/require-disposable-render */
 import "../../index.css";
 
-import { act } from "react";
+import { act } from "~/../test/render";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -11,7 +13,6 @@ let root: Root;
 let container: HTMLDivElement;
 
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -23,9 +24,6 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-const nextFrame = () =>
-  act(() => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
-
 async function render(width: number, description: string) {
   container.style.width = `${width}px`;
   await act(async () =>
@@ -35,29 +33,26 @@ async function render(width: number, description: string) {
       />,
     ),
   );
-  await nextFrame();
 }
 
 const hasDetails = () => container.querySelector('[aria-label="Show notice details"]') !== null;
 
 it("only offers notice details when the description cannot fit", async () => {
   await render(700, "OpenCode");
-  expect(hasDetails()).toBe(false);
+  await expect.poll(hasDetails).toBe(false);
 
   await render(700, "OpenCode ".repeat(40));
-  expect(hasDetails()).toBe(true);
+  await expect.poll(hasDetails).toBe(true);
 
   container.style.width = "4000px";
-  await nextFrame();
-  expect(hasDetails()).toBe(false);
+  await expect.poll(hasDetails).toBe(false);
 
   await render(4000, "OpenCode");
-  expect(hasDetails()).toBe(false);
+  await expect.poll(hasDetails).toBe(false);
 
   // A narrow composer hides the description entirely, so details are the only way to read it.
   container.style.width = "300px";
-  await nextFrame();
-  expect(hasDetails()).toBe(true);
+  await expect.poll(hasDetails).toBe(true);
 });
 
 it("keeps only the usage limit attached while an active goal waits in the collapsible stack", async () => {

@@ -6495,6 +6495,8 @@ it.effect("releases an expired diff nobody reads again", () =>
     const collect = NodeVM.runInNewContext("gc") as () => void;
     const settle = Effect.promise(async () => {
       // A weak reference keeps its target for the rest of the job that created it.
+      // WeakRef liveness lasts to the next event-loop job; this tests GC, not an effect milestone.
+      // oxlint-disable-next-line t3code/no-real-time-wait-in-tests
       await new Promise((resolve) => setImmediate(resolve));
       collect();
     });

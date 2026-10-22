@@ -1,4 +1,7 @@
-import { act, type ComponentProps } from "react";
+// Retain the fork's shared rerender fixtures and their explicit afterEach teardown.
+/* oxlint-disable t3code/require-disposable-render */
+import type { ComponentProps } from "react";
+import { act } from "~/../test/render";
 import {
   EnvironmentId,
   ThreadId,
@@ -88,7 +91,6 @@ let composer: HTMLFormElement;
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   useProviderUsagePreferencesStore.setState({ hiddenByEnvironment: {} });
   composer = document.createElement("form");
   host = document.createElement("div");

@@ -31,6 +31,8 @@ const Workflow = fromYaml(
 const workflow = Schema.decodeSync(Workflow)(
   NodeFS.readFileSync(new URL("../.github/workflows/fork-release.yml", import.meta.url), "utf8"),
 );
+// The checksum shell fixture requires Linux sha256sum; CI always exercises it.
+// oxlint-disable-next-line t3code/no-test-timeout-or-unreasoned-skip
 const linuxIt = HostProcess.Platform.defaultValue() === "linux" ? it : it.skip;
 const version = "9.9.9";
 const macArchive = `t3-${version}-darwin-arm64.tar.gz`;

@@ -71,6 +71,8 @@ import Migration0065 from "./Migrations/065_CanonicalizeThreadPullRequestLinks.t
 import Migration0066 from "./Migrations/066_CodexUsageNativeTurnIndex.ts";
 import Migration0067 from "./Migrations/067_RepairClientSettlementTimestamps.ts";
 
+import Migration0068 from "./Migrations/068_WebhookDedupe.ts";
+
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
   [2, "OrchestrationCommandReceipts", Migration0002],
@@ -141,6 +143,7 @@ export const migrationEntries = [
   [65, "CanonicalizeThreadPullRequestLinks", Migration0065],
   [66, "CodexUsageNativeTurnIndex", Migration0066],
   [67, "RepairClientSettlementTimestamps", Migration0067],
+  [68, "WebhookDedupe", Migration0068],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -226,7 +229,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
             (row.migration_id === 63 && row.name === "DropUnusedV1Projections") ||
             (row.migration_id === 64 && row.name === "CanonicalizeThreadPullRequestLinks") ||
             (row.migration_id === 65 && row.name === "CodexUsageNativeTurnIndex") ||
-            (row.migration_id === 66 && row.name === "RepairClientSettlementTimestamps"),
+            (row.migration_id === 66 && row.name === "RepairClientSettlementTimestamps") ||
+            (row.migration_id === 67 && row.name === "WebhookDedupe"),
         )
       ) {
         return yield* new Migrator.MigrationError({
@@ -245,6 +249,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
       if (hasFailureIndex && throughId === 62) return [];
       yield* assertV2MigrationsCanRun(60);
       yield* Migration0061;
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = 68
+        WHERE migration_id = 67 AND name = 'WebhookDedupe'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 67
         WHERE migration_id = 66 AND name = 'RepairClientSettlementTimestamps'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 66

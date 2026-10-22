@@ -1,8 +1,11 @@
+// Retain the fork's shared rerender fixtures and their explicit afterEach teardown.
+/* oxlint-disable t3code/require-disposable-render */
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { searchableMessageSegments } from "@t3tools/shared/threadFindText";
 import { countThreadSearchOccurrences } from "@t3tools/shared/threadSearch";
 import { AsyncResult } from "effect/reactivity";
-import { act, useEffect, type ReactElement } from "react";
+import { useEffect, type ReactElement } from "react";
+import { act } from "~/../test/render";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -93,7 +96,6 @@ beforeEach(() => {
   renderDiagram.mockReset();
   workspaceSearch.mockReset().mockResolvedValue(AsyncResult.success({ entries: [] }));
   filesystemMetadata.mockReset().mockResolvedValue(AsyncResult.success({ entries: [null] }));
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 });
 
 afterEach(async () => {
@@ -1116,8 +1118,6 @@ describe("ChatMarkdown thread find", () => {
       </div>
     );
   }
-  const frame = () =>
-    act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   const activeHighlights = () =>
     [...(CSS.highlights.get("t3-thread-find-active") ?? [])].map((range) =>
       (range as Range).toString(),
@@ -1153,16 +1153,13 @@ describe("ChatMarkdown thread find", () => {
     await show("", 0);
     expect(container.textContent).not.toContain("nothing here");
     await show("needle", 0);
-    await frame();
-    expect(openStates()).toEqual(["false", "false", "false"]);
+    await expect.poll(openStates).toEqual(["false", "false", "false"]);
     expect(container.textContent).toContain("nothing here");
-    expect(activeHighlights()).toEqual(["needle"]);
+    await expect.poll(activeHighlights).toEqual(["needle"]);
     expect(CSS.highlights.get("t3-thread-find")?.size ?? 0).toBe(0);
 
     await show("needle", 1);
-    await frame();
-    await frame();
-    expect(openStates()).toEqual(["false", "true", "true"]);
+    await expect.poll(openStates).toEqual(["false", "true", "true"]);
     expect(CSS.highlights.get("t3-thread-find-active")?.size).toBe(1);
   });
 
@@ -1182,13 +1179,10 @@ describe("ChatMarkdown thread find", () => {
     const diagrams = () => container.querySelectorAll('svg[aria-label="Diagram"]').length;
 
     await show("Needle");
-    await frame();
-    expect(diagrams()).toBe(2);
+    await expect.poll(diagrams).toBe(2);
     await show("Alpha");
-    await frame();
-    await frame();
-    expect(diagrams()).toBe(1);
-    await vi.waitFor(() => expect(activeHighlights()).toEqual(["Alpha"]));
+    await expect.poll(diagrams).toBe(1);
+    await expect.poll(activeHighlights).toEqual(["Alpha"]);
   });
 
   it.each([

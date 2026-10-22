@@ -17,7 +17,7 @@ import {
 import * as Schema from "effect/Schema";
 import { isKdeCaptureSession, type KdeCapturePaths } from "./KdeSnapShot.ts";
 import { isGnomeCaptureSession, readPortalPng, resizeLinuxCapture } from "./linuxCaptureSession.ts";
-export { readPortalPng, resizeLinuxCapture } from "./linuxCaptureSession.ts";
+export { readPortalPng } from "./linuxCaptureSession.ts";
 import { isHyprlandCaptureSession, type HyprlandCapturePaths } from "./HyprlandSnapShot.ts";
 
 const PORTAL = "org.freedesktop.portal.Desktop";

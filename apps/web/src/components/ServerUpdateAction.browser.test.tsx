@@ -1,3 +1,5 @@
+// Retain the fork's shared rerender fixtures and their explicit afterEach teardown.
+/* oxlint-disable t3code/require-disposable-render */
 import "~/index.css";
 import { page, userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
@@ -7,7 +9,8 @@ import { AuthSessionState, type EnvironmentId, type ServerInstallation } from "@
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { act, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { act } from "~/../test/render";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -138,7 +141,6 @@ async function renderAction(
 }
 
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   testState.updateServer.mockReset();
   testState.toast.mockReset();
   testState.clipboard.mockReset();
