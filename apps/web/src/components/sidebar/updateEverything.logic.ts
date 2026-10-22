@@ -1,3 +1,9 @@
+import {
+  cliArchiveFileName,
+  cliArchivePlatformKey,
+  CLI_RELEASE_CHECKSUMS_FILE,
+} from "@t3tools/shared/cliRelease";
+import type { CliReleaseAvailability } from "~/state/cliRelease";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import type { EnvironmentId, ServerConfig } from "@t3tools/contracts";
 import {
@@ -128,6 +134,7 @@ export function collectServerUpdateTargets(
       environmentId: machine.environmentId,
       serverLabel: machine.label,
       selfUpdate,
+      platform: config.environment.platform,
       installation: config.environment.capabilities.serverInstallation,
       desktopAppUpdate,
       threadContinuation: supportsServerUpdateThreadContinuation(config),
@@ -136,6 +143,44 @@ export function collectServerUpdateTargets(
     });
   }
   return { targets, skipped };
+}
+
+/** Desktop-managed targets use their own feed; other fork servers need their platform archive and checksums. */
+export function filterAvailableServerUpdates(
+  targets: ReadonlyArray<ServerUpdateTarget>,
+  availability: CliReleaseAvailability,
+): { readonly targets: ServerUpdateTarget[]; readonly skipped: SkippedMachine[] } {
+  const available: ServerUpdateTarget[] = [];
+  const skipped: SkippedMachine[] = [];
+  for (const target of targets) {
+    if (target.selfUpdate === "desktop-managed") {
+      available.push(target);
+      continue;
+    }
+    const platform = target.platform;
+    const key =
+      platform && platform.os !== "unknown"
+        ? cliArchivePlatformKey(platform.os === "windows" ? "win32" : platform.os, platform.arch)
+        : undefined;
+    let reason: string | undefined;
+    if (key === undefined) reason = "no supported CLI archive for this platform";
+    else if (availability.status === "checking")
+      reason = `checking GitHub release v${target.targetVersion}`;
+    else if (availability.status === "error")
+      reason = `could not check GitHub release v${target.targetVersion}; try again later`;
+    else if (availability.status === "unavailable")
+      reason = `v${target.targetVersion} is not on GitHub Releases yet`;
+    else if (
+      !availability.assets.includes(cliArchiveFileName(target.targetVersion, key)) ||
+      !availability.assets.includes(CLI_RELEASE_CHECKSUMS_FILE)
+    ) {
+      reason = `v${target.targetVersion} CLI archive or checksums for ${key} are not on GitHub Releases yet`;
+    }
+    if (reason)
+      skipped.push({ environmentId: target.environmentId, label: target.serverLabel, reason });
+    else available.push(target);
+  }
+  return { targets: available, skipped };
 }
 
 export interface UpdateEverythingSteps<Providers, Servers> {

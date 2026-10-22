@@ -5,6 +5,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   collectRestartingMachines,
   collectServerUpdateTargets,
+  filterAvailableServerUpdates,
   closeFinishedUpdateRun,
   collectUpdateEverythingResult,
   describeUpdateCapsule,
@@ -73,6 +74,7 @@ describe("collectServerUpdateTargets", () => {
   it("excludes unknown and foreign distributions from update-all, including desktops", () => {
     const unknown = machine("unknown", "0.0.40", "boot-service");
     const foreign = machine("upstream", "0.0.40", "desktop-managed");
+    const upstreamCli = machine("upstream-cli", "0.0.40", "boot-service");
     const withoutRelease = { ...unknown.serverConfig!.environment };
     delete withoutRelease.release;
     const { targets, skipped } = collectServerUpdateTargets(
@@ -88,6 +90,20 @@ describe("collectServerUpdateTargets", () => {
             },
           },
         },
+        {
+          ...upstreamCli,
+          serverConfig: {
+            ...upstreamCli.serverConfig!,
+            environment: {
+              ...upstreamCli.serverConfig!.environment,
+              release: { distribution: "pingdotgg/t3code", channel: "stable" },
+              capabilities: {
+                ...upstreamCli.serverConfig!.environment.capabilities,
+                serverInstallation: { kind: "npx" },
+              },
+            },
+          },
+        },
         machine("fork", "0.0.40", "boot-service"),
         machine("fork-desktop", "0.0.40", "desktop-managed"),
       ],
@@ -97,6 +113,7 @@ describe("collectServerUpdateTargets", () => {
     expect(skipped.map((entry) => [entry.label, entry.reason])).toEqual([
       ["unknown", "unknown release identity"],
       ["upstream", "different release distribution"],
+      ["upstream-cli", "different release distribution"],
     ]);
   });
 
@@ -456,5 +473,74 @@ describe("describeUpdateEverything", () => {
         ],
       }).summary,
     ).toBe("Update 1 provider");
+  });
+});
+
+describe("filterAvailableServerUpdates", () => {
+  const targets = () =>
+    collectServerUpdateTargets(
+      [machine("linux", "0.0.62", "boot-service"), machine("desktop", "0.0.62", "desktop-managed")],
+      "0.0.63",
+    ).targets;
+
+  it("allows a fork archive without npm publication, including npm-launched servers", () => {
+    const result = filterAvailableServerUpdates(
+      targets().map((target) => ({
+        ...target,
+        installation: { kind: "npx" as const },
+      })),
+      {
+        status: "available",
+        assets: ["t3-0.0.63-linux-x64.tar.gz", "SHA256SUMS"],
+      },
+    );
+    expect(result.targets.map((target) => target.serverLabel)).toEqual(["linux", "desktop"]);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it.each([
+    ["checking", "checking GitHub release v0.0.63"],
+    ["error", "could not check GitHub release v0.0.63; try again later"],
+    ["unavailable", "v0.0.63 is not on GitHub Releases yet"],
+  ] as const)("skips archive updates while %s and preserves desktop updates", (status, reason) => {
+    const result = filterAvailableServerUpdates(targets(), { status });
+    expect(result.targets.map((target) => target.serverLabel)).toEqual(["desktop"]);
+    expect(result.skipped.map((entry) => [entry.label, entry.reason])).toEqual([["linux", reason]]);
+  });
+
+  it.each([
+    ["t3-0.0.63-darwin-arm64.tar.gz", "SHA256SUMS"],
+    ["t3-0.0.63-linux-x64.tar.gz"],
+    ["t3-0.0.62-linux-x64.tar.gz", "SHA256SUMS"],
+  ])("requires both the exact platform archive and checksums (%j)", (...assets) => {
+    const result = filterAvailableServerUpdates(targets(), { status: "available", assets });
+    expect(result.targets.map((target) => target.serverLabel)).toEqual(["desktop"]);
+    expect(result.skipped[0]?.reason).toBe(
+      "v0.0.63 CLI archive or checksums for linux-x64 are not on GitHub Releases yet",
+    );
+  });
+
+  it("uses each remote server's platform and maps Windows to win32", () => {
+    const result = filterAvailableServerUpdates(
+      [{ ...targets()[0]!, platform: { os: "windows", arch: "arm64" } }],
+      { status: "available", assets: ["t3-0.0.63-win32-arm64.zip", "SHA256SUMS"] },
+    );
+    expect(result.targets).toHaveLength(1);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it("skips unsupported or unknown archive platforms", () => {
+    const result = filterAvailableServerUpdates(
+      [
+        { ...targets()[0]!, platform: { os: "darwin", arch: "x64" } },
+        { ...targets()[0]!, platform: undefined },
+      ],
+      { status: "available", assets: ["SHA256SUMS"] },
+    );
+    expect(result.targets).toEqual([]);
+    expect(result.skipped.map((entry) => entry.reason)).toEqual([
+      "no supported CLI archive for this platform",
+      "no supported CLI archive for this platform",
+    ]);
   });
 });

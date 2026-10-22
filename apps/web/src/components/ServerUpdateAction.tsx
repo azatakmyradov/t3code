@@ -9,6 +9,7 @@ import type { AsyncResult } from "effect/reactivity";
 import { environmentSession } from "~/state/session";
 import type {
   EnvironmentId,
+  ExecutionEnvironmentPlatform,
   ServerInstallation,
   ServerSelfUpdateCapability,
 } from "@t3tools/contracts";
@@ -51,6 +52,7 @@ export interface ServerUpdateTarget {
   readonly environmentId: EnvironmentId;
   readonly serverLabel: string;
   readonly selfUpdate: ServerSelfUpdateCapability | null;
+  readonly platform?: ExecutionEnvironmentPlatform | undefined;
   readonly installation?: ServerInstallation | undefined;
   readonly desktopAppUpdate?: boolean;
   readonly threadContinuation?: boolean;
