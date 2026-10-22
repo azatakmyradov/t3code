@@ -229,13 +229,7 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
-import { getProjectOrderKey } from "../logicalProject";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
-import {
-  buildSidebarProjectPickerEntries,
-  buildSidebarProjectSnapshots,
-} from "../sidebarProjectGrouping";
-import type { Project } from "../types";
+import { buildSidebarProjectPickerEntries } from "../sidebarProjectGrouping";
 import { buildProjectFolderChoices } from "@t3tools/client-runtime/state/project-grouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";

@@ -23,7 +23,7 @@ import {
 } from "./pullRequestDetail.logic";
 import { pullRequestChecksState } from "./pullRequestPresentation";
 
-export function pullRequestRefKey(reference: PullRequestRef) {
+function pullRequestRefKey(reference: PullRequestRef) {
   return pullRequestReviewKey(reference);
 }
 

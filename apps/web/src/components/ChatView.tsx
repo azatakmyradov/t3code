@@ -337,25 +337,12 @@ import { readEnvironmentScope, readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
-import { Button, InlineButton } from "./ui/button";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ServerUpdateAction, serverUpdateStageLabel } from "./ServerUpdateAction";
-import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
-import { ComposerServerUpdateIcon } from "./chat/ComposerServerUpdateStatus";
 import {
-  dismissServerUpdateFailure,
-  isServerUpdateFailureDismissed,
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
   supportsServerUpdateThreadContinuation,
 } from "../versionSkew";
-import { useAssetUrls } from "../assets/assetUrls";
-import {
-  ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
-  threadContextsOutsideEnvironment,
-} from "@t3tools/shared/composerContextReferences";
-import { recallableComposerPrompt } from "./chat/composerPromptHistory";
 import { observeResize } from "~/lib/observeResize";
 import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
 import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
@@ -613,7 +600,6 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
-  const pasteAsTextShortcutUntilRef = useRef(0);
   const [providerUsageHost, setProviderUsageHost] = useState<HTMLDivElement | null>(null);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
@@ -1238,7 +1224,6 @@ export default function ChatView(props: ChatViewProps) {
         return environment ? [environment] : [];
       })
     : EMPTY_AUTO_UPDATE_ENVIRONMENTS;
-  const autoBalanceUpdateBanner = useAutoBalanceUpdateBanner(autoUpdateEnvironments);
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const hasMultipleRegisteredEnvironments = environments.length > 1;
   const versionMismatchServerLabel =
@@ -1253,12 +1238,6 @@ export default function ChatView(props: ChatViewProps) {
   const serverUpdateState = useAtomValue(
     serverEnvironment.updateStateAtom(serverUpdateEnvironmentId),
   );
-  const [dismissedServerUpdateState, setDismissedServerUpdateState] = useState<
-    typeof serverUpdateState | null
-  >(null);
-  const serverUpdateFailureDismissed =
-    serverUpdateState === dismissedServerUpdateState ||
-    isServerUpdateFailureDismissed(serverUpdateState);
   const activeServerUpdate =
     !automaticEnvironment &&
     serverUpdateEnvironmentId &&

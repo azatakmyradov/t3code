@@ -84,7 +84,7 @@ import {
 } from "./PullRequestDetailLayout";
 import { PullRequestDetailGhost, PullRequestTimelineGhost } from "./PullRequestGhosts";
 import { PullRequestCopyableCode } from "./PullRequestCopyableCode";
-import { pullRequestRefKey, usePullRequestDetail } from "./usePullRequestDetail";
+import { usePullRequestDetail } from "./usePullRequestDetail";
 import { PullRequestActionsMenu } from "./PullRequestActionsMenu";
 import {
   PullRequestApproveWorkflowsButton,
@@ -137,11 +137,7 @@ import {
   stripPullRequestHandoffReferences,
 } from "./pullRequestDetail.logic";
 import { pullRequestReviewKey } from "./pullRequestReviewStore";
-import { canEditPullRequestChangeRequest } from "./pullRequestEditing.logic";
-import {
-  resolvePickableEnvironments,
-  type PickableEnvironment,
-} from "./pullRequestProjectAssignment.logic";
+import { resolvePickableEnvironments } from "./pullRequestProjectAssignment.logic";
 import { PullRequestChecksPopover } from "./PullRequestChecksPopover";
 import {
   PullRequestActorLabel,

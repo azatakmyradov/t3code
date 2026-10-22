@@ -1,3 +1,5 @@
+import { useDesktopUpdateState } from "~/state/desktopUpdate";
+import { resolveLocalVersionStatusLabel } from "./ConnectionsSettings.logic";
 import { canTargetServerRelease } from "@t3tools/shared/releaseCompatibility";
 import { SessionPermissions } from "./SessionPermissions";
 import { AUTH_SCOPE_OPTIONS as PAIRING_SCOPE_OPTIONS } from "@t3tools/shared/authScopeOptions";
@@ -2085,6 +2087,10 @@ function CloudRemoteEnvironmentRows({
   ) : null;
 }
 
+function LocalVersionStatusLabel() {
+  return resolveLocalVersionStatusLabel(useDesktopUpdateState());
+}
+
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -3557,9 +3563,11 @@ export function ConnectionsSettings() {
                   ) : primaryServerUpdateState.status === "idle" && primaryServerConfig ? (
                     <span className="text-xs text-muted-foreground">
                       {primaryVersionMismatch?.hint ??
-                        (canTargetServerRelease(primaryServerConfig.environment, APP_VERSION)
-                          ? "Up to date"
-                          : "Check for updates on this machine")}
+                        (canTargetServerRelease(primaryServerConfig.environment, APP_VERSION) ? (
+                          <LocalVersionStatusLabel />
+                        ) : (
+                          "Check for updates on this machine"
+                        ))}
                     </span>
                   ) : undefined
                 }

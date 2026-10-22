@@ -210,22 +210,7 @@ import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
-import {
-  matchesPullRequestQuery,
-  rankPullRequestMatches,
-} from "../pullRequest/pullRequestList.logic";
-import {
-  searchSlashCommandItems,
-  slashCommandItemsForPromptPosition,
-} from "./composerSlashCommandSearch";
-import {
-  getComposerPromptInjectionState,
-  getComposerProviderState,
-  getComposerReasoningStep,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
-} from "./composerProviderState";
-import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
+import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
 import { ProviderUsageSection } from "./ProviderUsageSection";
 import { deriveUsageProviderEntries, usageModelMatchesSelection } from "./providerUsage.logic";
 import { readPromptUltrathink } from "./TraitsPicker";
@@ -950,7 +935,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const usageProviderEntries = deriveUsageProviderEntries(providerStatuses, settings);
-  const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
   const {
     providerInstanceEntries,
     selectedProviderEntry,
