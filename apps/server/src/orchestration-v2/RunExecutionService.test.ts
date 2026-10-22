@@ -1,3 +1,4 @@
+import * as Fiber from "effect/Fiber";
 import { assert, it } from "@effect/vitest";
 import {
   CheckpointScopeId,

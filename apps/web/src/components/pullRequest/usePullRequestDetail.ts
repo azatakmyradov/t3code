@@ -1,3 +1,4 @@
+import { pullRequestReviewKey } from "./pullRequestReviewStore";
 import {
   AuthSourceControlWriteScope,
   type EnvironmentId,
@@ -23,7 +24,7 @@ import {
 import { pullRequestChecksState } from "./pullRequestPresentation";
 
 export function pullRequestRefKey(reference: PullRequestRef) {
-  return `${reference.projectId}:${reference.host ?? ""}:${reference.repository}#${reference.number}`;
+  return pullRequestReviewKey(reference);
 }
 
 function pullRequestDetailSummary(data: PullRequestDetail | null) {

@@ -466,7 +466,7 @@ interface PullRequestDiffStatScope {
 }
 
 /** Counts are scoped to the credential that read them, even within the same project. */
-const pullRequestDiffStatKey = (row: PullRequestDiffStatScope) =>
+export const pullRequestDiffStatKey = (row: PullRequestDiffStatScope) =>
   row.host === undefined && row.expectedAccountId === undefined
     ? `${row.environmentId} ${row.projectId} ${row.number}`
     : JSON.stringify([
@@ -795,7 +795,7 @@ export function rankPullRequestsBlockedOnAuthor<Entry extends PullRequestListEnt
   });
 }
 
-function rankPullRequestsBlockedOnReviewer<Entry extends PullRequestListEntry>(
+export function rankPullRequestsBlockedOnReviewer<Entry extends PullRequestListEntry>(
   entries: ReadonlyArray<Entry>,
 ): ReadonlyArray<Entry> {
   return rankByTierThenRecency(entries, (entry) => (entry.state === "open" ? 0 : 1));

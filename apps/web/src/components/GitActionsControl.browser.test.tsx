@@ -241,39 +241,37 @@ describe.each([
   },
 ])("Git actions after $previous", (previous) => {
   async function renderCurrentActions() {
+    setup();
     state.isDefaultRef = true;
-    await act(async () =>
-      root.render(
-        <MemoGitActionsControl
-          displayMode="panel"
-          gitCwd={previous.cwd}
-          activeThreadRef={
-            previous.thread === null
-              ? null
-              : {
-                  environmentId: EnvironmentId.make(previous.environmentId),
-                  threadId: ThreadId.make(previous.thread),
-                }
-          }
-        />,
-      ),
+    const screen = await render(
+      <MemoGitActionsControl
+        displayMode="panel"
+        gitCwd={previous.cwd}
+        activeThreadRef={
+          previous.thread === null
+            ? null
+            : {
+                environmentId: EnvironmentId.make(previous.environmentId),
+                threadId: ThreadId.make(previous.thread),
+              }
+        }
+      />,
     );
     state.primaryScopes.clear();
-    await act(async () =>
-      root.render(
-        <MemoGitActionsControl
-          displayMode="panel"
-          gitCwd="/current"
-          activeThreadRef={{
-            environmentId: EnvironmentId.make("environment"),
-            threadId: ThreadId.make("current"),
-          }}
-        />,
-      ),
+    await screen.rerender(
+      <MemoGitActionsControl
+        displayMode="panel"
+        gitCwd="/current"
+        activeThreadRef={{
+          environmentId: EnvironmentId.make("environment"),
+          threadId: ThreadId.make("current"),
+        }}
+      />,
     );
+    return screen;
   }
   it("confirms and dispatches Commit & push in the current environment", async () => {
-    await renderCurrentActions();
+    await using screen = await renderCurrentActions();
     await userEvent.click(button(/^Commit & push/));
     await expect
       .element(page.getByRole("dialog", { name: "Commit & push to default ref?" }))
@@ -287,8 +285,10 @@ describe.each([
     });
   });
   it("dispatches the enabled Commit dialog button in the current environment", async () => {
-    await renderCurrentActions();
-    await openCommitDialog();
+    await using screen = await renderCurrentActions();
+    await userEvent.click(button("Git action options"));
+    await userEvent.click(page.getByRole("menuitem", { name: "Commit" }));
+    await expect.element(page.getByRole("dialog", { name: "Commit changes" })).toBeVisible();
     await expect.element(button("Commit")).toBeEnabled();
     expect(state.actions).toHaveLength(0);
     await userEvent.click(button("Commit"));
