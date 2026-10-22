@@ -34,9 +34,6 @@ runs:
         cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor "$RUNNER_TEMP/cli-resource-monitor/linux-x64/"
     - name: Build CLI single-executable
       shell: bash
-      env:
-        # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
-        VP_NODE_VERSION: "26.8.2"
       run: node apps/server/scripts/cli.ts build-exe --verbose
     - name: Build CLI archive
       shell: bash

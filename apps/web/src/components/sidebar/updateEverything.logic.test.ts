@@ -205,6 +205,10 @@ describe("collectRestartingMachines", () => {
 describe("runUpdateEverything", () => {
   it("restarts servers after providers finish and returns every result", async () => {
     const calls: string[] = [];
+    let providersStarted = () => {};
+    const started = new Promise<void>((resolve) => {
+      providersStarted = resolve;
+    });
     let finishProviders = (_value: string) => {};
     const run = runUpdateEverything({
       downloadLocal: async () => {
@@ -214,6 +218,7 @@ describe("runUpdateEverything", () => {
       updateProviders: () =>
         new Promise<string>((resolve) => {
           calls.push("providers");
+          providersStarted();
           finishProviders = resolve;
         }),
       updateServers: async () => {
@@ -222,7 +227,7 @@ describe("runUpdateEverything", () => {
       },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started;
     expect(calls).toEqual(["download", "providers"]);
     finishProviders("provider results");
     expect(await run).toEqual({ localReady: true, providers: "provider results", servers: 2 });

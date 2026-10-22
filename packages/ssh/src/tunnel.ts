@@ -1,12 +1,10 @@
+export { describeReadinessCause } from "@t3tools/shared/httpReadiness";
 import { FORK_HOME_DIRECTORY, FORK_DEFAULT_PORT } from "@t3tools/shared/forkIdentity";
 import type {
   DesktopSshEnvironmentBootstrap,
   DesktopSshEnvironmentTarget,
 } from "@t3tools/contracts";
-import {
-  describeReadinessCause,
-  waitForHttpReady as waitForHttpReadyShared,
-} from "@t3tools/shared/httpReadiness";
+import { waitForHttpReady as waitForHttpReadyShared } from "@t3tools/shared/httpReadiness";
 import { cliReleaseDownloadBaseUrl } from "@t3tools/shared/cliRelease";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as NetService from "@t3tools/shared/Net";
@@ -238,8 +236,6 @@ function applyScriptPlaceholders(
   }
   return result;
 }
-
-export { describeReadinessCause };
 
 export const REMOTE_PICK_PORT_SCRIPT = `const fs = require("node:fs");
 const net = require("node:net");

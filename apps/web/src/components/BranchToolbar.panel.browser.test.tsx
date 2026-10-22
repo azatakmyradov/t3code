@@ -1,7 +1,10 @@
+// Retain the fork's shared rerender fixtures and their explicit afterEach teardown.
+/* oxlint-disable t3code/require-disposable-render */
 import { ComposerSurface } from "./chat/ComposerSurface";
 import type { ServerUpdateTarget } from "./ServerUpdateAction";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import { act, type ComponentProps } from "react";
+import type { ComponentProps } from "react";
+import { act } from "~/../test/render";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -42,7 +45,6 @@ let root: Root;
 let container: HTMLDivElement;
 
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.worktreePath = "/tmp/worktree";
   state.showContextMenu.mockReset().mockResolvedValue("copy-path");
   state.writeTextToClipboard.mockReset().mockResolvedValue(true);

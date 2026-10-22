@@ -1,3 +1,4 @@
+import WebhookDedupe from "./Migrations/068_WebhookDedupe.ts";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
@@ -92,6 +93,10 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* RepairClientSettlementTimestamps;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (66, 'RepairClientSettlementTimestamps', '2026-10-06 12:00:00')`;
   }
+  if (throughId >= 67) {
+    yield* WebhookDedupe;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (67, 'WebhookDedupe', '2026-10-07 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -128,7 +133,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65])(
+  it.effect.each([62, 63, 64, 65, 66, 67])(
     "upgrades released fork %s while keeping bot and review data unchanged",
     (id) =>
       Effect.gen(function* () {
@@ -164,7 +169,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64, 65, 66])(
+  it.effect.each([61, 62, 63, 64, 65, 66, 67])(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
