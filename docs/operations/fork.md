@@ -6,7 +6,7 @@ history, rather than a member of GitHub's public fork network.
 
 ## Run and install
 
-Use Node.js 24 and Vite+. From this checkout:
+Use Node.js 26.12.1 and Vite+. From this checkout:
 
 ```sh
 vp i

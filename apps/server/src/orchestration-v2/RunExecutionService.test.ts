@@ -2664,7 +2664,7 @@ it.effect("keeps live background tools after an ordinary provider interruption",
     );
     assert.equal(
       written[0]?.type === "run_interrupt_result" ? written[0].message : null,
-      "Run interrupted by user",
+      "Stopped by the provider",
     );
   }),
 );

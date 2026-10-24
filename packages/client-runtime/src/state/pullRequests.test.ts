@@ -2422,3 +2422,58 @@ it.effect("requests fresh stats when a listing switches accounts for the same pr
     }),
   ),
 );
+
+it.effect.each([undefined, "101"])(
+  "shares checks reads across reference property order for account %s",
+  (expectedAccountId) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let reads = 0;
+        const client = {
+          [WS_METHODS.pullRequestsSubscribeRefreshes]: () => Stream.never,
+          [WS_METHODS.pullRequestsChecks]: () =>
+            Effect.sync(() => {
+              reads += 1;
+              return { state: "open", checks: [], observedAt: 1_000 };
+            }),
+        } as unknown as WsRpcProtocolClient;
+        const { atoms, registry } = yield* makeTestRuntime(client);
+        const projectId = ProjectId.make("project-1");
+        const row = atoms.checks({
+          environmentId: TARGET.environmentId,
+          input: {
+            host: "github.com",
+            repository: "acme/web",
+            number: 1,
+            projectId,
+            expectedAccountId,
+          },
+        });
+        const panel = atoms.checks({
+          environmentId: TARGET.environmentId,
+          input: {
+            projectId,
+            host: "github.com",
+            repository: "acme/web",
+            number: 1,
+            expectedAccountId,
+          },
+        });
+        yield* AtomRegistry.getResult(registry, row);
+        yield* AtomRegistry.getResult(registry, panel);
+        expect(reads).toBe(1);
+        const otherAccount = atoms.checks({
+          environmentId: TARGET.environmentId,
+          input: {
+            projectId,
+            host: "github.com",
+            repository: "acme/web",
+            number: 1,
+            expectedAccountId: "202",
+          },
+        });
+        yield* AtomRegistry.getResult(registry, otherAccount);
+        expect(reads).toBe(2);
+      }),
+    ),
+);

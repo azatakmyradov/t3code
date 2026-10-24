@@ -160,7 +160,7 @@ function ProviderQuotaGroup({
             className="flex min-w-7 flex-col text-right text-xs leading-3 tabular-nums"
           >
             {unavailable !== null ? (
-              <span className="text-muted-foreground">—</span>
+              <span className="text-muted-foreground">-</span>
             ) : (
               quota.windows.slice(0, 2).map((window) => (
                 <span

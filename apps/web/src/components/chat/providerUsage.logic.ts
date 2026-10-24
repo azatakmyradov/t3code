@@ -121,7 +121,7 @@ export function providerQuotaStatus(
 }
 
 export function formatStatusPercent(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "—";
+  if (value === null || !Number.isFinite(value)) return "-";
   const percent = Math.max(0, Math.min(100, value));
   return `${percent < 10 ? Number(percent.toFixed(1)) : Math.round(percent)}%`;
 }
