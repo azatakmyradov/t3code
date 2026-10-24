@@ -1031,7 +1031,7 @@ it.effect("reads only the repositories it was asked to carry on with", () =>
 
     assert.deepStrictEqual(listed, ["acme/web"]);
     assert.deepStrictEqual(cursors, [
-      { updatedBefore: "2026-07-02T00:00:00Z", delivered: 99, seenAt: [7] },
+      { updatedBefore: "2026-07-02T00:00:00Z", delivered: 99, seenAt: [7], resumeAfter: undefined },
     ]);
     assert.strictEqual(result.providers.length, 1);
   }),

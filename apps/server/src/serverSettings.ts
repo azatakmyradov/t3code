@@ -1114,12 +1114,12 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  const watchFileChanges = (filePath: string) => {
+  const watchFileChanges = (filePath: string, onReady?: () => void) => {
     const directory = pathService.dirname(filePath);
     const fileName = pathService.basename(filePath);
     const resolvedFilePath = pathService.resolve(filePath);
     return fs
-      .watch(directory)
+      .watch(directory, { onReady })
       .pipe(
         Stream.filter(
           (event) =>
@@ -1164,14 +1164,23 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.orElseSucceed(() => Option.none<string>()));
 
     const initialLinkTarget = yield* watchLinkTarget;
+    const settingsReady = yield* Deferred.make<void, ServerSettingsError>();
+    const linkReady = yield* Deferred.make<void, ServerSettingsError>();
+    const targetReady = yield* Deferred.make<void, ServerSettingsError>();
+    const markReady = (ready: Deferred.Deferred<void, ServerSettingsError>) => () =>
+      Effect.runSync(Deferred.succeed(ready, undefined));
+    if (Option.isNone(initialLinkTarget)) yield* Deferred.succeed(targetReady, undefined);
     const linkTargetEvents = Stream.make(initialLinkTarget).pipe(
-      Stream.concat(watchFileChanges(settingsPath).pipe(Stream.mapEffect(() => watchLinkTarget))),
+      Stream.concat(
+        watchFileChanges(settingsPath, markReady(linkReady)).pipe(
+          Stream.mapEffect(() => watchLinkTarget),
+        ),
+      ),
       Stream.changes,
       Stream.switchMap(
         Option.match({
           onNone: () => Stream.empty,
-          onSome: (linkTargetPath) =>
-            watchFileChanges(linkTargetPath).pipe(Stream.ignore({ log: true })),
+          onSome: (linkTargetPath) => watchFileChanges(linkTargetPath, markReady(targetReady)),
         }),
       ),
     );
@@ -1179,15 +1188,27 @@ const make = Effect.gen(function* () {
     // Editors emit multiple events per save (truncate, write, rename) and
     // `fs.watch` can fire before the content has been flushed to disk.
     const debouncedSettingsEvents = Stream.merge(
-      watchFileChanges(settingsPath),
+      watchFileChanges(settingsPath, markReady(settingsReady)),
       linkTargetEvents,
     ).pipe(Stream.debounce(Duration.millis(100)));
 
     yield* Stream.runForEach(debouncedSettingsEvents, () => revalidateAndEmitSafely).pipe(
+      Effect.tapCause((cause) =>
+        Effect.all(
+          [settingsReady, linkReady, targetReady].map((ready) =>
+            Deferred.fail(
+              ready,
+              new ServerSettingsError({ settingsPath, operation: "prepare-directory", cause }),
+            ),
+          ),
+        ),
+      ),
       Effect.ignoreCause({ log: true }),
       Effect.forkIn(watcherScope),
       Effect.asVoid,
     );
+    // start must not return while an immediate external save can still be missed.
+    yield* Effect.all([settingsReady, linkReady, targetReady].map(Deferred.await));
   });
 
   const start = Effect.gen(function* () {

@@ -477,6 +477,7 @@ describe("mobile PR scan and filters", () => {
     expect(pullRequestListFacets(rows)).toEqual({
       authors: ["octocat"],
       labels: ["bug", "feature"],
+      labelColors: {},
     });
     expect(pullRequestLabelColor("ffab00")).toBe("#ffab00");
     expect(pullRequestLabelColor("not-a-color")).toBeNull();

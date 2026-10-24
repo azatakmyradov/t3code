@@ -88,7 +88,9 @@ const WINDOW: UsageSummaryInput = {
 
 const setup = Effect.gen(function* () {
   const home = yield* Effect.promise(() =>
-    NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "usage-service-test-")),
+    NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "usage-service-test-")).then((home) =>
+      NodeFSP.realpath(home),
+    ),
   );
   yield* Effect.addFinalizer(() =>
     Effect.promise(() => NodeFSP.rm(home, { recursive: true, force: true })),
