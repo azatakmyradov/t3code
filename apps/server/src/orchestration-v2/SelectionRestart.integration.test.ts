@@ -1403,7 +1403,7 @@ it.live.each(["provider-crash", "explicit-stop"] as const)(
           else
             assert.equal(
               completed.turnItems.find((item) => item.type === "run_interrupt_result")?.message,
-              "Run interrupted by user",
+              "Stopped by user",
             );
         }).pipe(
           Effect.provide(
