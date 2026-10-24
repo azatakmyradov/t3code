@@ -222,7 +222,7 @@ it("does not turn unknown quota into a full remaining allowance", async () => {
   await render({
     providers: deriveProviderInstanceEntries([provider("codex", "Codex", Number.NaN)]),
   });
-  expect(trigger("codex").textContent).toBe("—");
+  expect(trigger("codex").textContent).toBe("-");
   const popup = await openDetails("codex");
   expect(popup.textContent).not.toContain("100%");
   const meter = popup.querySelector('[role="progressbar"]')!;
@@ -246,7 +246,7 @@ it("keeps a provider's no-limit explanation without inventing a remaining percen
       },
     ]),
   });
-  expect(trigger("codex").textContent).toBe("—");
+  expect(trigger("codex").textContent).toBe("-");
   const popup = await openDetails("codex");
   expect(popup.textContent).toContain("This account has no subscription usage limit.");
   expect(popup.querySelector('[role="progressbar"]')).toBeNull();
@@ -313,7 +313,7 @@ it("explains unavailable summaries and supports keyboard dismissal and reopening
     providers: deriveProviderInstanceEntries([{ ...codex, usageLimits: undefined }]),
   });
   const row = trigger("codex");
-  expect(row.textContent).toBe("—");
+  expect(row.textContent).toBe("-");
   expect(row.getAttribute("aria-label")).toBe(
     "Codex: No subscription usage has been reported for this account.",
   );
@@ -400,7 +400,7 @@ it("keeps failed refreshes visibly stale and expired buckets unknown", async () 
     "Last reported usage · refresh failed",
   );
   await closeDetails();
-  expect(group("codex-personal").textContent).toContain("—");
+  expect(group("codex-personal").textContent).toContain("-");
   await openDetails("codex-personal");
   expect(
     details()?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow"),

@@ -148,13 +148,13 @@ describe("provider quota status", () => {
 
 it("formats small percentages without confusing missing data with zero", () => {
   expect([null, 0, 0.5, 5, 62.4, 100, Number.NaN].map(formatStatusPercent)).toEqual([
-    "—",
+    "-",
     "0%",
     "0.5%",
     "5%",
     "62%",
     "100%",
-    "—",
+    "-",
   ]);
 });
 
