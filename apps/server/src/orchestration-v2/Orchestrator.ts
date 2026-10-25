@@ -600,8 +600,8 @@ function cancelledAppOwnedTask(
   };
 }
 
-// Follow-ups, including provider wakes, write to the parent and require its lock.
-// Monitor updates only report progress and do not start follow-up work.
+// Provider wakes can start follow-up work; monitor updates only report progress.
+// Dispatch takes the parent's lock for follow-ups because intake writes the parent.
 function mayStartSubagentFollowup(
   command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
 ): boolean {
