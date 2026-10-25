@@ -36,7 +36,7 @@ export function ThreadDetailsSection({
           "flex min-w-0 items-center justify-between",
           headingIcon
             ? cn("h-8", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)
-            : "mb-1 min-h-8 gap-2 px-1.5",
+            : "mb-1 min-h-8 gap-2 px-2.5",
           !showHeading && "hidden",
         )}
       >
