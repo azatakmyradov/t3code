@@ -6,6 +6,8 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import ThreadMessageSearch from "./Migrations/070_ThreadMessageSearch.ts";
+
 import { migrationManifest, runMigrations } from "./Migrations.ts";
 import PullRequestReviewGuides from "./Migrations/062_PullRequestReviewGuides.ts";
 import ThreadFailureLookupIndex from "./Migrations/063_ThreadFailureLookupIndex.ts";
@@ -102,6 +104,10 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* ShellStopRequestIndex;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (68, 'ShellStopRequestIndex', '2026-10-08 12:00:00')`;
   }
+  if (throughId >= 69) {
+    yield* ThreadMessageSearch;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (69, 'ThreadMessageSearch', '2026-10-09 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -138,7 +144,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65, 66, 67, 68])(
+  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70])(
     "upgrades released fork %s while keeping bot and review data unchanged",
     (id) =>
       Effect.gen(function* () {
@@ -174,7 +180,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68])(
+  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69])(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -204,6 +210,62 @@ describe("runMigrations", () => {
         assert.lengthOf(yield* botTables, 5);
         assert.deepStrictEqual(yield* failureIndexColumns, expectedFailureIndexColumns);
         assert.deepStrictEqual(yield* runMigrations(), []);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect.each(["upstream", "fork"] as const)(
+    "preserves existing %s message search without replaying it",
+    (source) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        if (source === "upstream") {
+          yield* seedUpstream(69);
+        } else {
+          yield* runMigrations();
+        }
+        // This indexed row has no message to backfill, so rebuilding would lose it.
+        yield* sql`INSERT INTO orchestration_v2_message_search (rowid, text) VALUES (42, 'saved search needle')`;
+        const searchSchema = yield* sql`
+          SELECT name, rootpage, sql FROM sqlite_master
+          WHERE name LIKE 'orchestration_v2_message_search%' ORDER BY name
+        `;
+        const searchHistory = yield* sql<{ readonly created_at: string }>`
+          SELECT created_at FROM effect_sql_migrations WHERE name = 'ThreadMessageSearch'
+        `;
+
+        assert.deepStrictEqual(
+          yield* runMigrations({ toMigrationInclusive: 70 }),
+          source === "upstream" ? [[61, "Bots"]] : [],
+        );
+        assert.deepStrictEqual(yield* history, migrationManifest);
+        assert.deepStrictEqual(
+          yield* sql`
+          SELECT created_at FROM effect_sql_migrations WHERE migration_id = 70 AND name = 'ThreadMessageSearch'
+        `,
+          searchHistory,
+        );
+        assert.deepStrictEqual(
+          yield* sql`
+          SELECT name, rootpage, sql FROM sqlite_master
+          WHERE name LIKE 'orchestration_v2_message_search%' ORDER BY name
+        `,
+          searchSchema,
+        );
+        assert.deepStrictEqual(
+          yield* sql`
+          SELECT rowid FROM orchestration_v2_message_search WHERE orchestration_v2_message_search MATCH 'needle'
+        `,
+          [{ rowid: 42 }],
+        );
+        const normalizedHistory =
+          yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
+        assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 69 }), []);
+        assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 70 }), []);
+        assert.deepStrictEqual(yield* runMigrations(), []);
+        assert.deepStrictEqual(
+          yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`,
+          normalizedHistory,
+        );
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
@@ -258,7 +320,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65, 66])(
+  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69])(
     "does not reconcile upstream %s beyond the requested migration limit",
     (id) =>
       Effect.gen(function* () {

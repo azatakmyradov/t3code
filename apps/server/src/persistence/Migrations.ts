@@ -230,7 +230,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
             (row.migration_id === 65 && row.name === "CodexUsageNativeTurnIndex") ||
             (row.migration_id === 66 && row.name === "RepairClientSettlementTimestamps") ||
             (row.migration_id === 67 && row.name === "WebhookDedupe") ||
-            (row.migration_id === 68 && row.name === "ShellStopRequestIndex"),
+            (row.migration_id === 68 && row.name === "ShellStopRequestIndex") ||
+            (row.migration_id === 69 && row.name === "ThreadMessageSearch"),
         )
       ) {
         return yield* new Migrator.MigrationError({
@@ -249,6 +250,9 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
       if (hasFailureIndex && throughId === 62) return [];
       yield* assertV2MigrationsCanRun(60);
       yield* Migration0061;
+      // Free each destination before shifting the preceding upstream ledger entry.
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = 70
+        WHERE migration_id = 69 AND name = 'ThreadMessageSearch'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 69
         WHERE migration_id = 68 AND name = 'ShellStopRequestIndex'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 68
