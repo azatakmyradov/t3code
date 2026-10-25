@@ -10,7 +10,8 @@ import { usePullRequestCloseBatch } from "~/components/pullRequest/usePullReques
 import { SidebarPointerSensor } from "~/components/Sidebar.pointer";
 import { resolveSidebarSweepKeys } from "~/components/Sidebar.logic";
 import { sortProjectsByGroupOrder } from "@t3tools/client-runtime/state/project-grouping";
-import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   ProjectId,
@@ -325,8 +326,7 @@ export const Route = createFileRoute("/_chat/pull-requests")({
     ...(typeof raw.selectedEnvironmentId === "string" && raw.selectedEnvironmentId
       ? { selectedEnvironmentId: raw.selectedEnvironmentId as EnvironmentId }
       : {}),
-    // Always an own key: the router lays this result over the parent route's unvalidated
-    // search, so leaving out a `q` the URL parser made a number would let the number through.
+    // Always include q to override numeric values in the parent route's unvalidated search.
     q: typeof raw.q === "string" && raw.q ? raw.q.slice(0, 200) : undefined,
     ...(raw.draft === "only" || raw.draft === "hide" ? { draft: raw.draft } : {}),
     ...(raw.review === "approved" ||
@@ -1232,7 +1232,7 @@ function PullRequestsRouteView() {
           host:
             activePullRequestSurface.host ??
             (selectedProject?.repositoryIdentity
-              ? pullRequestHostOf(
+              ? sourceControlClients.changeRequestHost(
                   selectedProject.repositoryIdentity,
                   selectedProject.repositoryIdentity.provider as SourceControlProviderKind,
                 )
@@ -1296,6 +1296,7 @@ function PullRequestsRouteView() {
       value={search.q ?? ""}
       busy={typedQuery.length > 0 && (!querySettled || showingCarried)}
       onChange={(query) => updateListScope({ q: query || undefined })}
+      onSubmit={(query) => updateListScope({ q: query || undefined })}
     />
   );
   const panelToggleControls = (
@@ -1914,7 +1915,7 @@ function usePullRequestScope(search: PullRequestsSearch) {
     for (const project of projects) {
       const kind = project.repositoryIdentity?.provider as SourceControlProviderKind | undefined;
       if (kind === undefined) continue;
-      const host = pullRequestHostOf(project.repositoryIdentity, kind);
+      const host = sourceControlClients.changeRequestHost(project.repositoryIdentity, kind);
       if (!byHost.has(host)) byHost.set(host, { host, kind });
     }
     return [...byHost.values()];
@@ -2008,11 +2009,7 @@ function pullRequestGroups({
 
   const entries = (() => {
     const involvementEntries = filterPullRequestsByInvolvement(known, viewers, involvement);
-    // The hosts search more than the row shows — a body, a review, a commit message — so once
-    // their answer is in, narrowing it again here would throw away matches the reader asked for.
-    // The local pass stands in for the answer that has not arrived yet, and for the hosts that
-    // answered without searching at all: Azure DevOps has no text filter, so its rows arrive
-    // whole and would otherwise sit under a search that never touched them.
+    // Local filtering stands in only until a searchable host answers, preserving body and review matches.
     const narrowedEntries = hasLocalFilters
       ? involvementEntries.filter((entry) =>
           matchesPullRequestFilters(entry, localFilters, pullRequestEntryViewer(entry, viewers)),

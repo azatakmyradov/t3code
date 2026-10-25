@@ -1,4 +1,9 @@
-import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import {
+  resolveChangeRequestLinkTarget,
+  type ChangeRequestLinkCapabilities,
+} from "@t3tools/client-runtime/change-request-links";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 export type PullRequestNavigationContext = {
   readonly environmentId: string;
@@ -7,21 +12,31 @@ export type PullRequestNavigationContext = {
   readonly expectedAccountId?: string;
 };
 
+/** The PullRequest route for a change request link from a project, or null for the browser. */
 export function nativePullRequestDestination(
   url: string,
   context: PullRequestNavigationContext | null,
+  projects: ReadonlyArray<Pick<EnvironmentProject, "id" | "environmentId" | "repositoryIdentity">>,
+  capabilities: (environmentId: EnvironmentId) => ChangeRequestLinkCapabilities | undefined,
 ) {
-  const parsed = parseChangeRequestUrl(url);
-  if (!parsed || !context) return null;
-  const host = parsed.authority ?? parsed.host;
+  if (!context) return null;
+  const target = resolveChangeRequestLinkTarget({
+    url,
+    projects,
+    capabilities,
+    environmentId: EnvironmentId.make(context.environmentId),
+    projectId: ProjectId.make(context.projectId),
+    lendHostProject: true,
+  });
+  if (target === null) return null;
   return {
     environmentId: context.environmentId,
-    projectId: context.projectId,
-    ...(context.expectedAccountId && context.host?.toLowerCase() === host.toLowerCase()
+    projectId: String(target.project.id),
+    ...(context.expectedAccountId && context.host?.toLowerCase() === target.host?.toLowerCase()
       ? { expectedAccountId: context.expectedAccountId }
       : {}),
-    repository: parsed.repository,
-    number: parsed.number,
-    host,
+    repository: target.repository,
+    number: target.number,
+    ...(target.host === undefined ? {} : { host: target.host }),
   };
 }

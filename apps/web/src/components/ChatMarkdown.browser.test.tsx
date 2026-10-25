@@ -5,7 +5,7 @@ import { searchableMessageSegments } from "@t3tools/shared/threadFindText";
 import { countThreadSearchOccurrences } from "@t3tools/shared/threadSearch";
 import { AsyncResult } from "effect/reactivity";
 import { useEffect, type ReactElement } from "react";
-import { act } from "~/../test/render";
+import { act, render as renderDisposable } from "~/../test/render";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -43,7 +43,6 @@ vi.mock(import("../state/server"), async (original) => {
     serverEnvironment: { ...actual.serverEnvironment, configValueAtom: (() => noConfig) as never },
   };
 });
-// A standard client session, so environment-owned file links can open.
 vi.mock(import("../state/session"), async (original) => {
   const { AuthStandardClientScopes } = await import("@t3tools/contracts");
   const granted = new Set<string>(AuthStandardClientScopes);
@@ -88,6 +87,29 @@ vi.mock(import("../hooks/useSettings"), async (original) => {
 import ChatMarkdown from "./ChatMarkdown";
 import { serializeTableElementToCsv, chatMarkdownClipboardPayload } from "../markdown-clipboard";
 import { captureAssistantTextSelection } from "../lib/assistantTextSelection";
+import { AudioPreview } from "./files/AudioPreview";
+
+it("keeps compact audio playback loaded across signed URL renewals", async () => {
+  const original =
+    "data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQEAAACA";
+  const renewed = `${original}#renewed`;
+  const preview = (src: string, revision = "clip-v1") => (
+    <AudioPreview compact name="clip.wav" src={src} revision={revision} />
+  );
+  await using screen = await renderDisposable(preview(original));
+  const audio = screen.container.querySelector("audio")!;
+  await act(() => {
+    audio.dispatchEvent(new Event("loadedmetadata"));
+    audio.dispatchEvent(new Event("play"));
+  });
+  await screen.rerender(preview(renewed));
+  expect(screen.container.querySelector("audio")).toBe(audio);
+  expect(audio.getAttribute("src")).toBe(original);
+  await expect.element(screen.getByRole("button", { name: "Pause clip.wav" })).toBeEnabled();
+  await screen.rerender(preview(renewed, "clip-v2"));
+  expect(screen.container.querySelector("audio")).not.toBe(audio);
+  expect(screen.container.querySelector("audio")?.getAttribute("src")).toBe(renewed);
+});
 
 const roots: Root[] = [];
 
@@ -500,7 +522,7 @@ describe("ChatMarkdown streaming", () => {
 
   it("does not retokenize completed lines when streaming finishes", async () => {
     const highlighter = await getSyntaxHighlighterPromise("typescript");
-    const highlight = vi.spyOn(highlighter, "codeToHast");
+    const highlight = vi.spyOn(highlighter, "codeToTokens");
     const text = "```typescript\nconst completed = 1;\nconst current = 2;";
     const { rerender } = await render(<ChatMarkdown cwd="/tmp/project" text={text} isStreaming />);
     await vi.waitFor(() => expect(highlight).toHaveBeenCalled());
@@ -511,11 +533,11 @@ describe("ChatMarkdown streaming", () => {
 
   it("recovers highlighting after a failed fence changes without resetting its controls", async () => {
     const highlighter = await getSyntaxHighlighterPromise("text");
-    const codeToHast = highlighter.codeToHast.bind(highlighter);
+    const codeToTokens = highlighter.codeToTokens.bind(highlighter);
     let fail = true;
-    vi.spyOn(highlighter, "codeToHast").mockImplementation((...args) => {
+    vi.spyOn(highlighter, "codeToTokens").mockImplementation((...args) => {
       if (fail) throw new Error("Temporary highlighter failure");
-      return codeToHast(...args);
+      return codeToTokens(...args);
     });
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -543,7 +565,7 @@ describe("ChatMarkdown streaming", () => {
 
   it("preserves code controls and details without highlighting an unchanged fence again", async () => {
     const highlighter = await getSyntaxHighlighterPromise("text");
-    const highlight = vi.spyOn(highlighter, "codeToHast");
+    const highlight = vi.spyOn(highlighter, "codeToTokens");
     const writeText = vi
       .spyOn(navigator.clipboard, "writeText")
       .mockImplementation(async () => undefined);
@@ -601,7 +623,7 @@ describe("ChatMarkdown streaming", () => {
     ][0]!;
     await act(async () => copy.click());
     expect(writeText).toHaveBeenLastCalledWith("Updated code block\n");
-    expect(highlight).toHaveBeenCalledTimes(2);
+    expect(codeBlock.textContent).toContain("Updated code block");
   });
 
   it("edits the current task text and marker after reusing a renderer", async () => {

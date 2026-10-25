@@ -10,17 +10,7 @@ import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import { readChromiumLocalStorage } from "./chromiumLocalStorage.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
-/**
- * Carries the renderer's localStorage (prompt stash, unsent drafts, layout,
- * theme) over from the V1 desktop profile, which V2 replaced with its own
- * `t3-fork` profile. The V1 profile is only read, never opened by Chromium,
- * so this works while V1 is still running.
- *
- * `load` runs before the window opens; the preload takes the items once,
- * merges them into the new profile, and calls `complete`, which writes a
- * marker so later launches skip the read. A failed read or merge, or a window
- * that never completes, leaves no marker and retries next launch.
- */
+/** Reads the V1 profile without opening it in Chromium, even while V1 runs. */
 export class DesktopLegacyLocalStorage extends Context.Service<
   DesktopLegacyLocalStorage,
   {

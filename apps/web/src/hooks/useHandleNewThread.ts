@@ -42,6 +42,7 @@ import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
 import { useThreadRouteTarget } from "./useThreadRouteTarget";
+import { readUnloadedThreadCount } from "../state/olderSettledShelf";
 
 interface NewThreadWorkspaceOptions {
   branch?: string | null;
@@ -165,11 +166,16 @@ export function useNewThreadHandler() {
         ),
         workspaceRoot: project?.workspaceRoot ?? null,
         newProjectsRoot: environmentServerConfigs.get(projectRef.environmentId)?.newProjectsRoot,
-        projectHasThreads: readThreadShells().some(
-          (thread) =>
-            thread.environmentId === projectRef.environmentId &&
-            thread.projectId === projectRef.projectId,
-        ),
+        projectHasThreads:
+          readThreadShells().some(
+            (thread) =>
+              thread.environmentId === projectRef.environmentId &&
+              thread.projectId === projectRef.projectId,
+          ) ||
+          readUnloadedThreadCount(
+            [{ environmentId: projectRef.environmentId, id: projectRef.projectId }],
+            [],
+          ) > 0,
       });
     };
     const logicalProjectKey = project
@@ -218,13 +224,7 @@ export function useNewThreadHandler() {
           if (abandonedSinceRequest()) {
             return null;
           }
-          // If the draft was opened (a concurrent invocation's navigation
-          // landed), promoted to a real thread, remapped away (a concurrent
-          // invocation registered a fresh draft — remapping back would evict
-          // the winner and let the store GC it), or gained content (no longer
-          // a reusable empty draft) in the meantime, this invocation is a
-          // stale loser: resetting context, remapping, or navigating would
-          // all clobber state written after the snapshot above.
+          // Concurrent calls may change the draft; stale resets, remaps, or navigation could clobber it.
           const routeTargetNow = getCurrentRouteTarget();
           const openedMeanwhile =
             routeTargetNow?.kind === "draft" &&
@@ -270,10 +270,7 @@ export function useNewThreadHandler() {
             });
           }
         }
-        // The workspace context must also ride along here: when projectRef
-        // targets a different physical member of the logical project,
-        // createDraftThreadState treats the remap as a project change and
-        // would otherwise wipe branch/worktree, undoing the write above.
+        // Remapping physical projects clears workspace context; preserve the branch and worktree.
         setLogicalProjectDraftThreadId(
           logicalProjectKey,
           projectRef,
@@ -343,10 +340,7 @@ export function useNewThreadHandler() {
       if (abandonedSinceRequest()) {
         return null;
       }
-      // The await yields, so a concurrent invocation may have registered a
-      // draft for this logical project in the meantime. Registering ours
-      // too would evict that draft while its navigation is in flight —
-      // reuse the winner instead, like the synchronous path above does.
+      // Reuse drafts registered while awaiting so their pending navigation cannot lose them.
       const racedDraft = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       if (
         racedDraft &&

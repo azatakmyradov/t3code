@@ -69,17 +69,8 @@ export interface SkippedMachine {
   readonly reason: string;
 }
 
-/**
- * The servers that "update everything" moves to `targetVersion`: connected,
- * permitted, able to update over RPC, behind the target, and on its release
- * distribution and channel. Every other behind server comes back in `skipped`
- * with a reason for the confirmation; a machine that never connected has an
- * unknown version, so it counts as skipped. Two kinds are in neither list:
- * servers already on the target, and servers this app hosts, which would
- * relaunch the app mid-run and update with the app's own install anyway.
- * Unknown or different release identities cannot be promised this client's
- * target, including desktop-managed servers that follow their own app's feed.
- */
+/** Skip current and app-hosted servers; the latter update with the app and would relaunch mid-run.
+ * Desktop-managed servers use their own feed. */
 export function collectServerUpdateTargets(
   machines: ReadonlyArray<UpdateEverythingMachine>,
   targetVersion: string,
@@ -189,10 +180,8 @@ export interface UpdateEverythingSteps<Providers, Servers> {
   readonly updateServers: () => Promise<Servers>;
 }
 
-/**
- * Providers finish before any server restarts, so no install is cut off. The caller installs this app afterwards when `localReady`, because
- * the relaunch ends the run; a failed download skips only that install.
- */
+/** Finish provider installs before server restarts. Install this app last when localReady; failed
+ * downloads skip only that install. */
 export async function runUpdateEverything<Providers, Servers>(
   steps: UpdateEverythingSteps<Providers, Servers>,
 ): Promise<{
