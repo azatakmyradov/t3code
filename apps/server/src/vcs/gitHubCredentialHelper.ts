@@ -32,6 +32,14 @@ const ACCOUNT_HELPER = `!f() {
     done
 }; f`;
 
+function decodedUriComponent(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 interface GitReadResult {
   readonly exitCode: number;
   readonly stdout: string;
@@ -168,19 +176,10 @@ export const gitHubCredentialFallback = Effect.fnUntraced(function* (
   const configArgs: string[] = [];
   const accounts: string[] = [];
   for (const raw of urls) {
-    let url: URL;
-    try {
-      url = new URL(raw);
-    } catch {
-      continue;
-    }
-    if (url.protocol !== "https:" || url.password) continue;
-    let username: string;
-    try {
-      username = decodeURIComponent(url.username);
-    } catch {
-      continue;
-    }
+    const url = URL.parse(raw);
+    if (!url || url.protocol !== "https:" || url.password) continue;
+    let username = decodedUriComponent(url.username);
+    if (username === null) continue;
     if (!username) {
       const configured = yield* gitRead([
         "config",
@@ -216,12 +215,8 @@ export const gitHubCredentialFallback = Effect.fnUntraced(function* (
       else executable ??= ghExecutable(record.value);
     }
     if (executable === null || /[\r\n\t]/u.test(executable)) continue;
-    let credentialPath: string;
-    try {
-      credentialPath = decodeURIComponent(url.pathname.slice(1));
-    } catch {
-      continue;
-    }
+    let credentialPath = decodedUriComponent(url.pathname.slice(1));
+    if (credentialPath === null) continue;
     if (/[\r\n\t]/u.test(credentialPath)) continue;
     const useHttpPath = yield* gitRead([
       "config",

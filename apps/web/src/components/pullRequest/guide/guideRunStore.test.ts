@@ -4,9 +4,7 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { guideProgressKey, guideRunKey, useGuideRunStore } from "./guideRunStore";
 
 describe("account-scoped guide runs", () => {
-  beforeEach(() =>
-    useGuideRunStore.setState({ watches: {}, progress: {}, shownKey: null, openRequestKey: null }),
-  );
+  beforeEach(() => useGuideRunStore.setState({ watches: {}, progress: {}, pageDetailTab: null }));
 
   it("keeps watches, navigation and reading progress separate after the project's account changes", () => {
     const environmentId = EnvironmentId.make("env-1");
@@ -33,15 +31,13 @@ describe("account-scoped guide runs", () => {
       position: 2,
       seen: new Set([0, 1]),
     }));
-    store.setShown(keyA);
-    store.requestOpen(keyA);
+    store.showPageDetailTab(keyA, "guide");
 
     expect(useGuideRunStore.getState().watches[keyB]).toBeUndefined();
     expect(
       useGuideRunStore.getState().progress[guideProgressKey(keyB, "same-head")],
     ).toBeUndefined();
-    expect(useGuideRunStore.getState().shownKey).not.toBe(keyB);
-    expect(useGuideRunStore.getState().openRequestKey).not.toBe(keyB);
+    expect(useGuideRunStore.getState().pageDetailTab).toEqual({ key: keyA, tab: "guide" });
     store.watch({ ...watch, reference: referenceB });
     expect(Object.keys(useGuideRunStore.getState().watches)).toHaveLength(2);
     store.settle(keyB);

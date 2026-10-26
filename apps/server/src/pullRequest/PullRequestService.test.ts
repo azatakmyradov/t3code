@@ -2,7 +2,6 @@ import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeV8 from "node:v8";
 import * as NodeVM from "node:vm";
-import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as KeyValueStore from "effect/persistence/KeyValueStore";
 import { assert, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
@@ -8848,11 +8847,9 @@ it.effect("does not reuse locally cached PR content after its checkout account c
         ],
       });
       const ref = { projectId: "p" as ProjectId, repository: "acme/private", number: 1 };
-      // The generator unifies the distinct success types of these service methods.
-      const readOperation = (allowStale: boolean) =>
-        Effect.gen(function* () {
-          yield* service[operation]({ ...ref, allowStale });
-        });
+      const readOperation = Effect.fnUntraced(function* (allowStale: boolean) {
+        yield* service[operation]({ ...ref, allowStale });
+      });
       yield* readOperation(true);
       selected = "restricted";
       for (const allowStale of [true, false]) {

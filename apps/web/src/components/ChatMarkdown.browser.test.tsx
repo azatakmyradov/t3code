@@ -664,8 +664,8 @@ describe("ChatMarkdown skill chips", () => {
         cwd="/tmp/project"
         text={text}
         skills={[
-          { name: "2spec", displayName: "2Spec" },
-          { name: "20k", displayName: "MoneySkill" },
+          { name: "2spec", displayName: "2Spec", path: "/skills/2spec/SKILL.md", enabled: true },
+          { name: "20k", displayName: "MoneySkill", path: "/skills/20k/SKILL.md", enabled: true },
         ]}
       />,
     );
@@ -992,6 +992,42 @@ describe("ChatMarkdown artifact-template cards", () => {
   });
 });
 
+describe("ChatMarkdown skill chips", () => {
+  it("shows the skill's details and opens its instructions", async () => {
+    const threadRef = {
+      environmentId: EnvironmentId.make("workspace"),
+      threadId: ThreadId.make("thread"),
+    };
+    await using screen = await renderDisposable(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text="Run $review now"
+        {...{
+          threadRef,
+          skills: [
+            {
+              name: "review",
+              displayName: "Review",
+              description: "Reviews the current branch.",
+              path: "/skills/review/SKILL.md",
+              enabled: true,
+            },
+          ],
+        }}
+      />,
+    );
+    using openFile = vi
+      .spyOn(useRightPanelStore.getState(), "openFile")
+      .mockImplementation(() => {});
+
+    await userEvent.click(screen.getByRole("button", { name: "Skill Review. Show details" }));
+    await expect.element(page.getByText("Reviews the current branch.")).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "View instructions" }));
+
+    expect(openFile).toHaveBeenCalledExactlyOnceWith(threadRef, "/skills/review/SKILL.md");
+  });
+});
+
 describe("ChatMarkdown headings", () => {
   it("exposes headings below the host heading without changing their tags", async () => {
     const container = await renderText("# Top\n\n## Section\n\n###### Fine print", {
@@ -1241,7 +1277,14 @@ describe("ChatMarkdown thread find", () => {
   ])(
     "highlights the indexed occurrences of $query in $text",
     async ({ text, query, count, lineBreaks, user, withTemplate }) => {
-      const skills = [{ name: "test-t3-app", displayName: "T3 App Testing" }];
+      const skills = [
+        {
+          name: "test-t3-app",
+          displayName: "T3 App Testing",
+          path: "/skills/test-t3-app/SKILL.md",
+          enabled: true,
+        },
+      ];
       const container = document.body.appendChild(document.createElement("div"));
       let resolvePainted!: () => void;
       const painted = new Promise<void>((resolve) => {

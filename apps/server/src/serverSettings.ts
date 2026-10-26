@@ -1151,8 +1151,9 @@ const make = Effect.gen(function* () {
     const settingsReady = yield* Deferred.make<void, ServerSettingsError>();
     const linkReady = yield* Deferred.make<void, ServerSettingsError>();
     const targetReady = yield* Deferred.make<void, ServerSettingsError>();
+    const runWatcherCallback = Effect.runSyncWith(yield* Effect.context());
     const markReady = (ready: Deferred.Deferred<void, ServerSettingsError>) => () =>
-      Effect.runSync(Deferred.succeed(ready, undefined));
+      runWatcherCallback(Deferred.succeed(ready, undefined));
     if (Option.isNone(initialLinkTarget)) yield* Deferred.succeed(targetReady, undefined);
     const linkTargetEvents = Stream.make(initialLinkTarget).pipe(
       Stream.concat(
@@ -1177,12 +1178,10 @@ const make = Effect.gen(function* () {
 
     yield* Stream.runForEach(debouncedSettingsEvents, () => revalidateAndEmitSafely).pipe(
       Effect.tapCause((cause) =>
-        Effect.all(
-          [settingsReady, linkReady, targetReady].map((ready) =>
-            Deferred.fail(
-              ready,
-              new ServerSettingsError({ settingsPath, operation: "prepare-directory", cause }),
-            ),
+        Effect.forEach([settingsReady, linkReady, targetReady], (ready) =>
+          Deferred.fail(
+            ready,
+            new ServerSettingsError({ settingsPath, operation: "prepare-directory", cause }),
           ),
         ),
       ),
@@ -1191,7 +1190,7 @@ const make = Effect.gen(function* () {
       Effect.asVoid,
     );
     // start must not return while an immediate external save can still be missed.
-    yield* Effect.all([settingsReady, linkReady, targetReady].map(Deferred.await));
+    yield* Effect.forEach([settingsReady, linkReady, targetReady], Deferred.await);
   });
 
   const start = Effect.gen(function* () {

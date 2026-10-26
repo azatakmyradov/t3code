@@ -65,7 +65,7 @@ vi.mock(import("./ui/toast"), async (original) => {
 import {
   readConfirmDialogState,
   completeConfirmDialogClose,
-  registerConfirmDialogHost,
+  subscribeConfirmDialogHost,
   resetConfirmDialogForTests,
   respondToConfirmDialog,
 } from "~/confirmDialog";
@@ -367,7 +367,7 @@ describe("ServerUpdateAction", () => {
   });
 
   it("updates remote desktop apps through the shared update flow after confirmation", async () => {
-    registerConfirmDialogHost();
+    subscribeConfirmDialogHost(() => {});
     testState.updateServer.mockResolvedValue(success("desktop-app", "0.0.34"));
 
     await renderAction({ selfUpdate: "desktop-managed", desktopAppUpdate: true });
@@ -505,7 +505,7 @@ describe("ServerUpdatesAction", () => {
   });
 
   it("asks once for desktop machines and cancels the entire batch", async () => {
-    registerConfirmDialogHost();
+    subscribeConfirmDialogHost(() => {});
     await mount(
       targets.map((target, index) =>
         index < 2 ? { ...target, selfUpdate: "desktop-managed", desktopAppUpdate: true } : target,
@@ -589,7 +589,7 @@ describe("server updates from the environment selector", () => {
   } satisfies ServerUpdateTarget & { serverVersion: string };
 
   it("confirms a locked chip update and honors cancellation before updating", async () => {
-    registerConfirmDialogHost();
+    subscribeConfirmDialogHost(() => {});
     testState.updateServer.mockResolvedValue(success("desktop-app"));
     await render(
       <BranchToolbarEnvironmentSelector
@@ -655,7 +655,7 @@ describe("server updates from the environment selector", () => {
   });
 
   it("explains an unsupported desktop update in the picker without offering a runnable action", async () => {
-    registerConfirmDialogHost();
+    subscribeConfirmDialogHost(() => {});
     await render(
       <BranchToolbarEnvironmentSelector
         environmentId={localId}

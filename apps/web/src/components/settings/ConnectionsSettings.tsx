@@ -1,3 +1,4 @@
+import { useNowSecond } from "../../hooks/useNowSecond";
 import { useDesktopUpdateState } from "~/state/desktopUpdate";
 import { resolveLocalVersionStatusLabel } from "./ConnectionsSettings.logic";
 import { canTargetServerRelease } from "@t3tools/shared/releaseCompatibility";
@@ -80,12 +81,7 @@ import {
   selectQrEndpointOption,
   togglePairingScopeSelection,
 } from "./ConnectionsSettings.logic";
-import {
-  SettingsPageContainer,
-  SettingsRow,
-  SettingsSection,
-  useRelativeTimeTick,
-} from "./settingsLayout";
+import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
@@ -588,7 +584,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   onRevoke,
   canRevoke,
 }: PairingLinkListRowProps) {
-  const nowMs = useRelativeTimeTick(1_000);
+  const nowMs = useNowSecond();
   const expiresAtMs = new Date(pairingLink.expiresAt).getTime();
   const [isRevealDialogOpen, setIsRevealDialogOpen] = useState(false);
   const [isQrPanelOpen, setIsQrPanelOpen] = useState(false);
@@ -946,7 +942,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
   onRevokeSession,
   canRevoke,
 }: ConnectedClientListRowProps) {
-  const nowMs = useRelativeTimeTick(1_000);
+  const nowMs = useNowSecond();
   const isLive = clientSession.current || clientSession.connected;
   const lastConnectedAt = clientSession.lastConnectedAt;
   const statusTooltip = isLive
@@ -2089,7 +2085,7 @@ function LocalVersionStatusLabel() {
   return resolveLocalVersionStatusLabel(useDesktopUpdateState());
 }
 
-export function ConnectionsSettings() {
+export function ConnectionsSettings({ view }: { readonly view: "environments" | "access" }) {
   const desktopBridge = window.desktopBridge;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { environments } = useEnvironments();
@@ -2251,8 +2247,9 @@ export function ConnectionsSettings() {
   const canMaintain = useEnvironmentScope(primaryEnvironmentId, AuthEnvironmentMaintainScope);
   const canManageRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayWriteScope);
   const canManageLocalBackend = !isLocalEnvironmentDisabled() && canMaintain;
+  const showsAccess = view === "access";
   const authAccessChanges = useEnvironmentQuery(
-    canReadAccess && primaryEnvironmentId !== null
+    showsAccess && canReadAccess && primaryEnvironmentId !== null
       ? authEnvironment.accessChanges({
           environmentId: primaryEnvironmentId,
           input: null,
@@ -2260,7 +2257,7 @@ export function ConnectionsSettings() {
       : null,
   );
   const desktopNetworkAccess = useEnvironmentQuery(
-    canManageLocalBackend && desktopBridge ? desktopNetworkAccessStateAtom : null,
+    showsAccess && canManageLocalBackend && desktopBridge ? desktopNetworkAccessStateAtom : null,
   );
   const isSshDiscoveryActive =
     desktopBridge !== undefined && addBackendDialogOpen && savedBackendMode === "ssh";
@@ -2274,7 +2271,7 @@ export function ConnectionsSettings() {
     if (isSshDiscoveryActive) refreshDesktopSshHosts();
   }, [isSshDiscoveryActive, refreshDesktopSshHosts]);
   const desktopWsl = useEnvironmentQuery(
-    canManageLocalBackend && desktopBridge ? desktopWslStateAtom : null,
+    showsAccess && canManageLocalBackend && desktopBridge ? desktopWslStateAtom : null,
   );
   const desktopWslState = desktopWsl.data;
   const desktopWslError = desktopWslMutationError ?? desktopWsl.error;
@@ -3511,7 +3508,6 @@ export function ConnectionsSettings() {
               ) : null
             }
           >
-            <LocalEnvironmentSetting />
             {canManageLocalBackend ? (
               <SettingsRow
                 title="Version"
@@ -3921,7 +3917,6 @@ export function ConnectionsSettings() {
             title="No environment selected"
             description="Connect an environment to view its settings and access."
           />
-          <LocalEnvironmentSetting />
           {canReadRelay || canManageRelay ? (
             <CloudLinkRow canReadRelay={canReadRelay} canManageRelay={canManageRelay} />
           ) : null}
@@ -3930,9 +3925,15 @@ export function ConnectionsSettings() {
     </>
   );
 
+  if (showsAccess) return <SettingsPageContainer>{primarySettings}</SettingsPageContainer>;
+
   return (
     <SettingsPageContainer>
-      {primarySettings}
+      {desktopBridge?.setLocalEnvironmentEnabled ? (
+        <SettingsSection id="this-app" title="This app">
+          <LocalEnvironmentSetting />
+        </SettingsSection>
+      ) : null}
       <SettingsSection
         {...searchableSetting("remote-environments")}
         title="Environments"

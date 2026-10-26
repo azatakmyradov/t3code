@@ -1,11 +1,11 @@
 import { DraftHeroProjectHeading } from "./DraftHeroProjectHeading";
-import type { DraftId } from "~/composerDraftStore";
+import { useComposerDraftStore, type DraftId } from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { CheckIcon, FolderPlusIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { openCommandPalette } from "~/commandPaletteBus";
 import { shortcutLabelForCommand } from "~/keybindings";
@@ -42,7 +42,6 @@ import { InlineButton } from "../ui/button";
 import { buildDraftProjectPickerItems } from "./DraftHeroHeadline.logic";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { DraftProjectName } from "./DraftProjectName";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
 const ADD_PROJECT_VALUE = "add-project";
 
@@ -164,59 +163,36 @@ export function DraftHeroHeadline({
     ) ?? null;
 
   // The picker can change the draft's target while the no-project home is
-  // still being opened; a stale continuation must not retarget it again.
-  const activePhysicalProjectKey = activeProjectRef ? scopedProjectKey(activeProjectRef) : null;
-  const latestTargetRef = useRef({
-    draftId,
-    activeProjectKey,
-    activePhysicalProjectKey,
-    scratchTargetEnvironmentId,
-  });
-  useEffect(() => {
-    latestTargetRef.current = {
-      draftId,
-      activeProjectKey,
-      activePhysicalProjectKey,
-      scratchTargetEnvironmentId,
-    };
-  }, [activeProjectKey, activePhysicalProjectKey, scratchTargetEnvironmentId, draftId]);
+  // still being opened; a stale continuation must not retarget it again. Picking
+  // a project clears the pending request, and the draft session is compared
+  // against the store when the scratch project arrives.
+  const pendingScratchRef = useRef<symbol | null>(null);
+  const draftTargetKey = () => {
+    const session = draftId ? useComposerDraftStore.getState().getDraftSession(draftId) : null;
+    return session
+      ? `${session.environmentId}:${session.projectId}:${session.logicalProjectKey}`
+      : null;
+  };
   const selectProject = (
     project: (typeof projects)[number],
     logicalProjectKey: string,
     exactFolder = false,
   ) => {
-    if (!draftId) return;
-    latestTargetRef.current = {
-      draftId,
-      activeProjectKey: logicalProjectKey,
-      activePhysicalProjectKey: scopedProjectKey(
-        scopeProjectRef(project.environmentId, project.id),
-      ),
-      scratchTargetEnvironmentId: project.environmentId,
-    };
+    pendingScratchRef.current = null;
     selectDraftProject(project, logicalProjectKey, exactFolder);
   };
   const startScratch = async (): Promise<boolean> => {
     if (scratchTargetEnvironmentId === null || isScratchDraft) {
       return false;
     }
-    const requested = {
-      draftId,
-      activeProjectKey,
-      activePhysicalProjectKey,
-      scratchTargetEnvironmentId,
-    };
+    const request = Symbol("scratch");
+    pendingScratchRef.current = request;
+    const requestedTarget = draftTargetKey();
     const project = await openScratchProject(scratchTargetEnvironmentId);
-    const latest = latestTargetRef.current;
-    if (
-      !project ||
-      latest.draftId !== requested.draftId ||
-      latest.activeProjectKey !== requested.activeProjectKey ||
-      latest.activePhysicalProjectKey !== requested.activePhysicalProjectKey ||
-      latest.scratchTargetEnvironmentId !== requested.scratchTargetEnvironmentId
-    ) {
+    if (!project || pendingScratchRef.current !== request || draftTargetKey() !== requestedTarget) {
       return false;
     }
+    pendingScratchRef.current = null;
     selectProject(project, deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings));
     return true;
   };

@@ -87,13 +87,6 @@ const makeSuccessfulHandle = (stdout: string) =>
     getOutputFd: () => Stream.empty,
   });
 
-const makeFailedHandle = (stderr: string) =>
-  ChildProcessSpawner.makeHandle({
-    ...makeNonRepositoryHandle(),
-    exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(1)),
-    stderr: Stream.encodeText(Stream.make(stderr)),
-  });
-
 describe("Git output collection", () => {
   // Git writes in arbitrary chunk sizes; one byte per chunk splits every
   // multibyte character across reads.
@@ -2710,9 +2703,11 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           baseRef: initialBranch,
         });
         const branch = preview.sources.find((source) => source.kind === "branch-range")!;
+        const decodeReviewDiffPreviewInput = Schema.decodeEffect(ReviewDiffPreviewInput);
+
         for (const path of ["renamed.md", "[literal].txt", " leading.txt", "mode-only.sh"]) {
           const stat = branch.files!.find((file) => file.path === path)!;
-          const request = yield* Schema.decodeEffect(ReviewDiffPreviewInput)({
+          const request = yield* decodeReviewDiffPreviewInput({
             cwd,
             baseRef: initialBranch,
             file: { path, previousPath: stat.previousPath, sourceKind: "branch-range" },

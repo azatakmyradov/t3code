@@ -321,7 +321,7 @@ export const make = Effect.gen(function* () {
       return yield* Cache.get(cache, cacheKey(host, choice?.account, context?.cwd));
     }),
     // A refused credential can be held by several checkouts on the same host.
-    invalidate: () => Cache.invalidateAll(cache),
+    invalidate: Effect.fn("GitHubCredentials.invalidate")(() => Cache.invalidateAll(cache)),
   });
 });
 

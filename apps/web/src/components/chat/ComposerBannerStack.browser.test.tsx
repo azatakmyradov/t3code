@@ -2,6 +2,9 @@
 /* oxlint-disable t3code/require-disposable-render */
 import "../../index.css";
 
+import { InfoIcon } from "lucide-react";
+import { render as renderDisposable } from "../../../test/render";
+import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import { act } from "~/../test/render";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
@@ -137,4 +140,25 @@ it("reveals the full running command only while its title is clipped", async () 
   container.style.width = "4000px";
   await expect.element(details).not.toBeInTheDocument();
   await expect.element(popup).not.toBeInTheDocument();
+});
+
+it("commits a dismissal when the thread switches during the exit transition", async () => {
+  const onDismiss = vi.fn();
+  const item: ComposerBannerStackItem = {
+    id: "notice",
+    variant: "info",
+    icon: <InfoIcon />,
+    title: "Thread A notice",
+    dismissLabel: "Dismiss notice",
+    onDismiss,
+  };
+  await using screen = await renderDisposable(
+    <ComposerBannerStack key="thread-a" items={[item]} />,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
+  // The composer keys the stack by thread, so switching threads remounts it mid-exit.
+  await screen.rerender(<ComposerBannerStack key="thread-b" items={[]} />);
+
+  await vi.waitFor(() => expect(onDismiss).toHaveBeenCalledTimes(1));
 });

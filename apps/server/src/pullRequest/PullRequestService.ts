@@ -3177,8 +3177,9 @@ export const make = Effect.gen(function* () {
       const key = listCacheKey(input, snapshot?.viewers);
       // A replacement reader can join a lookup still finishing its previous reader's cancellation.
       return yield* Cache.get(listCache, key).pipe(
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause) ? Cache.get(listCache, key) : Effect.failCause(cause),
+        Effect.catchCauseIf(
+          (cause) => Cause.hasInterruptsOnly(cause),
+          () => Cache.get(listCache, key),
         ),
         Effect.provideService(listingSnapshot, snapshot),
       );
@@ -3627,8 +3628,9 @@ export const make = Effect.gen(function* () {
     if (missing.size === 0) return { stats: held };
     const key = statsBatchKey(missing.values());
     const { result, at } = yield* Cache.get(listStatsCache, key).pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause) ? Cache.get(listStatsCache, key) : Effect.failCause(cause),
+      Effect.catchCauseIf(
+        (cause) => Cause.hasInterruptsOnly(cause),
+        (_cause) => Cache.get(listStatsCache, key),
       ),
     );
     for (const [key, ref] of missing) {
@@ -3901,8 +3903,9 @@ export const make = Effect.gen(function* () {
     withRoutingCredential,
     list,
     filterOptions,
-    listStats: (input) =>
-      Effect.forEach(input.refs, (ref) => canonicalRef(ref).pipe(Effect.option)).pipe(
+    // The local listStats operation owns the span; this wrapper groups refs by credential.
+    listStats: Effect.fnUntraced(function* (input) {
+      return yield* Effect.forEach(input.refs, (ref) => canonicalRef(ref).pipe(Effect.option)).pipe(
         Effect.flatMap((resolved) => {
           const refs = resolved.flatMap(Option.toArray);
           if (!hasScopedCredentials) return listStats({ ...input, refs });
@@ -3943,7 +3946,8 @@ export const make = Effect.gen(function* () {
             { concurrency: REPOSITORY_CONCURRENCY },
           ).pipe(Effect.map((results) => ({ stats: results.flatMap((result) => result.stats) })));
         }),
-      ),
+      );
+    }),
     summary: credentialCached(summary),
     stack: credentialCached(stack),
     subscribeMerges: PubSub.subscribe(mergedPullRequests).pipe(

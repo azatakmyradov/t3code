@@ -129,6 +129,7 @@ vi.mock(import("~/lib/sourceControlActions"), async (original) => ({
       return {
         _tag: "Success",
         value: {
+          pr: { status: "skipped_not_requested" },
           branch: input.featureBranch
             ? { status: "created", name: "feature" }
             : { status: "skipped_not_requested" },
@@ -269,7 +270,7 @@ describe.each([
     return screen;
   }
   it("confirms and dispatches Commit & push in the current environment", async () => {
-    await using screen = await renderCurrentActions();
+    await using _screen = await renderCurrentActions();
     await userEvent.click(button(/^Commit & push/));
     await expect
       .element(page.getByRole("dialog", { name: "Commit & push to default ref?" }))
@@ -283,7 +284,7 @@ describe.each([
     });
   });
   it("dispatches the enabled Commit dialog button in the current environment", async () => {
-    await using screen = await renderCurrentActions();
+    await using _screen = await renderCurrentActions();
     await userEvent.click(button("Git action options"));
     await userEvent.click(page.getByRole("menuitem", { name: "Commit" }));
     await expect.element(page.getByRole("dialog", { name: "Commit changes" })).toBeVisible();

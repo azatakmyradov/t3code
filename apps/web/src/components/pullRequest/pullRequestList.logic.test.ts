@@ -1,3 +1,4 @@
+import { rememberPullRequestListAnswer, restorePullRequestList } from "../../state/pullRequests";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import type {
   EnvironmentId,
@@ -29,8 +30,6 @@ import {
   mergePullRequestDiffStats,
   narrowPullRequestsToFilters,
   partitionPullRequestsWithPriority,
-  readPullRequestListSnapshot,
-  writePullRequestListSnapshot,
   pullRequestAuthorChoices,
   selectedPullRequestAuthor,
   pullRequestLabelChoices,
@@ -1091,104 +1090,6 @@ describe("partitioning with the hosts' own priority reads", () => {
   });
 });
 
-describe("the list snapshot across a reload", () => {
-  const makeStorage = () => {
-    const held = new Map<string, string>();
-    return {
-      getItem: (key: string) => held.get(key) ?? null,
-      setItem: (key: string, value: string) => void held.set(key, value),
-    };
-  };
-  const data = {
-    entries: [entry({ number: 1 })],
-    viewers: { "github.com": "Bilal" },
-    providers: [],
-    errors: [{ projectId: "project-1", message: "boom" }],
-    truncated: true,
-    nextCursors: { "pingdotgg/t3code": "cursor-1" },
-  } as never;
-
-  it("hydrates the retained rows so ghosts never replace them", () => {
-    const storage = makeStorage();
-    writePullRequestListSnapshot(storage, "env-1", { scope: "env-1:open:all::", data });
-    const snapshot = readPullRequestListSnapshot(storage, "env-1");
-    expect(snapshot?.scope).toBe("env-1:open:all::");
-    expect(snapshot?.data.entries.map((item) => item.number)).toEqual([1]);
-  });
-
-  it("carries neither stale failures nor stale cursors", () => {
-    const storage = makeStorage();
-    writePullRequestListSnapshot(storage, "env-1", { scope: "s", data });
-    const snapshot = readPullRequestListSnapshot(storage, "env-1");
-    expect(snapshot?.data.errors).toEqual([]);
-    expect(snapshot?.data.nextCursors).toEqual({});
-  });
-
-  it("answers nothing for another environment", () => {
-    const storage = makeStorage();
-    writePullRequestListSnapshot(storage, "env-1", { scope: "s", data });
-    expect(readPullRequestListSnapshot(storage, "env-2")).toBeNull();
-  });
-
-  it("rejects a snapshot whose rows do not decode as entries", () => {
-    const storage = makeStorage();
-    storage.setItem(
-      "t3.pullRequests.list:env-1",
-      JSON.stringify({ scope: "s", data: { entries: [null] } }),
-    );
-    expect(readPullRequestListSnapshot(storage, "env-1")).toBeNull();
-    storage.setItem(
-      "t3.pullRequests.list:env-1",
-      JSON.stringify({ scope: "s", data: { entries: [{ host: "github.com" }] } }),
-    );
-    expect(readPullRequestListSnapshot(storage, "env-1")).toBeNull();
-  });
-
-  it("shrugs off corrupt storage and no storage at all", () => {
-    const storage = makeStorage();
-    storage.setItem("t3.pullRequests.list:env-1", "{not json");
-    expect(readPullRequestListSnapshot(storage, "env-1")).toBeNull();
-    expect(readPullRequestListSnapshot(undefined, "env-1")).toBeNull();
-  });
-
-  it("caps the accumulated rows but keeps the whole host set", () => {
-    const storage = makeStorage();
-    const manyEntries = Array.from({ length: 120 }, (_, index) => entry({ number: index + 1 }));
-    const viewers = { "github.com": "Bilal", "gitlab.com": "Bilal" };
-    const providers = [
-      {
-        host: "github.com",
-        kind: "github",
-        searchesOnHost: true,
-        projectCount: 1,
-        configured: true,
-        detail: null,
-      },
-      {
-        host: "gitlab.com",
-        kind: "gitlab",
-        searchesOnHost: true,
-        projectCount: 1,
-        configured: true,
-        detail: null,
-      },
-    ];
-    const accumulated = {
-      entries: manyEntries,
-      viewers,
-      providers,
-      errors: [],
-      truncated: true,
-      nextCursors: {},
-    } as never;
-    writePullRequestListSnapshot(storage, "env-1", { scope: "s", data: accumulated });
-    const snapshot = readPullRequestListSnapshot(storage, "env-1");
-    expect(snapshot?.data.entries).toHaveLength(99);
-    expect(snapshot?.data.viewers).toEqual(viewers);
-    expect(snapshot?.data.providers).toEqual(providers);
-  });
-});
-
 describe("remembered pull request list controls", () => {
   const makeStorage = () => {
     const held = new Map<string, string>();
@@ -1425,8 +1326,23 @@ describe('who "I" am, per server', () => {
       getItem: (key: string) => held.get(key) ?? null,
       setItem: (key: string, value: string) => void held.set(key, value),
     };
-    writePullRequestListSnapshot(storage, ENV_1, { scope: "s", data: merged });
-    const restored = readPullRequestListSnapshot(storage, ENV_1)!.data;
+    const answerStorage = {
+      ...storage,
+      removeItem: (key: string) => void held.delete(key),
+      key: (index: number) => [...held.keys()][index] ?? null,
+      get length() {
+        return held.size;
+      },
+    };
+    const target = { environmentId: ENV_1, input: { state: "open" as const } };
+    rememberPullRequestListAnswer(answerStorage, target, {
+      ...merged,
+      viewers: { "github.com": "Bilal" },
+      errors: [],
+      nextCursors: {},
+    });
+    const restored = restorePullRequestList(answerStorage, [target])!;
+    expect(restored).not.toBeNull();
 
     for (const { entries, viewers } of [merged, restored]) {
       expect(entries.map((row) => pullRequestEntryViewer(row, viewers))).toEqual([
