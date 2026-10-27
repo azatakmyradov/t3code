@@ -2,5 +2,5 @@
 export const GUEST_PAGE_PATH = "/guest";
 
 export function isGuestPage(): boolean {
-  return typeof window !== "undefined" && window.location?.pathname === GUEST_PAGE_PATH;
+  return window.location.pathname === GUEST_PAGE_PATH;
 }

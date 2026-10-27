@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   type BootErrorEnvironment,
   buildErrorReport,
+  buildRecoveryLinks,
   resolveTriageCommand,
   updateActionFor,
 } from "./bootError";
@@ -19,42 +20,50 @@ const notOnPath = (launcherPath: string | null): DesktopCliCommandState => ({
 });
 
 describe("resolveTriageCommand", () => {
-  it("prefers t3 on PATH, then the desktop launcher", async () => {
-    const onPath = { ...notOnPath("/home/me/.t3/bin/t3"), onPath: true };
-    await expect(resolveTriageCommand(desktopWith(async () => onPath))).resolves.toBe("t3 triage");
+  it("prefers the fork CLI on PATH, then the desktop launcher", async () => {
+    const onPath = { ...notOnPath("/home/me/.t3/bin/t3-fork"), onPath: true };
+    await expect(resolveTriageCommand(desktopWith(async () => onPath))).resolves.toBe(
+      "t3-fork triage",
+    );
     await expect(
-      resolveTriageCommand(desktopWith(async () => notOnPath("/home/me/.t3/bin/t3"))),
-    ).resolves.toBe("/home/me/.t3/bin/t3 triage");
+      resolveTriageCommand(desktopWith(async () => notOnPath("/home/me/.t3/bin/t3-fork"))),
+    ).resolves.toBe("/home/me/.t3/bin/t3-fork triage");
   });
 
   it("quotes launcher paths for the shell that runs them", async () => {
     await expect(
-      resolveTriageCommand(desktopWith(async () => notOnPath("/Users/O'Neil/.t3/bin/t3"))),
-    ).resolves.toBe(`'/Users/O'"'"'Neil/.t3/bin/t3' triage`);
-    await expect(
-      resolveTriageCommand(desktopWith(async () => notOnPath("C:\\Users\\Me\\.t3\\bin\\t3.cmd"))),
-    ).resolves.toBe("C:\\Users\\Me\\.t3\\bin\\t3.cmd triage");
+      resolveTriageCommand(desktopWith(async () => notOnPath("/Users/O'Neil/.t3/bin/t3-fork"))),
+    ).resolves.toBe(`'/Users/O'"'"'Neil/.t3/bin/t3-fork' triage`);
     await expect(
       resolveTriageCommand(
-        desktopWith(async () => notOnPath("C:\\Users\\Jo O'Neil\\.t3\\bin\\t3.cmd")),
+        desktopWith(async () => notOnPath("C:\\Users\\Me\\.t3\\bin\\t3-fork.cmd")),
       ),
-    ).resolves.toBe("& 'C:\\Users\\Jo O''Neil\\.t3\\bin\\t3.cmd' triage");
+    ).resolves.toBe("C:\\Users\\Me\\.t3\\bin\\t3-fork.cmd triage");
+    await expect(
+      resolveTriageCommand(
+        desktopWith(async () => notOnPath("C:\\Users\\Jo O'Neil\\.t3\\bin\\t3-fork.cmd")),
+      ),
+    ).resolves.toBe("& 'C:\\Users\\Jo O''Neil\\.t3\\bin\\t3-fork.cmd' triage");
   });
 
   it("falls back to npx without a usable desktop launcher", async () => {
     using _warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await expect(resolveTriageCommand(undefined)).resolves.toBe("npx t3 triage");
-    await expect(resolveTriageCommand({} as DesktopBridge)).resolves.toBe("npx t3 triage");
+    await expect(resolveTriageCommand(undefined)).resolves.toBe(
+      "npx @azatakmyradov/t3-fork triage",
+    );
+    await expect(resolveTriageCommand({} as DesktopBridge)).resolves.toBe(
+      "npx @azatakmyradov/t3-fork triage",
+    );
     await expect(resolveTriageCommand(desktopWith(async () => notOnPath(null)))).resolves.toBe(
-      "npx t3 triage",
+      "npx @azatakmyradov/t3-fork triage",
     );
     const staleWindowsPathEntry = { ...notOnPath(null), supported: true, onPath: true };
     await expect(
       resolveTriageCommand(desktopWith(async () => staleWindowsPathEntry)),
-    ).resolves.toBe("npx t3 triage");
+    ).resolves.toBe("npx @azatakmyradov/t3-fork triage");
     await expect(
       resolveTriageCommand(desktopWith(() => Promise.reject(new Error("ipc closed")))),
-    ).resolves.toBe("npx t3 triage");
+    ).resolves.toBe("npx @azatakmyradov/t3-fork triage");
   });
 });
 
@@ -66,6 +75,23 @@ const environment: BootErrorEnvironment = {
   userAgent: "Test",
   time: "2026-10-26T00:00:00.000Z",
 };
+
+describe("buildRecoveryLinks", () => {
+  it("uses the fork bug template and releases for stable and nightly builds", () => {
+    for (const channel of ["stable", "nightly"]) {
+      const links = buildRecoveryLinks({ ...environment, channel });
+      const issue = new URL(links.issue);
+      expect(`${issue.origin}${issue.pathname}`).toBe(
+        "https://github.com/azatakmyradov/t3code/issues/new",
+      );
+      expect(issue.searchParams.get("template")).toBe("bug_report.yml");
+      expect(issue.searchParams.get("area")).toBe("apps/web");
+      expect(issue.searchParams.get("version")).toBe(`${environment.version} (${channel})`);
+      expect(issue.searchParams.get("environment")).toBe("web, MacIntel");
+      expect(links.download).toBe("https://github.com/azatakmyradov/t3code/releases/latest");
+    }
+  });
+});
 
 describe("buildErrorReport", () => {
   it("drops hosts and tokens from URLs in the error", () => {

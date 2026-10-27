@@ -1874,7 +1874,6 @@ export const make = Effect.gen(function* () {
                   Effect.catch((error) =>
                     Effect.logWarning("Pull request stack membership enrichment failed", {
                       operation: "listPullRequestStackMemberships",
-                      credentialContext: { cwd: input.cwd },
                       host: input.host,
                       error: error._tag,
                     }).pipe(Effect.as(item)),

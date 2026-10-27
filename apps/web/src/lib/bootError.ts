@@ -1,8 +1,9 @@
 import type { DesktopBridge, DesktopUpdateState } from "@t3tools/contracts";
+import { FORK_CLI_COMMAND, FORK_NPM_PACKAGE, FORK_REPOSITORY } from "@t3tools/shared/forkIdentity";
 
-const FALLBACK_TRIAGE_COMMAND = "npx t3 triage";
-const DOWNLOAD_URL = "https://t3.codes/download";
-const ISSUE_URL = "https://github.com/pingdotgg/t3code/issues/new";
+const FALLBACK_TRIAGE_COMMAND = `npx ${FORK_NPM_PACKAGE} triage`;
+const DOWNLOAD_URL = `https://github.com/${FORK_REPOSITORY}/releases/latest`;
+const ISSUE_URL = `https://github.com/${FORK_REPOSITORY}/issues/new`;
 const LAST_FAILURE_KEY = "t3code:boot-failed-at";
 const REPEAT_FAILURE_MS = 5 * 60_000;
 const MAX_CAUSES = 3;
@@ -29,7 +30,9 @@ export async function resolveTriageCommand(bridge: DesktopBridge | undefined) {
     const state = await bridge?.cliCommand?.getState();
     // Windows reports onPath from its PATH entry alone; only an existing launcher proves it runs.
     if (state?.launcherPath) {
-      return state.onPath ? "t3 triage" : `${launcherCommand(state.launcherPath)} triage`;
+      return state.onPath
+        ? `${FORK_CLI_COMMAND} triage`
+        : `${launcherCommand(state.launcherPath)} triage`;
     }
   } catch (error) {
     console.warn("Could not read the desktop CLI state.", error);
@@ -117,6 +120,16 @@ export function buildErrorReport(error: unknown, environment: BootErrorEnvironme
     `User agent: ${environment.userAgent}`,
     `Time: ${environment.time}`,
   ].join("\n");
+}
+
+export function buildRecoveryLinks(environment: BootErrorEnvironment) {
+  const issue = new URL(ISSUE_URL);
+  issue.searchParams.set("template", "bug_report.yml");
+  issue.searchParams.set("title", "T3 Code failed to start");
+  issue.searchParams.set("area", "apps/web");
+  issue.searchParams.set("version", `${environment.version} (${environment.channel})`);
+  issue.searchParams.set("environment", `${environment.surface}, ${environment.platform}`);
+  return { issue: issue.toString(), download: DOWNLOAD_URL };
 }
 
 function clientPlatform(bridge: DesktopBridge | undefined) {
@@ -342,28 +355,13 @@ export function showBootError(error: unknown) {
     ),
   );
 
-  const issue = new URL(ISSUE_URL);
-  issue.searchParams.set("template", "bug_report.yml");
-  issue.searchParams.set("title", "T3 Code failed to start");
-  issue.searchParams.set("area", "apps/web");
-  issue.searchParams.set("version", `${environment.version} (${environment.channel})`);
-  issue.searchParams.set("environment", `${environment.surface}, ${environment.platform}`);
+  const recoveryLinks = buildRecoveryLinks(environment);
   const link = (href: string, textContent: string) =>
     element("a", { href, textContent, target: "_blank", rel: "noreferrer" });
-  const nightly = environment.channel === "nightly";
 
   const more = element("details", { open: isRepeatFailure(Date.now()) }, [
     element("summary", { textContent: "More options if it keeps failing" }),
-    ...(bridge
-      ? [
-          link(
-            nightly ? `${DOWNLOAD_URL}?channel=nightly` : DOWNLOAD_URL,
-            nightly
-              ? "Download and reinstall the latest nightly build"
-              : "Download and reinstall T3 Code",
-          ),
-        ]
-      : []),
+    ...(bridge ? [link(recoveryLinks.download, "Download and reinstall T3 Code")] : []),
     element("div", {}, [
       element("p", {
         textContent:
@@ -378,7 +376,7 @@ export function showBootError(error: unknown) {
       }),
       element("div", { id: "boot-error-report" }, [
         copyDetails,
-        link(issue.href, "File a bug report on GitHub"),
+        link(recoveryLinks.issue, "File a bug report on GitHub"),
       ]),
     ]),
   ]);
