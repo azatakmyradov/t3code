@@ -144,7 +144,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Check release packaging behavior
-        run: vp test run scripts/fork-release.test.ts scripts/smoke-cli-archive.test.ts scripts/build-desktop-artifact.test.ts scripts/merge-update-manifests.test.ts packages/shared/src/cliRelease.test.ts
+        # Borrow the root config without initializing unrelated app test projects.
+        working-directory: scripts
+        run: vp test run --config vite.config.ts --root .. scripts/fork-release.test.ts scripts/smoke-cli-archive.test.ts scripts/build-desktop-artifact.test.ts scripts/merge-update-manifests.test.ts packages/shared/src/cliRelease.test.ts
 
       - name: Build desktop and server bundle
         run: vp run build:desktop
