@@ -1,4 +1,4 @@
-import { FORK_APP_ID } from "@t3tools/shared/forkIdentity";
+import { FORK_APP_ID, FORK_DEVELOPMENT_SCHEME } from "@t3tools/shared/forkIdentity";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -996,7 +996,7 @@ const installIntoSession = Effect.fn("nativeClient.installIntoSession")(function
         agentDevice,
         "open",
         bundleId,
-        `t3code-dev://expo-development-client/?url=${url}&disableOnboarding=1&disableFab=1&disableAutoLaunch=1`,
+        `${FORK_DEVELOPMENT_SCHEME}://expo-development-client/?url=${url}&disableOnboarding=1&disableFab=1&disableAutoLaunch=1`,
         "--session",
         session,
       ],

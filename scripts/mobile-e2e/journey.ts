@@ -2,6 +2,8 @@
 
 import * as NodePath from "node:path";
 
+import { FORK_DEVELOPMENT_SCHEME } from "@t3tools/shared/forkIdentity";
+
 import {
   check,
   type Check,
@@ -130,7 +132,7 @@ export async function runJourney(
   let threads: Snapshot | null = null;
   for (let attempt = 1; attempt <= 2 && !threads; attempt++) {
     const pairing = new URLSearchParams({ pairingUrl: await pair(), autoConnect: "1" });
-    await device.openUrl(`t3code-dev://connections/new?${pairing}`);
+    await device.openUrl(`${FORK_DEVELOPMENT_SCHEME}://connections/new?${pairing}`);
     threads = await device
       .waitFor((snapshot) => threadRow(snapshot) !== undefined, "the paired thread list", 60_000)
       .catch(() => null);

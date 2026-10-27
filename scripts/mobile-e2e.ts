@@ -5,6 +5,8 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+
+import { FORK_DEVELOPMENT_SCHEME } from "@t3tools/shared/forkIdentity";
 import * as NodeProcess from "node:process";
 import * as NodeURL from "node:url";
 
@@ -210,7 +212,7 @@ async function main() {
         "start",
         "--dev-client",
         "--scheme",
-        "t3code-dev",
+        FORK_DEVELOPMENT_SCHEME,
         "--lan",
         "--port",
         String(metroPort),
