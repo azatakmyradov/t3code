@@ -1,4 +1,5 @@
 // CDP input follows shared window focus; send directly to unfocused guests to avoid typing into the app.
+// Chromium focuses the guest on any mouse event, so agent mouse input runs between noting the app's focus and restoring it.
 
 const FOCUS_ROUTED_INPUT = new Set([
   "Input.insertText",
@@ -92,6 +93,63 @@ const evaluate = async (debuggee: Electron.Debugger, expression: string) => {
   return reply.result?.value;
 };
 
+const HELD_FOCUS = "Symbol.for('t3.previewHostFocus')";
+const holdHostFocusScript = `globalThis[${HELD_FOCUS}] = document.activeElement; void 0`;
+const restoreHostFocusScript = (guests: Set<number>) =>
+  `(() => {
+    const previous = globalThis[${HELD_FOCUS}]; delete globalThis[${HELD_FOCUS}];
+    const current = document.activeElement;
+    if (previous === current) return;
+    if (current?.localName !== "webview" || !${JSON.stringify([...guests])}.includes(current.getWebContentsId())) return;
+    if (previous && previous !== current && previous.isConnected) previous.focus({ preventScroll: true });
+    if (document.activeElement === current) current.blur();
+  })()`;
+
+// Focus belongs to the host window; overlapping guests must share its original element.
+const heldHostFocus = new WeakMap<
+  Electron.WebContents,
+  {
+    inFlight: number;
+    readonly held: Promise<void>;
+    readonly guests: Set<number>;
+    restoring?: Promise<void>;
+  }
+>();
+
+/** Runs an agent's mouse input in a guest the app does not have focused, then hands the app its focus back. */
+const keepingHostFocus = async <A>(webContents: Electron.WebContents, run: () => Promise<A>) => {
+  const host = webContents.hostWebContents;
+  if (!host || host.isDestroyed()) return run();
+  // A host that went away mid-click has no focus left to restore.
+  const inHost = async (script: string) => {
+    try {
+      await host.executeJavaScript(script);
+    } catch {}
+  };
+  let hold = heldHostFocus.get(host);
+  while (hold?.restoring) {
+    await hold.restoring;
+    hold = heldHostFocus.get(host);
+  }
+  if (!hold) {
+    hold = { inFlight: 0, held: inHost(holdHostFocusScript), guests: new Set() };
+    heldHostFocus.set(host, hold);
+  }
+  hold.guests.add(webContents.id);
+  hold.inFlight += 1;
+  try {
+    await hold.held;
+    return await run();
+  } finally {
+    hold.inFlight -= 1;
+    if (hold.inFlight === 0) {
+      hold.restoring = inHost(restoreHostFocusScript(hold.guests));
+      await hold.restoring;
+      if (heldHostFocus.get(host) === hold) heldHostFocus.delete(host);
+    }
+  }
+};
+
 /** Sends one command to the guest's page, keeping reloads and input inside it. */
 export const sendPageCommand = async (
   webContents: Electron.WebContents,
@@ -104,6 +162,13 @@ export const sendPageCommand = async (
     if (params["ignoreCache"] === true) webContents.reloadIgnoringCache();
     else webContents.reload();
     return {};
+  }
+  if (
+    method === "Input.dispatchMouseEvent" &&
+    (!webContents.focusedFrame ||
+      (webContents.hostWebContents && heldHostFocus.has(webContents.hostWebContents)))
+  ) {
+    return keepingHostFocus(webContents, () => debuggee.sendCommand(method, params));
   }
   if (!FOCUS_ROUTED_INPUT.has(method) || webContents.focusedFrame) {
     return debuggee.sendCommand(method, params);
