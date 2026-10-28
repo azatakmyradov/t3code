@@ -259,6 +259,22 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
       // Moving the index to 63 would exceed a caller's requested migration limit.
       if (hasFailureIndex && throughId === 62) return [];
       yield* assertV2MigrationsCanRun(60);
+      const earlierHistory = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+        SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id < ${FIRST_V2_MIGRATION_ID}
+      `;
+      const earlierNames = new Map(earlierHistory.map((row) => [row.migration_id, row.name]));
+      if (
+        earlierHistory.length !== FIRST_V2_MIGRATION_ID - 1 ||
+        migrationManifest.some(
+          ([id, name]) => id < FIRST_V2_MIGRATION_ID && earlierNames.get(id) !== name,
+        )
+      ) {
+        return yield* new Migrator.MigrationError({
+          kind: "BadState",
+          message:
+            "Cannot upgrade upstream migration history with missing or unknown earlier migrations.",
+        });
+      }
       yield* Migration0061;
       // Free each destination before shifting the preceding upstream ledger entry.
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 73

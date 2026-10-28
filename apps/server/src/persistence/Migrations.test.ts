@@ -361,6 +361,26 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
+  it.effect.each(["gap", "unknown"] as const)(
+    "rejects upstream 72 with an earlier %s without rewriting history",
+    (kind) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* seedUpstream(72);
+        if (kind === "gap") yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 54`;
+        else
+          yield* sql`UPDATE effect_sql_migrations SET name = 'UnknownMigration' WHERE migration_id = 54`;
+        const before = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
+        const schema = yield* sql`SELECT * FROM sqlite_master ORDER BY name`;
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(runMigrations())));
+        assert.deepStrictEqual(
+          yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`,
+          before,
+        );
+        assert.deepStrictEqual(yield* sql`SELECT * FROM sqlite_master ORDER BY name`, schema);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("validates earlier V2 history before reconciling upstream ids", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
