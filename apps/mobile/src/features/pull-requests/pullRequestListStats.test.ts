@@ -10,6 +10,9 @@ import { pullRequestListParams, pullRequestTarget } from "./pullRequestTarget";
 import type { EnvironmentPullRequestListEntry } from "./pullRequestList";
 import {
   mergePullRequestListStats,
+  EMPTY_PULL_REQUEST_LIST_STATS,
+  recordListedPullRequests,
+  recordAnsweredPullRequestStats,
   pullRequestListStatKey,
   pullRequestListStatRef,
 } from "./pullRequestListStats";
@@ -133,4 +136,32 @@ describe("mobile pull request line-count cache", () => {
       ).toBe(0);
     },
   );
+});
+
+it("invalidates changed revisions within their requested account and refreshes the answering query", () => {
+  const personal = row({ viewer: "personal", expectedAccountId: "101" });
+  const work = row({ viewer: "work", expectedAccountId: "202" });
+  const input = { refs: [personal, work].map(pullRequestListStatRef) };
+  const listed = recordListedPullRequests(EMPTY_PULL_REQUEST_LIST_STATS, [personal, work]);
+  expect(listed.refresh).toEqual([]);
+  const answered = recordAnsweredPullRequestStats(
+    listed.cache,
+    input,
+    [personal, work],
+    [
+      { ...stat(personal, 10), expectedAccountId: "101" },
+      { ...stat(work, 90), expectedAccountId: "202" },
+    ],
+  );
+  expect(recordListedPullRequests(answered, [personal, work])).toEqual({
+    cache: answered,
+    refresh: [],
+  });
+  const pushed = recordListedPullRequests(answered, [
+    { ...personal, updatedAt: "2026-10-20" },
+    work,
+  ]);
+  expect(pushed.cache.stats.get(pullRequestListStatKey(personal))).toBeUndefined();
+  expect(pushed.cache.stats.get(pullRequestListStatKey(work))?.additions).toBe(90);
+  expect(pushed.refresh).toEqual([input]);
 });

@@ -1,5 +1,5 @@
 import * as Dialog from "../../components/ui/Dialog";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import {
   AuthProvidersManageScope,
@@ -8,8 +8,10 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { AsyncResult } from "effect/reactivity";
-import { useEffect, useRef, useState } from "react";
+import { AsyncResult, Atom } from "effect/reactivity";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
+import { useRef, useState } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -32,9 +34,14 @@ import {
   canMaintainEnvironment,
   canUpdateEnvironmentProvider,
   desktopEnvironmentUpdateTarget,
-  findEnvironmentUpdate,
   supportsEnvironmentUpdate,
 } from "./environment-maintenance";
+
+import {
+  environmentReleaseCheckAtom,
+  environmentReleaseSourceKey,
+  releaseCheckValue,
+} from "./environmentUpdateCheck";
 
 export function SettingsEnvironmentDetailRouteScreen({
   route,
@@ -71,12 +78,10 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
   const pendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [release, setRelease] = useState<{
-    sourceKey: string;
-    targetVersion: string | null;
-  } | null>(null);
-  const checkController = useRef<AbortController | null>(null);
-  useEffect(() => () => checkController.current?.abort(), []);
+  const [releaseCheck, checkRelease] = useAtom(environmentReleaseCheckAtom(environmentId), {
+    mode: "promiseExit",
+  });
+  const release = releaseCheckValue(releaseCheck);
 
   const connected = environment?.isEnabled === true && environment.connectionState === "connected";
   const allowed =
@@ -92,11 +97,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
   const busy = !connected || pending !== null || running || providerBusy;
   const disabled = !allowed || busy;
   const version = config?.environment.serverVersion;
-  const releaseSourceKey = JSON.stringify([
-    version,
-    config?.environment.release,
-    config?.environment.capabilities.serverSelfUpdate,
-  ]);
+  const releaseSourceKey = config ? environmentReleaseSourceKey(config.environment) : null;
   const checkedRelease = release?.sourceKey === releaseSourceKey ? release : null;
   const capabilities = config?.environment.capabilities;
   const desktopManaged = capabilities?.serverSelfUpdate === "desktop-managed";
@@ -155,7 +156,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                 },
               });
               if (AsyncResult.isFailure(result)) throw squashAtomCommandFailure(result);
-              setRelease(null);
+              appAtomRegistry.set(environmentReleaseCheckAtom(environmentId), Atom.Reset);
               setNotice(
                 result.value.outcome === "up-to-date"
                   ? `Already up to date on ${result.value.targetVersion}.`
@@ -293,17 +294,9 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                         return;
                       }
                       void run("check", async () => {
-                        const controller = new AbortController();
-                        checkController.current = controller;
-                        const timeout = setTimeout(() => controller.abort(), 20_000);
-                        const result = await settlePromise(() =>
-                          findEnvironmentUpdate(config.environment, controller.signal),
-                        );
-                        clearTimeout(timeout);
-                        checkController.current = null;
-                        // `run` owns the error message, so a failed lookup rethrows to it.
-                        if (AsyncResult.isFailure(result)) throw squashAtomCommandFailure(result);
-                        setRelease({ sourceKey: releaseSourceKey, targetVersion: result.value });
+                        const environment = config.environment;
+                        const exit = await checkRelease(async () => environment);
+                        if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
                       });
                     }}
                   />

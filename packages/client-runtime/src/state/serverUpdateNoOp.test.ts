@@ -83,6 +83,7 @@ const makeHarness = Effect.fn("ServerUpdateNoOpTest.makeHarness")(function* (
     },
   } as unknown as WsRpcProtocolClient;
   const session: RpcSession = {
+    inboundFrames: Effect.succeed(0),
     client,
     initialConfig: Effect.succeed({
       ...config,

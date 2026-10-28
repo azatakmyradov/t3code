@@ -624,7 +624,6 @@ it("keeps the narrow card open through quota details, visibility changes and rec
           threadRef={threadRef}
           anchor={{ current: outerContainer }}
           handle={handle}
-          onPresentationChange={() => undefined}
         >
           {() => (
             <div

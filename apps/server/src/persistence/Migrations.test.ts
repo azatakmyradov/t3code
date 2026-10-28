@@ -6,6 +6,10 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import PeerLinks from "./Migrations/071_PeerLinks.ts";
+import PeerLinkFence from "./Migrations/072_PeerLinkFence.ts";
+import WaitingLinkRequestIndex from "./Migrations/073_WaitingLinkRequestIndex.ts";
+
 import ThreadMessageSearch from "./Migrations/070_ThreadMessageSearch.ts";
 
 import { migrationManifest, runMigrations } from "./Migrations.ts";
@@ -108,6 +112,19 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* ThreadMessageSearch;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (69, 'ThreadMessageSearch', '2026-10-09 12:00:00')`;
   }
+  if (throughId >= 70) {
+    yield* PeerLinks;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (70, 'PeerLinks', '2026-10-10 12:00:00')`;
+  }
+  if (throughId >= 71) {
+    yield* PeerLinkFence;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (71, 'PeerLinkFence', '2026-10-11 12:00:00')`;
+    yield* sql`INSERT INTO peer_environment_links (environment_id, secret_name, label, urls_json, access, linked_at, expires_at, fenced) VALUES ('saved-peer', 'fixture-placeholder', 'Saved peer', '[]', 'read', '2026-10-11', '2026-11-11', 1)`;
+  }
+  if (throughId >= 72) {
+    yield* WaitingLinkRequestIndex;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (72, 'WaitingLinkRequestIndex', '2026-10-12 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -144,22 +161,24 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70])(
+  it.effect.each(Array.from({ length: 70 }, (_, index) => index + 1))(
     "upgrades released fork %s while keeping bot and review data unchanged",
     (id) =>
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         yield* runMigrations({ toMigrationInclusive: id });
-        yield* sql`
+        if (id >= 61)
+          yield* sql`
         INSERT INTO bots (id, thread_id, revision, body)
         VALUES ('saved-bot', 'saved-thread', 3, '{"name":"Saved bot"}')
       `;
-        yield* sql`
+        if (id >= 62)
+          yield* sql`
         INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'test/repo', 7, '{"title":"Saved review"}')
       `;
-        const bots = yield* sql`SELECT * FROM bots`;
-        const guides = yield* sql`SELECT * FROM pull_request_review_guides`;
+        const bots = id >= 61 ? yield* sql`SELECT * FROM bots` : [];
+        const guides = id >= 62 ? yield* sql`SELECT * FROM pull_request_review_guides` : [];
         const releasedHistory =
           yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
 
@@ -180,7 +199,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69])(
+  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72])(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -194,6 +213,7 @@ describe("runMigrations", () => {
         }>`
         SELECT * FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id
       `;
+        const peers = id >= 71 ? yield* sql`SELECT * FROM peer_environment_links` : [];
         assert.deepStrictEqual(yield* botTables, []);
 
         assert.deepStrictEqual(yield* runMigrations(), [
@@ -207,36 +227,37 @@ describe("runMigrations", () => {
           yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id >= 62 AND migration_id <= ${id + 1} ORDER BY migration_id`,
           upstreamHistory.map((row) => ({ ...row, migration_id: row.migration_id + 1 })),
         );
+        assert.deepStrictEqual(yield* sql`SELECT * FROM peer_environment_links`, peers);
         assert.lengthOf(yield* botTables, 5);
         assert.deepStrictEqual(yield* failureIndexColumns, expectedFailureIndexColumns);
         assert.deepStrictEqual(yield* runMigrations(), []);
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each(["upstream", "fork"] as const)(
+  it.effect.each([69, 70, 71, 72, "fork"] as const)(
     "preserves existing %s message search without replaying it",
     (source) =>
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        if (source === "upstream") {
-          yield* seedUpstream(69);
+        if (source !== "fork") {
+          yield* seedUpstream(source);
         } else {
-          yield* runMigrations();
+          yield* runMigrations({ toMigrationInclusive: 70 });
         }
         // This indexed row has no message to backfill, so rebuilding would lose it.
         yield* sql`INSERT INTO orchestration_v2_message_search (rowid, text) VALUES (42, 'saved search needle')`;
         const searchSchema = yield* sql`
           SELECT name, rootpage, sql FROM sqlite_master
-          WHERE name LIKE 'orchestration_v2_message_search%' ORDER BY name
+          WHERE name LIKE 'orchestration_v2_message_search%' OR sql LIKE '%orchestration_v2_message_search%' ORDER BY name
         `;
         const searchHistory = yield* sql<{ readonly created_at: string }>`
           SELECT created_at FROM effect_sql_migrations WHERE name = 'ThreadMessageSearch'
         `;
 
-        assert.deepStrictEqual(
-          yield* runMigrations({ toMigrationInclusive: 70 }),
-          source === "upstream" ? [[61, "Bots"]] : [],
-        );
+        assert.deepStrictEqual(yield* runMigrations(), [
+          ...(source !== "fork" ? [[61, "Bots"] as const] : []),
+          ...migrationManifest.filter(([id]) => id > (source === "fork" ? 70 : source + 1)),
+        ]);
         assert.deepStrictEqual(yield* history, migrationManifest);
         assert.deepStrictEqual(
           yield* sql`
@@ -247,7 +268,7 @@ describe("runMigrations", () => {
         assert.deepStrictEqual(
           yield* sql`
           SELECT name, rootpage, sql FROM sqlite_master
-          WHERE name LIKE 'orchestration_v2_message_search%' ORDER BY name
+          WHERE name LIKE 'orchestration_v2_message_search%' OR sql LIKE '%orchestration_v2_message_search%' ORDER BY name
         `,
           searchSchema,
         );
@@ -304,6 +325,42 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
+  it.effect.each([69, 70, 71, 72])("rejects upstream 72 with a gap at %s atomically", (missingId) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* seedUpstream(72);
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = ${missingId}`;
+      const before = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
+      const schema = yield* sql`SELECT * FROM sqlite_master ORDER BY name`;
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(runMigrations())));
+      assert.deepStrictEqual(
+        yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`,
+        before,
+      );
+      assert.deepStrictEqual(yield* sql`SELECT * FROM sqlite_master ORDER BY name`, schema);
+      assert.deepStrictEqual(yield* botTables, []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect.each([70, 71, 72, 73])(
+    "rejects an unknown or occupied upstream destination at %s atomically",
+    (id) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* seedUpstream(72);
+        yield* sql`INSERT OR REPLACE INTO effect_sql_migrations (migration_id, name, created_at) VALUES (${id}, 'UnknownMigration', '2026-10-20')`;
+        const before = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
+        const schema = yield* sql`SELECT * FROM sqlite_master ORDER BY name`;
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(runMigrations())));
+        assert.deepStrictEqual(
+          yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`,
+          before,
+        );
+        assert.deepStrictEqual(yield* sql`SELECT * FROM sqlite_master ORDER BY name`, schema);
+        assert.deepStrictEqual(yield* botTables, []);
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("validates earlier V2 history before reconciling upstream ids", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -320,7 +377,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69])(
+  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72])(
     "does not reconcile upstream %s beyond the requested migration limit",
     (id) =>
       Effect.gen(function* () {

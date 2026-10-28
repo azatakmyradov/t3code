@@ -1,15 +1,17 @@
-import { RegistryContext, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomMount, useAtomSubscribe, useAtomValue } from "@effect/atom-react";
 import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, PullRequestDiffStat, PullRequestListInput } from "@t3tools/contracts";
+import type { EnvironmentId, PullRequestListInput } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom, type AtomRegistry } from "effect/reactivity";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { environmentCatalog } from "../../connection/catalog";
 import {
   composerPullRequests,
   pullRequestListPagesFamily,
   pullRequestListPagesKey,
+  pullRequestListStatsFamily,
 } from "../../state/pull-requests";
 import {
   appendPullRequestListPage,
@@ -29,11 +31,8 @@ import {
   pullRequestListStatRef,
   pullRequestListStatRow,
   type PullRequestListStatRow,
+  recordAnsweredPullRequestStats,
 } from "./pullRequestListStats";
-
-const statsFamily = Atom.family((_environmentId: string) =>
-  Atom.make<ReadonlyMap<string, PullRequestDiffStat>>(new Map()).pipe(Atom.setIdleTTL(5 * 60_000)),
-);
 
 type ListTarget = { readonly environmentId: EnvironmentId; readonly input: PullRequestListInput };
 type Read = <A>(atom: Atom.Atom<A>) => A;
@@ -57,7 +56,7 @@ const sourcesFamily = Atom.family((key: string) => {
       target,
       result: get(composerPullRequests.list(target)),
       pages: currentPages(get, target),
-      stats: get(statsFamily(target.environmentId)),
+      stats: get(pullRequestListStatsFamily(target.environmentId)).stats,
     })),
   );
 });
@@ -151,6 +150,15 @@ const refreshLoadFamily = Atom.family((scopeKey: string) =>
   ),
 );
 
+// Changes when any of the scope's environments brings up a new session.
+const sessionsFamily = Atom.family((scopeKey: string) =>
+  Atom.make((get) =>
+    (JSON.parse(scopeKey) as readonly ListTarget[])
+      .map(({ environmentId }) => get(environmentCatalog.sessionGenerationAtom(environmentId)))
+      .join(),
+  ),
+);
+
 const settledError = (result: AsyncResult.AsyncResult<string | null, never>) =>
   AsyncResult.isSuccess(result) && !result.waiting ? result.value : null;
 
@@ -165,15 +173,33 @@ export function usePullRequestList(targets: readonly ListTarget[]) {
   // Starting one kind of load clears the other, so at most one holds an error.
   const loadError = settledError(refresh) ?? settledError(page);
 
+  // A page or refresh asked for while an environment was unreachable fails at once, and its
+  // error stops loading on scroll. Once it is back, ask for the page again; a refresh's error is
+  // stale by then because the list queries re-run on reconnect.
+  // A listener alone does not compute the atom, so nothing would follow the connections.
+  useAtomMount(sessionsFamily(scopeKey));
+  useAtomSubscribe(sessionsFamily(scopeKey), () => {
+    const pageResult = registry.get(pageAtom);
+    const refreshResult = registry.get(refreshAtom);
+    if (settledError(refreshResult) !== null) registry.set(refreshAtom, Atom.Reset);
+    else if (settledError(pageResult) !== null && !refreshResult.waiting)
+      registry.set(pageAtom, true);
+  });
+
+  // Read from the registry, not the render: a second onEndReached before React re-renders must
+  // see the load the first one started.
   const loadMore = (retry = false) => {
-    if (page.waiting || refresh.waiting || (!retry && loadError)) return;
+    const pageResult = registry.get(pageAtom);
+    const refreshResult = registry.get(refreshAtom);
+    if (pageResult.waiting || refreshResult.waiting) return;
+    if (!retry && (settledError(refreshResult) ?? settledError(pageResult))) return;
     if (!continuations(registry, targets).length) return;
     registry.set(refreshAtom, Atom.Reset);
     registry.set(pageAtom, retry);
   };
 
   const onRefresh = () => {
-    if (!targets.length || refresh.waiting) return;
+    if (!targets.length || registry.get(refreshAtom).waiting) return;
     registry.set(pageAtom, Atom.Reset);
     registry.set(refreshAtom, undefined);
   };
@@ -257,6 +283,7 @@ export function usePullRequestList(targets: readonly ListTarget[]) {
       queries.map((target) => ({
         environmentId: target.environmentId,
         rows: target.rows,
+        input: target.input,
         result: get(
           composerPullRequests.listStats({
             environmentId: target.environmentId,
@@ -267,12 +294,12 @@ export function usePullRequestList(targets: readonly ListTarget[]) {
     );
   }, [statsKey]);
   const counts = useAtomValue(statsAtom);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Persist validated stats in the external registry under their requested account and viewer.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Persist answered stats in the external registry under the account and viewer that requested them.
   useEffect(() => {
-    for (const { environmentId, result, rows } of counts) {
+    for (const { environmentId, result, rows, input } of counts) {
       if (result._tag !== "Success" || result.waiting) continue;
-      registry.update(statsFamily(environmentId), (previous) =>
-        mergePullRequestListStats(previous, rows, result.value.stats),
+      registry.update(pullRequestListStatsFamily(environmentId), (previous) =>
+        recordAnsweredPullRequestStats(previous, input, rows, result.value.stats),
       );
     }
   }, [registry, counts]);

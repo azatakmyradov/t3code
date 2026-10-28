@@ -243,6 +243,12 @@ jobs:
       - name: Test shared client packages
         run: vp run --parallel --concurrency-limit 2 --filter @t3tools/client-runtime --filter @t3tools/shared --filter @t3tools/contracts test
 
+      # Browser tests run source modules; this boots the production chunk graph.
+      - name: Boot the built web client
+        run: |
+          vp run --filter @t3tools/web build
+          node apps/web/scripts/verify-built-boot.ts
+
   # Upstream extracted provider and source-control suites from apps/server.
   # Keep that coverage on backend changes without enabling unrelated deploy jobs.
   test_backend_packages:

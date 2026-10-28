@@ -177,10 +177,15 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
         unavailableConnection.phase === "reconnecting");
     const suppressUnavailableBanner =
       environmentReconnecting && (updateRunning || !reconnectWarningGraceElapsed);
-    if (activeEnvironmentUnavailableState && unavailableConnection && !suppressUnavailableBanner) {
+    const showUnavailableBanner =
+      activeEnvironmentUnavailableState !== null &&
+      unavailableConnection !== null &&
+      !suppressUnavailableBanner;
+    if (showUnavailableBanner) {
       items.push({
         id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
         variant: unavailableConnection.phase === "error" ? "error" : "warning",
+        group: "environment",
         icon: <WifiOffIcon />,
         title: `${activeEnvironmentUnavailableState.label} is ${environmentReconnecting ? "reconnecting" : "offline"}`,
         description: activeEnvironment ? (
@@ -206,25 +211,26 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
         ),
       });
     }
+    // An available update is offered by the sidebar's update pill; the composer only shows one
+    // that is running or failed, since either explains what this thread's server is doing.
     if (
       !automaticEnvironment &&
       serverUpdateEnvironmentId &&
       serverUpdateState.status !== "idle" &&
       !serverUpdateFailureDismissed
     ) {
-      const updateInProgress = serverUpdateState.status === "running";
       const updateFailed = serverUpdateState.status === "failed";
       items.push({
         id: `server-version:${serverUpdateEnvironmentId}`,
         variant: updateFailed ? "error" : "default",
-        priority: updateInProgress ? "urgent" : "notice",
+        group: "environment",
         icon: <ComposerServerUpdateIcon status={serverUpdateState.status} />,
         title: `${updateFailed ? "Could not update" : "Updating"} ${versionMismatchServerLabel}`,
         description:
           serverUpdateState.status === "failed"
             ? serverUpdateState.message
             : serverUpdateStageLabel(serverUpdateState.stage),
-        actions: updateInProgress ? (
+        actions: !updateFailed ? (
           disconnectAction
         ) : !versionMismatch?.canUpdate ||
           (versionMismatchSelfUpdate === "desktop-managed" &&

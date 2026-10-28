@@ -954,6 +954,7 @@ function PullRequestsRouteView() {
     statsByRow,
     pending: statsQuery.isPending,
   }));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- queues eager stats batches for rows observed outside render
   useEffect(() => {
     if (statsPolicy !== "eager") return;
     const { statsByRow: known } = readStatsProgress();
@@ -973,6 +974,7 @@ function PullRequestsRouteView() {
   }, [filterKey, entriesByStatsKey, statsPolicy]);
   // The observer outlives the rows it watches, so it reads the rows held at the time it fires.
   const readStatsRows = useEffectEvent(() => entriesByStatsKey);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- IntersectionObserver requests stats for rows that scroll into view
   useEffect(() => {
     if (statsPolicy !== "visible" || typeof IntersectionObserver === "undefined") return;
     visibleStatsKeys.current = { key: filterKey, values: new Set() };
@@ -1022,6 +1024,7 @@ function PullRequestsRouteView() {
       if (statsObserver.current === observer) statsObserver.current = null;
     };
   }, [filterKey, statsPolicy]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- prunes pending stats batches to the observer's visible rows after a request settles
   useEffect(() => {
     if (statsPolicy !== "visible" || statsQuery.isPending) return;
     const visible = visibleStatsKeys.current;
@@ -1108,6 +1111,7 @@ function PullRequestsRouteView() {
     closeBatch,
     hostActionsOf,
   }));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels the pointer close-sweep sensor when the list changes or unmounts
   useEffect(
     () => () => closeSensorRef.current?.cancel(),
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- The pointer sensor lives outside React; a new list under a sweep in progress must end it.
@@ -1203,6 +1207,7 @@ function PullRequestsRouteView() {
     if (rightPanelState.isOpen) setMaximized((value) => !value);
   };
   const onGuideShown = () => setMaximized(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens URL-linked pull requests in the external right panel store
   useEffect(() => {
     if (!pullRequestsSupported || rightPanelRef === null || linkedSelection === null) return;
     useRightPanelStore.getState().openPullRequest(rightPanelRef, linkedSelection);
@@ -1639,6 +1644,7 @@ function PullRequestsRouteView() {
     event.stopPropagation();
     if (!event.repeat) toggleRightPanelMaximized();
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- document keydown listener for right panel and copy-reference shortcuts
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isCommandPaletteOpen()) return;
@@ -2259,14 +2265,12 @@ function ExpandableSearch({
   searchValue,
   open,
   onOpenChange,
-  focusToken,
   onFocusWithin,
 }: {
   searchInput: ReactNode;
   searchValue: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  focusToken: number;
   /**
    * An unmount fires no blur, which is the point: whoever unmounted this can still see the reader
    * was mid-typing and move the focus somewhere that continues the sentence.
@@ -2274,18 +2278,11 @@ function ExpandableSearch({
   onFocusWithin?: (focused: boolean) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the search input DOM node when the topbar search opens
   useEffect(() => {
     if (!open) return;
     containerRef.current?.querySelector("input")?.focus();
   }, [open]);
-  const appliedFocusToken = useRef(focusToken);
-  useEffect(() => {
-    if (appliedFocusToken.current === focusToken) return;
-    appliedFocusToken.current = focusToken;
-    const input = containerRef.current?.querySelector("input");
-    input?.focus();
-    input?.select();
-  }, [focusToken]);
   if (open || searchValue.length > 0) {
     return (
       <div
@@ -2356,6 +2353,7 @@ function PullRequestsColumn({
 }) {
   const markerRef = useRef<HTMLDivElement | null>(null);
   const [condensed, setCondensed] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- IntersectionObserver on the scroll marker condenses the topbar
   useEffect(() => {
     const marker = markerRef.current;
     if (!marker) return;
@@ -2371,20 +2369,17 @@ function PullRequestsColumn({
   const topbarSearchFocusedRef = useRef(false);
   const inFlowSearchRef = useRef<HTMLDivElement | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchFocusToken, setSearchFocusToken] = useState(0);
+  const topbarSearchRef = useRef<HTMLDivElement | null>(null);
   const searchExpanded = searchOpen || searchValue.length > 0;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown listener focuses the visible search input on Cmd/Ctrl+F
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (event.key.toLowerCase() !== "f" || !(event.metaKey || event.ctrlKey)) return;
       if (event.altKey || event.shiftKey) return;
       event.preventDefault();
-      if (condensed) {
-        setSearchOpen(true);
-        setSearchFocusToken((token) => token + 1);
-        return;
-      }
-      const input = inFlowSearchRef.current?.querySelector("input");
+      if (condensed) setSearchOpen(true);
+      const input = (condensed ? topbarSearchRef : inFlowSearchRef).current?.querySelector("input");
       input?.focus();
       input?.select();
     };
@@ -2392,6 +2387,7 @@ function PullRequestsColumn({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [condensed]);
   if (!condensed && searchOpen) setSearchOpen(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves focus to the in-flow search when the topbar input unmounts
   useEffect(() => {
     if (condensed) return;
     if (!topbarSearchFocusedRef.current) return;
@@ -2454,13 +2450,12 @@ function PullRequestsColumn({
         )}
         <div className="min-w-0 flex-1" />
         {condensed ? (
-          <div className="flex shrink items-center gap-1.5">
+          <div ref={topbarSearchRef} className="flex shrink items-center gap-1.5">
             <ExpandableSearch
               searchInput={searchInput}
               searchValue={searchValue}
               open={searchOpen}
               onOpenChange={setSearchOpen}
-              focusToken={searchFocusToken}
               onFocusWithin={(focused) => {
                 topbarSearchFocusedRef.current = focused;
               }}

@@ -1,145 +1,38 @@
-// Retain the fork's shared rerender fixtures and their explicit afterEach teardown.
-/* oxlint-disable t3code/require-disposable-render */
-import "../../index.css";
-
 import { InfoIcon } from "lucide-react";
-import { render as renderDisposable } from "../../../test/render";
-import type { ComposerBannerStackItem } from "./ComposerBannerStack";
-import { act } from "~/../test/render";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
+import { expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
-import { ComposerBannerStack } from "./ComposerBannerStack";
+import "~/index.css";
 
-let root: Root;
-let container: HTMLDivElement;
+import { render } from "../../../test/render";
+import { ComposerBanner } from "./ComposerBanner";
+import { ComposerBannerStack, type ComposerBannerStackItem } from "./ComposerBannerStack";
 
-beforeEach(() => {
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
-
-async function render(width: number, description: string) {
-  container.style.width = `${width}px`;
-  await act(async () =>
-    root.render(
-      <ComposerBannerStack
-        items={[{ id: "usage", variant: "info", icon: null, title: "Usage limits", description }]}
-      />,
-    ),
-  );
+function notice(title: string, group?: ComposerBannerStackItem["group"]): ComposerBannerStackItem {
+  return { id: title, variant: "default", icon: <InfoIcon />, title, ...(group ? { group } : {}) };
 }
 
-const hasDetails = () => container.querySelector('[aria-label="Show notice details"]') !== null;
+it("puts machine notices first, whatever order the notices arrive in", async () => {
+  await using screen = await render(
+    <ComposerBannerStack items={[notice("Branch changed"), notice("Offline", "environment")]} />,
+  );
 
-it("only offers notice details when the description cannot fit", async () => {
-  await render(700, "OpenCode");
-  await expect.poll(hasDetails).toBe(false);
-
-  await render(700, "OpenCode ".repeat(40));
-  await expect.poll(hasDetails).toBe(true);
-
-  container.style.width = "4000px";
-  await expect.poll(hasDetails).toBe(false);
-
-  await render(4000, "OpenCode");
-  await expect.poll(hasDetails).toBe(false);
-
-  // A narrow composer hides the description entirely, so details are the only way to read it.
-  container.style.width = "300px";
-  await expect.poll(hasDetails).toBe(true);
+  expect(screen.container.textContent).toBe("OfflineBranch changed");
 });
 
-it("keeps only the usage limit attached while an active goal waits in the collapsible stack", async () => {
-  await act(async () =>
-    root.render(
-      <ComposerBannerStack
-        items={[
-          {
-            id: "goal",
-            variant: "default",
-            priority: "activity",
-            icon: null,
-            title: "Goal active",
-            description: "Finish the banner fix",
-          },
-          {
-            id: "limit",
-            variant: "default",
-            priority: "urgent",
-            icon: null,
-            title: "Usage limit reached",
-          },
-        ]}
-      />,
-    ),
+it("leaves the next attachment its own top edge when there are no notices", async () => {
+  await using screen = await render(
+    <ComposerBanner.Column>
+      <ComposerBannerStack items={[]} />
+      <ComposerBanner.Attachment>
+        <ComposerBanner.Root data-testid="drawer">Approval</ComposerBanner.Root>
+      </ComposerBanner.Attachment>
+    </ComposerBanner.Column>,
   );
 
-  const visibleBanners = () =>
-    Array.from(container.querySelectorAll('[data-slot="composer-banner"]')).filter((banner) =>
-      banner.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }),
-    );
-  const limit = page.getByText("Usage limit reached", { exact: true });
-  const goal = page.getByText("Goal active", { exact: true });
-
-  // A pointer retained over the stack can expand it when the new fixture mounts.
-  await act(async () => userEvent.hover(limit));
-  await expect.poll(visibleBanners).toHaveLength(1);
-  await expect.element(limit).toBeVisible();
-  await expect.element(goal).not.toBeVisible();
-  expect(container.querySelector('[data-slot="composer-banner-attachment"]')?.textContent).toBe(
-    "Usage limit reached",
-  );
-
-  await act(async () => page.getByRole("button", { name: "Show other notices" }).click());
-  await expect.element(goal).toBeVisible();
-  await expect.element(limit).toBeVisible();
-  await expect.poll(visibleBanners).toHaveLength(2);
-
-  await act(async () => userEvent.keyboard("{Escape}"));
-  await expect.element(goal).not.toBeVisible();
-  await expect.element(limit).toBeVisible();
-  expect(visibleBanners()).toHaveLength(1);
-});
-
-it("reveals the full running command only while its title is clipped", async () => {
-  const command =
-    "Running: /usr/bin/zsh -lc 'sleep 600 > /tmp/t3-background-command-with-a-long-log-filename-for-truncation.log 2>&1'";
-  container.style.width = "240px";
-  await act(async () =>
-    root.render(
-      <ComposerBannerStack
-        items={[
-          {
-            id: "background-work",
-            variant: "default",
-            priority: "activity",
-            icon: null,
-            title: command,
-          },
-        ]}
-      />,
-    ),
-  );
-
-  const details = page.getByRole("button", { name: "Show title details", exact: true });
-  await expect.element(details).toBeVisible();
-  await userEvent.hover(details);
-  const popup = page.getByRole("dialog", { name: "Notice details", exact: true });
-  await expect.element(popup).toBeVisible();
-  await expect.element(popup).toHaveTextContent(command);
-
-  container.style.width = "4000px";
-  await expect.element(details).not.toBeInTheDocument();
-  await expect.element(popup).not.toBeInTheDocument();
+  const surface = getComputedStyle(screen.getByTestId("drawer").element(), "::before");
+  expect(surface.borderTopWidth).toBe("1px");
+  expect(surface.borderTopLeftRadius).not.toBe("0px");
 });
 
 it("commits a dismissal when the thread switches during the exit transition", async () => {
@@ -152,9 +45,7 @@ it("commits a dismissal when the thread switches during the exit transition", as
     dismissLabel: "Dismiss notice",
     onDismiss,
   };
-  await using screen = await renderDisposable(
-    <ComposerBannerStack key="thread-a" items={[item]} />,
-  );
+  await using screen = await render(<ComposerBannerStack key="thread-a" items={[item]} />);
 
   await userEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
   // The composer keys the stack by thread, so switching threads remounts it mid-exit.

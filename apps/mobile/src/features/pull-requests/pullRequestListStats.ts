@@ -1,4 +1,8 @@
-import type { PullRequestDiffStat, PullRequestRef } from "@t3tools/contracts";
+import type {
+  PullRequestDiffStat,
+  PullRequestListStatsInput,
+  PullRequestRef,
+} from "@t3tools/contracts";
 import { pullRequestListKey, type EnvironmentPullRequestListEntry } from "./pullRequestList";
 
 export type PullRequestListStatRow = Pick<
@@ -50,4 +54,53 @@ export function mergePullRequestListStats(
     if (keys.size === 1 && key !== undefined) next.set(key, stat);
   }
   return next;
+}
+
+export interface PullRequestListStatsCache {
+  readonly stats: ReadonlyMap<string, PullRequestDiffStat>;
+  readonly answeredBy: ReadonlyMap<string, PullRequestListStatsInput>;
+  readonly updatedAt: ReadonlyMap<string, string>;
+}
+
+export const EMPTY_PULL_REQUEST_LIST_STATS: PullRequestListStatsCache = {
+  stats: new Map(),
+  answeredBy: new Map(),
+  updatedAt: new Map(),
+};
+
+export function recordListedPullRequests(
+  cache: PullRequestListStatsCache,
+  rows: readonly EnvironmentPullRequestListEntry[],
+) {
+  const moved = rows.filter(
+    (row) => cache.updatedAt.get(pullRequestListStatKey(row)) !== row.updatedAt,
+  );
+  if (moved.length === 0) return { cache, refresh: [] };
+  const stats = new Map(cache.stats);
+  const answeredBy = new Map(cache.answeredBy);
+  const updatedAt = new Map(cache.updatedAt);
+  const refresh = new Set<PullRequestListStatsInput>();
+  for (const row of moved) {
+    const key = pullRequestListStatKey(row);
+    const input = answeredBy.get(key);
+    if (input) refresh.add(input);
+    stats.delete(key);
+    answeredBy.delete(key);
+    updatedAt.set(key, row.updatedAt);
+  }
+  return { cache: { stats, answeredBy, updatedAt }, refresh: [...refresh] };
+}
+
+export function recordAnsweredPullRequestStats(
+  cache: PullRequestListStatsCache,
+  input: PullRequestListStatsInput,
+  rows: readonly PullRequestListStatRow[],
+  stats: readonly PullRequestDiffStat[],
+): PullRequestListStatsCache {
+  const merged = mergePullRequestListStats(cache.stats, rows, stats);
+  const answeredBy = new Map(cache.answeredBy);
+  for (const [key, value] of merged) {
+    if (cache.stats.get(key) !== value) answeredBy.set(key, input);
+  }
+  return { ...cache, stats: merged, answeredBy };
 }
