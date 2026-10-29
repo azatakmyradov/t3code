@@ -3,7 +3,6 @@ import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runt
 import type { EnvironmentId, PullRequestListInput } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import { AsyncResult, Atom, type AtomRegistry } from "effect/reactivity";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { environmentCatalog } from "../../connection/catalog";
@@ -39,7 +38,7 @@ type Read = <A>(atom: Atom.Atom<A>) => A;
 
 /** The head the list query holds now, cached or answered. */
 function currentHead(read: Read, target: ListTarget) {
-  return Option.getOrNull(AsyncResult.value(read(composerPullRequests.list(target))));
+  return AsyncResult.getOrElse(read(composerPullRequests.list(target)), () => null);
 }
 
 function currentPages(read: Read, target: ListTarget): PullRequestListPages | null {
@@ -319,24 +318,24 @@ export function usePullRequestList(targets: readonly ListTarget[]) {
     [data.entries, counts],
   );
 
-  const updateEntry = useCallback(
-    (entry: EnvironmentPullRequestListEntry, patch: Partial<EnvironmentPullRequestListEntry>) => {
-      const target = targets.find((target) => target.environmentId === entry.environmentId);
-      if (!target) return;
-      const pagesAtom = pullRequestListPagesFamily(pullRequestListPagesKey(target));
-      const read = <A>(atom: Atom.Atom<A>) => registry.get(atom);
-      const patched = patchPullRequestListEntry(
-        read(pagesAtom),
-        currentHead(read, target),
-        entry,
-        patch,
-        Date.now(),
-      );
-      if (patched) registry.set(pagesAtom, patched);
-      registry.refresh(composerPullRequests.list(target));
-    },
-    [registry, targets],
-  );
+  const updateEntry = (
+    entry: EnvironmentPullRequestListEntry,
+    patch: Partial<EnvironmentPullRequestListEntry>,
+  ) => {
+    const target = targets.find((target) => target.environmentId === entry.environmentId);
+    if (!target) return;
+    const pagesAtom = pullRequestListPagesFamily(pullRequestListPagesKey(target));
+    const read = <A>(atom: Atom.Atom<A>) => registry.get(atom);
+    const patched = patchPullRequestListEntry(
+      read(pagesAtom),
+      currentHead(read, target),
+      entry,
+      patch,
+      Date.now(),
+    );
+    if (patched) registry.set(pagesAtom, patched);
+    registry.refresh(composerPullRequests.list(target));
+  };
   const errors = useMemo(
     () =>
       sources.flatMap(({ target, result }) => {

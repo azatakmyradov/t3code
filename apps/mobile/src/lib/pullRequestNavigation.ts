@@ -1,7 +1,4 @@
-import {
-  resolveChangeRequestLinkTarget,
-  type ChangeRequestLinkCapabilities,
-} from "@t3tools/client-runtime/change-request-links";
+import { resolveChangeRequestLinkTarget } from "@t3tools/client-runtime/change-request-links";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
@@ -17,13 +14,13 @@ export function nativePullRequestDestination(
   url: string,
   context: PullRequestNavigationContext | null,
   projects: ReadonlyArray<Pick<EnvironmentProject, "id" | "environmentId" | "repositoryIdentity">>,
-  capabilities: (environmentId: EnvironmentId) => ChangeRequestLinkCapabilities | undefined,
+  configLoaded: (environmentId: EnvironmentId) => boolean,
 ) {
   if (!context) return null;
   const target = resolveChangeRequestLinkTarget({
     url,
     projects,
-    capabilities,
+    configLoaded,
     environmentId: EnvironmentId.make(context.environmentId),
     projectId: ProjectId.make(context.projectId),
     lendHostProject: true,

@@ -8,7 +8,7 @@ import { useClientSettings } from "~/hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
-} from "~/logicalProject";
+} from "@t3tools/client-runtime/state/project-grouping";
 import { useProject, useProjects } from "~/state/entities";
 import { cn } from "~/lib/utils";
 import {

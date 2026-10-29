@@ -71,6 +71,35 @@ function machine(
 }
 
 describe("collectServerUpdateTargets", () => {
+  it("retains the continuation preference for compatible remote update targets", () => {
+    const remote = machine("remote", "0.0.40", "boot-service");
+    const config = remote.serverConfig!;
+    const { targets } = collectServerUpdateTargets(
+      [
+        {
+          ...remote,
+          serverConfig: {
+            ...config,
+            environment: {
+              ...config.environment,
+              capabilities: {
+                ...config.environment.capabilities,
+                serverUpdateThreadContinuation: true,
+              },
+            },
+            settings: { continueThreadsAfterServerUpdate: true },
+          },
+        },
+      ],
+      "0.0.50",
+    );
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({
+      threadContinuation: true,
+      continueThreadsAfterServerUpdate: true,
+    });
+  });
+
   it("excludes unknown and foreign distributions from update-all, including desktops", () => {
     const unknown = machine("unknown", "0.0.40", "boot-service");
     const foreign = machine("upstream", "0.0.40", "desktop-managed");
@@ -168,13 +197,7 @@ describe("collectRestartingMachines", () => {
       return {
         ...base,
         serverConfig: {
-          environment: {
-            ...base.serverConfig!.environment,
-            capabilities: {
-              ...base.serverConfig!.environment.capabilities,
-              threadRestartContinuation: true,
-            },
-          },
+          environment: base.serverConfig!.environment,
           settings: { continueThreadsAfterServerUpdate: enabled },
         },
       };
@@ -432,55 +455,6 @@ describe("update everything summary", () => {
   });
 });
 
-describe("describeUpdateEverything", () => {
-  it("summarizes the run and lists each machine once", () => {
-    const alvin = EnvironmentId.make("alvin");
-    expect(
-      describeUpdateEverything({
-        localVersion: "0.0.50",
-        servers: [
-          {
-            environmentId: alvin,
-            serverLabel: "alvin",
-            selfUpdate: "boot-service",
-            targetVersion: "0.0.50",
-          },
-          {
-            environmentId: EnvironmentId.make("studio"),
-            serverLabel: "studio",
-            selfUpdate: "desktop-managed",
-            targetVersion: "0.0.50",
-          },
-        ],
-        providerMachines: [
-          { environmentId: alvin, label: "alvin", providers: ["Codex", "Claude"] },
-          { environmentId: EnvironmentId.make("box"), label: "box", providers: ["Cursor"] },
-        ],
-      }),
-    ).toEqual({
-      summary: "Update this app, 2 servers, and 3 providers",
-      lines: [
-        "This app: 0.0.50, restarts last",
-        "alvin: server to 0.0.50, Codex, Claude",
-        "studio: desktop app update",
-        "box: Cursor",
-      ],
-    });
-  });
-
-  it("reads naturally with one kind of update", () => {
-    expect(
-      describeUpdateEverything({
-        localVersion: null,
-        servers: [],
-        providerMachines: [
-          { environmentId: EnvironmentId.make("alvin"), label: "alvin", providers: ["Codex"] },
-        ],
-      }).summary,
-    ).toBe("Update 1 provider");
-  });
-});
-
 describe("filterAvailableServerUpdates", () => {
   const targets = () =>
     collectServerUpdateTargets(
@@ -546,6 +520,46 @@ describe("filterAvailableServerUpdates", () => {
     expect(result.skipped.map((entry) => entry.reason)).toEqual([
       "no supported CLI archive for this platform",
       "no supported CLI archive for this platform",
+    ]);
+  });
+});
+
+describe("describeUpdateEverything", () => {
+  it("gives each machine one row with its T3 Code and provider updates", () => {
+    const id = EnvironmentId.make;
+    const { rows } = describeUpdateEverything({
+      localVersion: "1.1.0",
+      localMachines: [
+        { environmentId: id("local"), label: "Mainbook" },
+        { environmentId: id("wsl"), label: "Mainbook WSL" },
+      ],
+      servers: [
+        {
+          environmentId: id("npm"),
+          serverLabel: "bb-1",
+          selfUpdate: "respawn",
+          targetVersion: "1.1.0",
+        },
+      ],
+      providerMachines: [
+        { environmentId: id("npm"), label: "bb-1", providers: ["Codex", "Claude"] },
+        { environmentId: id("local"), label: "Mainbook", providers: ["Codex"] },
+        { environmentId: id("manual"), label: "alvin", providers: ["Claude"] },
+      ],
+      skipped: [
+        { environmentId: id("manual"), label: "alvin", reason: "needs a manual update" },
+        { environmentId: id("offline"), label: "TheoRoom", reason: "not connected" },
+      ],
+    });
+
+    expect(
+      rows.map(({ label, app, skipped, providers }) => [label, app, skipped, providers]),
+    ).toEqual([
+      ["Mainbook", "this-app", null, ["Codex"]],
+      ["Mainbook WSL", "this-app", null, []],
+      ["bb-1", "server", null, ["Codex", "Claude"]],
+      ["alvin", null, "needs a manual update", ["Claude"]],
+      ["TheoRoom", null, "not connected", []],
     ]);
   });
 });

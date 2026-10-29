@@ -117,7 +117,7 @@ const makeHarness = Effect.fn("ServerUpdateNoOpTest.makeHarness")(function* (
     networkStatus: yield* SubscriptionRef.make<"online" | "offline" | "unknown">("online"),
     start: Effect.void,
     register: unexpected,
-    registerPlatform: unexpected,
+    assertKnownAddress: unexpected,
     reconcilePlatform: unexpected,
     remove: unexpected,
     removeRoute: unexpected,

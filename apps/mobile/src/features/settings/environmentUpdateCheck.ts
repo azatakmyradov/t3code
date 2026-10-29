@@ -56,7 +56,7 @@ export const environmentReleaseCheckAtom = Atom.family((environmentId: Environme
 export function releaseCheckValue(
   result: AsyncResult.AsyncResult<EnvironmentReleaseCheck, Error>,
 ): EnvironmentReleaseCheck | null {
-  return Option.getOrNull(AsyncResult.value(result));
+  return AsyncResult.getOrElse(result, () => null);
 }
 
 export function releaseCheckError(

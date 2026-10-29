@@ -22,6 +22,7 @@ import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
 import { MarkdownFindContext } from "./chat/markdownFindContext";
 import { useThreadFindHighlights } from "./chat/threadFindHighlights";
 import { setMarkdownTaskChecked } from "./files/filePreviewMode";
+import { HostImageUrlContext } from "./chat/hostImageUrl";
 
 const { workspaceSearch, filesystemMetadata } = vi.hoisted(() => ({
   workspaceSearch: vi.fn(),
@@ -216,13 +217,13 @@ describe("ChatMarkdown theme drafts", () => {
 
 describe("ChatMarkdown table layout", () => {
   it.each([
-    { width: 36, timeline: true, fits: true },
-    { width: 48, timeline: true, fits: true },
-    { width: 35, timeline: true, fits: false },
-    { width: 48, timeline: false, fits: false },
+    { width: 36, timeline: true },
+    { width: 48, timeline: true },
+    { width: 35, timeline: true },
+    { width: 48, timeline: false },
   ])(
-    "wraps expanded cells with fit=$fits in a $width rem container (timeline=$timeline)",
-    async ({ width, timeline, fits }) => {
+    "wraps readable cells within a $width rem container (timeline=$timeline)",
+    async ({ width, timeline }) => {
       const { container } = await render(
         <div style={{ width: `${width}rem` }}>
           <div className={timeline ? "@container/chat-lane chat-content-lane overflow-x-clip" : ""}>
@@ -240,34 +241,13 @@ describe("ChatMarkdown table layout", () => {
       const table = container.querySelector("table")!;
       const viewport = table.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')!;
       const cell = table.tBodies[0]!.rows[0]!.cells[0]!;
-      const collapse = () => buttonsLabelled(container, "Collapse table cells")[0];
-      if (collapse()) await act(async () => collapse()!.click());
-
-      const collapsedWidth = table.getBoundingClientRect().width;
-      const collapsedHeight = cell.getBoundingClientRect().height;
       expect(viewport.clientWidth).toBeGreaterThan(0);
-      expect(viewport.scrollWidth).toBeGreaterThan(viewport.clientWidth);
-      expect(cell.scrollWidth).toBeGreaterThan(cell.clientWidth);
-
-      await act(async () => buttonsLabelled(container, "Expand table cells")[0]!.click());
-      const expandedWidth = table.getBoundingClientRect().width;
-      const expandedHeight = cell.getBoundingClientRect().height;
-      if (fits) {
-        expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.clientWidth + 1);
-        expect(expandedWidth).toBeLessThanOrEqual(viewport.clientWidth + 1);
-      } else {
-        expect(viewport.scrollWidth).toBeGreaterThan(viewport.clientWidth);
-        viewport.scrollLeft = 100;
-        expect(viewport.scrollLeft).toBeGreaterThan(0);
-      }
-      expect(expandedHeight).toBeGreaterThan(collapsedHeight);
-
-      await act(async () => collapse()!.click());
-      expect(table.getBoundingClientRect().width).toBeCloseTo(collapsedWidth, 0);
-      expect(cell.getBoundingClientRect().height).toBeCloseTo(collapsedHeight, 0);
-      await act(async () => buttonsLabelled(container, "Expand table cells")[0]!.click());
-      expect(table.getBoundingClientRect().width).toBeCloseTo(expandedWidth, 0);
-      expect(cell.getBoundingClientRect().height).toBeCloseTo(expandedHeight, 0);
+      expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.clientWidth + 1);
+      expect(table.getBoundingClientRect().width).toBeLessThanOrEqual(viewport.clientWidth + 1);
+      expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
+      expect(cell.getBoundingClientRect().height).toBeGreaterThan(
+        Number.parseFloat(getComputedStyle(cell).lineHeight) * 2,
+      );
     },
   );
 });
@@ -452,6 +432,21 @@ describe("ChatMarkdown context references", () => {
     );
     expect(new Set(seen)).toEqual(new Set(["terminal: Bold code"]));
   });
+});
+
+it("loads a host image through the page's own route when there is no environment", async () => {
+  const pixel =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  const hostImageUrl = vi.fn((_path: string) => pixel);
+  await using screen = await renderDisposable(
+    <HostImageUrlContext value={hostImageUrl}>
+      <ChatMarkdown cwd={undefined} text="![Shot](</work/my shot.png>)" />
+    </HostImageUrlContext>,
+  );
+  await expect.element(screen.getByAltText("Shot")).toHaveAttribute("src", pixel);
+  expect(new Set(hostImageUrl.mock.calls.map(([path]) => path))).toEqual(
+    new Set(["/work/my shot.png"]),
+  );
 });
 
 describe("ChatMarkdown favicon privacy", () => {

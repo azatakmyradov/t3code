@@ -124,6 +124,91 @@ function hostedChangeRequest(body: string, additions = 1) {
   };
 }
 
+it.effect("reads maintainer edits and changes them through the update command", () =>
+  Effect.gen(function* () {
+    let enabled = true;
+    const provider = fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+      getChangeRequest: () =>
+        Effect.succeed({ ...hostedChangeRequest("Body"), maintainerCanModify: enabled }),
+      updateChangeRequest: (input) =>
+        Effect.sync(() => {
+          assert.strictEqual(input.title, undefined);
+          assert.strictEqual(input.body, undefined);
+          enabled = input.maintainerCanModify!;
+        }),
+    });
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/w", repository: "acme/web" })],
+      providers: [
+        {
+          ...provider,
+          capabilities: {
+            ...provider.capabilities,
+            edit: { changeRequest: true, comment: true, maintainerEdits: true },
+          },
+        },
+      ],
+    });
+    const ref = { projectId: "p1" as ProjectId, repository: "acme/web", number: 1 };
+    assert.strictEqual((yield* service.detail(ref)).maintainerCanModify, true);
+    yield* service.update({ ...ref, maintainerCanModify: false });
+    assert.strictEqual((yield* service.detail(ref)).maintainerCanModify, false);
+  }),
+);
+
+it.effect("refuses maintainer edits on a host without the capability", () =>
+  Effect.gen(function* () {
+    let writes = 0;
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/w", repository: "acme/web" })],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          updateChangeRequest: () =>
+            Effect.sync(() => {
+              writes += 1;
+            }),
+        }),
+      ],
+    });
+    const result = yield* service
+      .update({
+        projectId: "p1" as ProjectId,
+        repository: "acme/web",
+        number: 1,
+        maintainerCanModify: false,
+      })
+      .pipe(Effect.flip);
+    assert.strictEqual(result._tag, "PullRequestOperationError");
+    assert.strictEqual(writes, 0);
+  }),
+);
+
+it.effect("does not wait for an in-flight detail read to display a preview", () =>
+  Effect.gen(function* () {
+    const detailStarted = yield* Deferred.make<void>();
+    const releaseDetail = yield* Deferred.make<void>();
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/w", repository: "acme/web" })],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          getChangeRequest: () =>
+            Deferred.succeed(detailStarted, undefined).pipe(
+              Effect.andThen(Deferred.await(releaseDetail)),
+              Effect.as(hostedChangeRequest("Description")),
+            ),
+          getChangeRequestPreview: () => Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z")),
+        }),
+      ],
+    });
+    const ref = { projectId: "p1" as ProjectId, repository: "acme/web", number: 1 };
+    const detail = yield* Effect.forkChild(service.detail(ref));
+    yield* Deferred.await(detailStarted);
+    assert.strictEqual((yield* service.preview(ref)).title, "Change request 1");
+    yield* Deferred.succeed(releaseDetail, undefined);
+    yield* Fiber.join(detail);
+  }),
+);
+
 function unusable(provider: SourceControlProviderKind, reason: "missing-tool" | "unauthenticated") {
   return new PullRequestProviderError({
     provider,
@@ -9274,7 +9359,7 @@ it.effect("verifies and isolates expected accounts for linked PRs without a chec
   Effect.gen(function* () {
     let accountId = "101";
     const seen: Array<{ cwd: string; repository: string; host: string; accountId: string }> = [];
-    const verified: Array<{ cwd: string; host: string }> = [];
+    const verified: Array<{ cwd: string; host: string; repository?: string }> = [];
     const service = yield* makeService({
       projects: [project({ id: "inbox", title: "Inbox", workspaceRoot: "/home/alex" })],
       providers: [
@@ -9321,7 +9406,11 @@ it.effect("verifies and isolates expected accounts for linked PRs without a chec
     ]);
     assert.deepStrictEqual(
       verified,
-      Array.from({ length: 4 }, () => ({ cwd: "/home/alex", host: "github.com" })),
+      Array.from({ length: 4 }, () => ({
+        cwd: "/home/alex",
+        host: "github.com",
+        repository: "acme/api",
+      })),
     );
   }),
 );

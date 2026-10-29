@@ -1,7 +1,7 @@
 import { EnvironmentId, type VcsRef } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
 import {
-  dedupeRemoteBranchesWithLocalMatches,
   deriveLocalBranchNameFromRemoteRef,
   resolveEnvironmentOptionLabel,
   resolveBranchSelectionTarget,
@@ -439,7 +439,6 @@ describe("shouldShowComposerContextStrip", () => {
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator,
-        hostsRestingComposerControls: false,
       }),
     ).toBe(true);
     expect(
@@ -450,7 +449,6 @@ describe("shouldShowComposerContextStrip", () => {
         isGitRepo: false,
         showEnvironmentIndicator,
         serverUpdateAvailable: true,
-        hostsRestingComposerControls: false,
       }),
     ).toBe(true);
   });
@@ -480,12 +478,11 @@ describe("shouldShowComposerContextStrip", () => {
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator: true,
-        hostsRestingComposerControls: false,
       }),
     ).toBe(true);
   });
 
-  it("hides the strip when a non-Git project has nothing to show", () => {
+  it("shows draft permissions for a non-Git project", () => {
     expect(
       shouldShowComposerContextStrip({
         isDraftHeroState: true,
@@ -493,20 +490,6 @@ describe("shouldShowComposerContextStrip", () => {
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator: false,
-        hostsRestingComposerControls: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps the strip for visible resting composer controls in a non-Git thread", () => {
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: true,
-        persistInActiveThreads: false,
-        hasActiveProject: true,
-        isGitRepo: false,
-        showEnvironmentIndicator: false,
-        hostsRestingComposerControls: true,
       }),
     ).toBe(true);
   });
@@ -519,7 +502,6 @@ describe("shouldShowComposerContextStrip", () => {
         hasActiveProject: true,
         isGitRepo: true,
         showEnvironmentIndicator: false,
-        hostsRestingComposerControls: false,
       }),
     ).toBe(true);
   });
