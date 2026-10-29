@@ -294,10 +294,10 @@ export const make = Effect.gen(function* () {
     if (personal) return yield* personalCredential(host, context);
     if (context !== undefined) {
       const checkout = yield* personalCredential(host, context).pipe(
-        Effect.map(Option.some),
-        Effect.catchTag("GitHubCliMissingError", () =>
-          Effect.succeed(Option.none<ChosenCredential>()),
-        ),
+        Effect.asSome,
+        Effect.catchTags({
+          GitHubCliMissingError: () => Effect.succeed(Option.none<ChosenCredential>()),
+        }),
       );
       if (Option.isSome(checkout)) return checkout.value;
     }
