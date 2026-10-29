@@ -3,10 +3,12 @@ import {
   ModelSelection,
   ProjectId,
   ProjectScript,
+  keepUnknownOverrideKeys,
   ProjectSettingsOverrides,
   type ProviderInstanceConfig,
   type ProviderInstanceMutation,
   defaultInstanceIdForDriver,
+  isKnownSecretProviderKind,
   isProviderDriverKind,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -90,6 +92,28 @@ const decodePreservedLegacySettingsJsonExit = Schema.decodeUnknownExit(
   ),
 );
 
+// Project overrides keep unknown keys, so drop the retired ones here; writes restore them from disk.
+const withoutLegacyToolOverrides = (settings: ServerSettings): ServerSettings => {
+  const entries = Object.entries(settings.projectSettingsOverrides);
+  if (
+    !entries.some(([, entry]) => Object.keys(entry).some((key) => key in legacyToolSettingsFields))
+  )
+    return settings;
+  return {
+    ...settings,
+    projectSettingsOverrides: Object.fromEntries(
+      entries.map(([projectId, entry]) => {
+        const {
+          mcpServers: _mcpServers,
+          disabledSkills: _disabledSkills,
+          ...rest
+        } = entry as typeof entry & Record<keyof typeof legacyToolSettingsFields, unknown>;
+        return [projectId, rest];
+      }),
+    ) as ServerSettings["projectSettingsOverrides"],
+  };
+};
+
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -137,6 +161,7 @@ const normalizeServerSettings = (
 ): Effect.Effect<ServerSettings, ServerSettingsError> =>
   encodeServerSettings(settings).pipe(
     Effect.flatMap(decodeServerSettings),
+    Effect.map(withoutLegacyToolOverrides),
     Effect.map(foldProviderInstanceEnabledFlags),
     Effect.map((next) => withIdleCompaction(next, globalIdleCompaction(next))),
     Effect.map((next) => ({ ...next, ...deriveLegacyProjectOverrides(next) })),
@@ -151,11 +176,25 @@ const normalizeServerSettings = (
   );
 
 export function redactServerSettingsForClient(settings: ServerSettings): ServerSettings {
-  return mapSettingsSecrets(settings, (secret) =>
+  const redacted = mapSettingsSecrets(settings, (secret) =>
     secret.sensitive
       ? { value: "", redacted: secret.redacted || secret.value.length > 0 }
       : { value: secret.value, redacted: false },
   );
+  return { ...redacted, secretProviders: withoutUnknownSecretProviderConfigs(redacted) };
+}
+
+// A newer kind's config may hold credentials this build cannot recognize, so it never leaves the server.
+function withoutUnknownSecretProviderConfigs(
+  settings: ServerSettings,
+): ServerSettings["secretProviders"] {
+  return Object.fromEntries(
+    Object.entries(settings.secretProviders).map(([id, entry]) => {
+      if (isKnownSecretProviderKind(entry.kind)) return [id, entry];
+      const { config: _config, ...envelope } = entry;
+      return [id, envelope];
+    }),
+  ) as ServerSettings["secretProviders"];
 }
 
 export function applyProviderInstanceMutation(
@@ -300,10 +339,12 @@ const ServerSettingsJson = fromLenientJson(
     ),
     projectSettingsOverrides: Schema.Record(
       ProjectId,
-      Schema.Struct({
-        ...ProjectSettingsOverrides.fields,
-        responseStreamingMode: Schema.optionalKey(PersistedResponseStreamingMode),
-      }),
+      keepUnknownOverrideKeys(
+        Schema.Struct({
+          ...ProjectSettingsOverrides.fields,
+          responseStreamingMode: Schema.optionalKey(PersistedResponseStreamingMode),
+        }),
+      ),
     ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }),
 );
@@ -458,6 +499,7 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "sourceControlWriterModelSelection",
   "reviewGuideModelSelection",
   "textGenerationModelSelection",
+  "fallbackModelSelection",
   "pullRequestMergeMethod",
 ]);
 
@@ -727,7 +769,7 @@ const make = Effect.gen(function* () {
           });
         }
       } else {
-        settings = decoded.value;
+        settings = withoutLegacyToolOverrides(decoded.value);
       }
     }
     // Settings saved by a server that kept the mode in `compactIdleThreads` move
