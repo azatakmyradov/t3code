@@ -58,6 +58,7 @@ const makeTriage = (
   Effect.gen(function* () {
     const git = yield* GitVcsDriver.GitVcsDriver;
     const commands: string[] = [];
+    const commandArgs: ReadonlyArray<string>[] = [];
     const triage = yield* Layer.build(TriageService.layer).pipe(
       Effect.map(Context.get(TriageService.TriageService)),
       Effect.provideService(GitVcsDriver.GitVcsDriver, {
@@ -65,6 +66,7 @@ const makeTriage = (
         execute: (input) => {
           const command = input.args[0] ?? "";
           commands.push(command);
+          commandArgs.push(input.args);
           return answer(command).pipe(
             Effect.map((stdout) => ({
               exitCode: ChildProcessSpawner.ExitCode(0),
@@ -77,7 +79,7 @@ const makeTriage = (
         },
       }),
     );
-    return { triage, commands };
+    return { triage, commands, commandArgs };
   });
 
 const readContext = Effect.gen(function* () {
@@ -91,7 +93,7 @@ const readContext = Effect.gen(function* () {
 it.effect("sessions started during a clone share it, and a release tag is looked up once", () =>
   Effect.gen(function* () {
     const fetches = yield* Queue.unbounded<void>();
-    const { triage, commands } = yield* makeTriage((command) =>
+    const { triage, commands, commandArgs } = yield* makeTriage((command) =>
       command === "fetch"
         ? Queue.offer(fetches, undefined).pipe(Effect.andThen(Effect.never))
         : Effect.succeed(
@@ -106,6 +108,20 @@ it.effect("sessions started during a clone share it, and a release tag is looked
     assert.deepEqual(
       commands.filter((command) => command === "ls-remote" || command === "init"),
       ["ls-remote", "init"],
+    );
+    assert.deepEqual(
+      commandArgs.find((args) => args[0] === "ls-remote"),
+      [
+        "ls-remote",
+        "https://github.com/azatakmyradov/t3code",
+        `refs/tags/v${packageJson.version}`,
+        `refs/tags/v${packageJson.version}^{}`,
+        "refs/heads/main",
+      ],
+    );
+    assert.deepEqual(
+      commandArgs.find((args) => args[0] === "remote"),
+      ["remote", "add", "origin", "https://github.com/azatakmyradov/t3code"],
     );
   }).pipe(Effect.provide(TestLayer)),
 );
