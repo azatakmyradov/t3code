@@ -78,6 +78,7 @@ import Migration0070 from "./Migrations/070_ThreadMessageSearch.ts";
 import Migration0071 from "./Migrations/071_PeerLinks.ts";
 import Migration0072 from "./Migrations/072_PeerLinkFence.ts";
 import Migration0073 from "./Migrations/073_WaitingLinkRequestIndex.ts";
+import Migration0074 from "./Migrations/074_ActiveTurnItemIndexes.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -155,6 +156,7 @@ export const migrationEntries = [
   [71, "PeerLinks", Migration0071],
   [72, "PeerLinkFence", Migration0072],
   [73, "WaitingLinkRequestIndex", Migration0073],
+  [74, "ActiveTurnItemIndexes", Migration0074],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -241,7 +243,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
             (row.migration_id === 69 && row.name === "ThreadMessageSearch") ||
             (row.migration_id === 70 && row.name === "PeerLinks") ||
             (row.migration_id === 71 && row.name === "PeerLinkFence") ||
-            (row.migration_id === 72 && row.name === "WaitingLinkRequestIndex"),
+            (row.migration_id === 72 && row.name === "WaitingLinkRequestIndex") ||
+            (row.migration_id === 73 && row.name === "ActiveTurnItemIndexes"),
         )
       ) {
         return yield* new Migrator.MigrationError({
@@ -277,6 +280,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
       }
       yield* Migration0061;
       // Free each destination before shifting the preceding upstream ledger entry.
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = 74
+        WHERE migration_id = 73 AND name = 'ActiveTurnItemIndexes'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 73
         WHERE migration_id = 72 AND name = 'WaitingLinkRequestIndex'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 72

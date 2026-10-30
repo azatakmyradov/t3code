@@ -15,7 +15,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 73 }, (_, index) => index + 1),
+        Array.from({ length: 74 }, (_, index) => index + 1),
       );
     }),
   );
@@ -47,6 +47,7 @@ layer("055_OrchestrationV2", (it) => {
         [71, "PeerLinks"],
         [72, "PeerLinkFence"],
         [73, "WaitingLinkRequestIndex"],
+        [74, "ActiveTurnItemIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -86,6 +87,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 71, name: "PeerLinks" },
         { migration_id: 72, name: "PeerLinkFence" },
         { migration_id: 73, name: "WaitingLinkRequestIndex" },
+        { migration_id: 74, name: "ActiveTurnItemIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

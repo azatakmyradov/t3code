@@ -12,6 +12,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import PeerLinks from "./Migrations/071_PeerLinks.ts";
 import PeerLinkFence from "./Migrations/072_PeerLinkFence.ts";
 import WaitingLinkRequestIndex from "./Migrations/073_WaitingLinkRequestIndex.ts";
+import ActiveTurnItemIndexes from "./Migrations/074_ActiveTurnItemIndexes.ts";
 
 import ThreadMessageSearch from "./Migrations/070_ThreadMessageSearch.ts";
 
@@ -128,6 +129,10 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* WaitingLinkRequestIndex;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (72, 'WaitingLinkRequestIndex', '2026-10-12 12:00:00')`;
   }
+  if (throughId >= 73) {
+    yield* ActiveTurnItemIndexes;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (73, 'ActiveTurnItemIndexes', '2026-10-13 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -202,7 +207,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72])(
+  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73])(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -400,7 +405,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72])(
+  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73])(
     "does not reconcile upstream %s beyond the requested migration limit",
     (id) =>
       Effect.gen(function* () {
