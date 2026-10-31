@@ -631,7 +631,6 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
-  const [providerUsageHost, setProviderUsageHost] = useState<HTMLDivElement | null>(null);
   const citeAssistantText = (
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
@@ -3722,10 +3721,6 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeProjectId={activeProject?.id ?? null}
                               activeContextWindow={activeContextWindow}
-                              activeContextModelSelection={
-                                activeThreadUsageSelection.modelSelection
-                              }
-                              providerUsageHost={providerUsageHost}
                               compactThreadUnavailable={compactThreadUnavailable}
                               compactDisabled={compactDisabled}
                               compactDisabledReason={compactDisabledReason}
@@ -3894,9 +3889,6 @@ export default function ChatView(props: ChatViewProps) {
                   anchor={threadPanelPopoverAnchorRef}
                   handle={threadPanelPopoverHandle}
                   forceNewWorktree={multipleModelSelections !== null}
-                  onProviderUsageHostChange={setProviderUsageHost}
-                  activeProjectRef={activeProjectRef}
-                  folderSelectionLocked={isSendBusy}
                   environmentId={activeThread.environmentId}
                   threadId={activeThread.id}
                   projectId={activeThread.projectId}

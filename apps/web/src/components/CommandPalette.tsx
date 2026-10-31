@@ -1,4 +1,3 @@
-import { projectFaviconIcon } from "./CommandPaletteProjectItems";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -245,7 +244,6 @@ import { ComposerHandleContext, useComposerHandleContext } from "../composerHand
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import { buildSidebarProjectPickerEntries } from "../sidebarProjectGrouping";
-import { buildProjectFolderChoices } from "@t3tools/client-runtime/state/project-grouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -858,40 +856,7 @@ function OpenCommandPaletteDialog(props: {
     ).map((item) => [item.value, item] as const),
   );
   const projectThreadItems = openingOrderThreadItems.map(
-    (item): CommandPaletteActionItem | CommandPaletteSubmenuItem => {
-      const jumpItem = projectJumpItems.get(item.value) ?? item;
-      const group = projectGroupByTargetKey.get(item.value.slice("new-thread-in:".length));
-      if (!group || group.memberProjects.length <= 1) return jumpItem;
-      return {
-        ...jumpItem,
-        kind: "submenu",
-        description: `${group.memberProjects.length} folders`,
-        addonIcon: <FolderIcon className={ADDON_ICON_CLASS} />,
-        groups: buildProjectFolderChoices(group.memberProjects, contextualProjectRef).map(
-          ({ environmentId, projects: folders }) => ({
-            value: `folders:${environmentId}`,
-            label: projectEnvironmentLocationById.get(environmentId)?.label ?? "Remote",
-            items: folders.map((folder) => ({
-              kind: "action",
-              value: `new-thread-in-folder:${folder.environmentId}:${folder.id}`,
-              title: folder.workspaceRoot,
-              description:
-                folder.id === contextualProjectRef?.projectId &&
-                folder.environmentId === contextualProjectRef.environmentId
-                  ? "Current folder"
-                  : folder.title,
-              searchTerms: [folder.workspaceRoot, folder.title, group.displayName],
-              icon: projectFaviconIcon(folder),
-              run: async () => {
-                await handleNewThread(scopeProjectRef(folder.environmentId, folder.id), {
-                  environmentSelection: "manual",
-                });
-              },
-            })),
-          }),
-        ),
-      };
-    },
+    (item) => projectJumpItems.get(item.value) ?? item,
   );
 
   const {

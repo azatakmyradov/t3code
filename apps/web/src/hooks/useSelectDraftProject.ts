@@ -26,7 +26,7 @@ export function useSelectDraftProject(draftId: DraftId | null) {
   const applyStickyState = useComposerDraftStore((store) => store.applyStickyState);
   const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
 
-  return (project: EnvironmentProject, logicalProjectKey: string, exactFolder = false) => {
+  return (project: EnvironmentProject, logicalProjectKey: string) => {
     if (!draftId) return;
     const session = getDraftSession(draftId);
     if (!session || session.promotedTo) return;
@@ -34,17 +34,13 @@ export function useSelectDraftProject(draftId: DraftId | null) {
     // Empty drafts open the destination's draft so its saved browser tabs
     // and other context aren't stranded by remapping an unrelated draft.
     if (!composerDraftHasUserContent(currentDraft)) {
-      void openProjectDraft(
-        scopeProjectRef(project.environmentId, project.id),
-        exactFolder ? { environmentSelection: "manual" } : undefined,
-      );
+      void openProjectDraft(scopeProjectRef(project.environmentId, project.id));
       return;
     }
     setLogicalProjectDraftThreadId(
       logicalProjectKey,
       scopeProjectRef(project.environmentId, project.id),
       draftId,
-      exactFolder ? { environmentSelection: "manual", loadBalancedEnvironmentId: null } : undefined,
     );
     if (!hasExplicitComposerModelSelection(currentDraft)) {
       applyStickyState(draftId);

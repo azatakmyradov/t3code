@@ -206,8 +206,6 @@ import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
 import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
-import { ProviderUsageSection } from "./ProviderUsageSection";
-import { deriveUsageProviderEntries, usageModelMatchesSelection } from "./providerUsage.logic";
 import { readPromptUltrathink } from "./TraitsPicker";
 import {
   providerSupportsManualCompaction,
@@ -432,8 +430,6 @@ export interface ChatComposerProps {
   activeProjectId: ProjectId | null;
 
   activeContextWindow: ContextWindowSnapshot | null;
-  activeContextModelSelection: ModelSelection | null;
-  providerUsageHost: HTMLDivElement | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -868,7 +864,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     supportsAttachmentUploads,
   ]);
 
-  const usageProviderEntries = deriveUsageProviderEntries(providerStatuses, settings);
   const {
     providerInstanceEntries,
     selectedProviderEntry,
@@ -981,16 +976,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadModelSelection,
     modelOptionsByInstance,
   );
-  const selectedContextWindow =
-    selectedProviderStatus !== null &&
-    selectedProviderStatus.instanceId === selectedInstanceId &&
-    usageModelMatchesSelection(
-      selectedModelSelection,
-      props.activeContextModelSelection,
-      selectedProviderStatus.driver,
-    )
-      ? activeContextWindow
-      : null;
   const reserveContextWindowMeter = shouldReserveContextWindowMeter({
     meterEnabled: settings.contextWindowMeterEnabled,
     detailLoading: props.threadSyncPhase === "loading",
@@ -3104,7 +3089,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       focusComposer={focusComposer}
     />
   ) : null;
-  const composerForm = (
+  return (
     <form
       ref={composerFormRef}
       onSubmit={submitComposerStable}
@@ -3469,7 +3454,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     compact={isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
                     activeContextWindow={
-                      settings.contextWindowMeterEnabled ? selectedContextWindow : null
+                      settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
@@ -3551,24 +3536,5 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         </ComposerSurface.Main>
       </div>
     </form>
-  );
-
-  // Portal events follow the React tree: usage must not reach composer capture handlers.
-  return (
-    <>
-      {composerForm}
-      <ProviderUsageSection
-        host={props.providerUsageHost}
-        environmentId={environmentId}
-        providers={usageProviderEntries}
-        catalogKnown={providerCatalogKnown}
-        selectedModel={selectedModelSelection}
-        multipleModels={multipleModelSelections !== null}
-        context={activeContextWindow}
-        contextModelSelection={props.activeContextModelSelection}
-        showContext={settings.contextWindowMeterEnabled}
-        disconnected={environmentUnavailable !== null}
-      />
-    </>
   );
 });

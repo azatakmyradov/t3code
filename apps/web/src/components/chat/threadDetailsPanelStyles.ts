@@ -15,9 +15,7 @@ export const THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS = "gap-2.5 px-2.5 text-left"
 export const THREAD_DETAILS_PANEL_LABEL_CLASS =
   "[text-box:trim-both_cap_alphabetic] overflow-x-clip overflow-y-visible";
 
-export const THREAD_DETAILS_PANEL_TEXT_CLASS = "text-[13px] font-medium text-foreground/80";
-
-const THREAD_DETAILS_PANEL_CONTROL_CLASS = `h-8 min-w-0 rounded-lg border-transparent ${THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS} ${THREAD_DETAILS_PANEL_TEXT_CLASS}`;
+const THREAD_DETAILS_PANEL_CONTROL_CLASS = `h-8 min-w-0 rounded-lg border-transparent ${THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS} text-[13px] font-medium text-foreground/80`;
 
 export const THREAD_DETAILS_PANEL_ROW_CLASS = `${THREAD_DETAILS_PANEL_CONTROL_CLASS} w-full justify-start ${THREAD_DETAILS_PANEL_ROW_SURFACE_CLASS}`;
 
@@ -47,6 +45,3 @@ export const THREAD_DETAILS_PANEL_SPLIT_SECONDARY_CLASS = `${THREAD_DETAILS_PANE
 // The split hairline shows only while the pair is in use, so resting rows read as plain rows.
 export const THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS =
   "h-4 w-px shrink-0 bg-transparent group-hover/details-split:bg-border/65 group-has-[[data-popup-open]]/details-split:bg-border/65";
-
-/** Two quota values beside a provider glyph, without a full-width label row. */
-export const THREAD_DETAILS_PANEL_USAGE_ACTION_CLASS = `h-8 gap-1 rounded-md border-transparent px-1 text-xs font-medium text-foreground/80 ${THREAD_DETAILS_PANEL_ROW_SURFACE_CLASS}`;
