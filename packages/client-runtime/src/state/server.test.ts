@@ -320,7 +320,7 @@ describe("accepted server update recovery", () => {
         target: TARGET,
         state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
         session: yield* SubscriptionRef.make(
-          Option.some({ ...session(client), initialConfig: Effect.succeed(config) }),
+          Option.some<RpcSession>({ ...session(client), initialConfig: Effect.succeed(config) }),
         ),
         prepared: yield* SubscriptionRef.make(Option.none<PreparedConnection>()),
         connect: Effect.void,
