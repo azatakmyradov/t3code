@@ -1,16 +1,10 @@
 import type { ComponentProps, ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import {
-  THREAD_DETAILS_PANEL_LABEL_CLASS,
-  THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
-  THREAD_DETAILS_PANEL_TEXT_CLASS,
-} from "./threadDetailsPanelStyles";
 
 export function ThreadDetailsSection({
   headingId,
   title,
-  headingIcon,
   actions,
   separated = true,
   showHeading = true,
@@ -19,7 +13,6 @@ export function ThreadDetailsSection({
 }: Omit<ComponentProps<"section">, "className" | "style" | "title" | "aria-labelledby"> & {
   headingId: string;
   title: string;
-  headingIcon?: ReactNode;
   actions?: ReactNode;
   separated?: boolean;
   showHeading?: boolean;
@@ -38,22 +31,13 @@ export function ThreadDetailsSection({
     >
       <div
         className={cn(
-          "flex min-w-0 items-center justify-between",
-          headingIcon
-            ? cn("h-8", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)
-            : "mb-1 min-h-8 gap-2 px-2.5",
+          "mb-1 flex min-h-8 min-w-0 items-center justify-between gap-2 px-2.5",
           !showHeading && "hidden",
         )}
       >
-        {headingIcon}
         <h3
           id={headingId}
-          className={cn(
-            "min-w-0 flex-1 truncate font-medium select-none",
-            headingIcon
-              ? cn(THREAD_DETAILS_PANEL_TEXT_CLASS, THREAD_DETAILS_PANEL_LABEL_CLASS)
-              : "text-2xs text-muted-foreground",
-          )}
+          className="min-w-0 truncate text-2xs font-medium text-muted-foreground select-none"
         >
           {title}
         </h3>

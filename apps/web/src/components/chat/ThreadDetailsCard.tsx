@@ -1,12 +1,11 @@
+import { workspaceAreaProps } from "../../lib/workspaceFocus";
 import {
-  useId,
   useLayoutEffect,
   useState,
   type MouseEventHandler,
   type ReactNode,
   type RefObject,
 } from "react";
-import { workspaceAreaProps } from "../../lib/workspaceFocus";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
@@ -36,7 +35,6 @@ export function ThreadDetailsCard({
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
-  const cardId = useId();
   const detailsArea = workspaceAreaProps("details", 3, "Thread details");
   const canvas = useChatCanvas();
   const preferredPlacement = canvas?.preferredDetailsCard ?? null;
@@ -83,7 +81,7 @@ export function ThreadDetailsCard({
       // PR lists, lineage and side chats scroll as they expand. Counting them toward density
       // would hide the section and workspace controls when the user asks to see more rows.
       const lists = element.querySelectorAll<HTMLElement>(
-        "[data-thread-relationships-panel], [data-thread-side-chats-panel], [data-thread-details-pr-list], [data-provider-usage-section]",
+        "[data-thread-relationships-panel], [data-thread-side-chats-panel], [data-thread-details-pr-list]",
       );
       const fittingHeight =
         next - Array.from(lists).reduce((sum, list) => sum + list.offsetHeight, 0);
@@ -116,7 +114,6 @@ export function ThreadDetailsCard({
   ]);
   const card = (
     <div
-      id={cardId}
       className={cn(
         "dropdown-glass isolate contain-paint grid max-h-full grid-rows-[minmax(0,1fr)] overflow-hidden rounded-2xl",
         mode === "popover" &&
@@ -142,15 +139,7 @@ export function ThreadDetailsCard({
             : details.reason === "outside-press"
               ? details.event.target
               : null;
-        // Usage controls are DOM-portaled into this card from a separate React tree.
-        if (
-          !open &&
-          target instanceof Element &&
-          (target.closest("[data-thread-find-bar]") ||
-            target
-              .closest("[data-thread-details-owner]")
-              ?.getAttribute("data-thread-details-owner") === cardId)
-        ) {
+        if (!open && target instanceof Element && target.closest("[data-thread-find-bar]")) {
           details.cancel();
           return;
         }

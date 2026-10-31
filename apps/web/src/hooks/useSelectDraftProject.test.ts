@@ -69,54 +69,37 @@ beforeEach(() => {
 
 describe("draft project selection", () => {
   it("leaves empty source and destination draft records intact when opening a project", () => {
-    const select = useSelectDraftProject(draftId);
-    select(destination, "destination", true);
+    useSelectDraftProject(draftId)(destination, "destination");
     const store = useComposerDraftStore.getState();
     expect(store.getDraftSessionByLogicalProjectKey("source")?.draftId).toBe(draftId);
     expect(store.getDraftSessionByLogicalProjectKey("destination")?.draftId).toBe(
       destinationDraftId,
     );
-    expect(openProjectDraft).toHaveBeenCalledWith(
-      { environmentId, projectId: destination.id },
-      { environmentSelection: "manual" },
-    );
+    expect(openProjectDraft).toHaveBeenCalledWith({ environmentId, projectId: destination.id });
   });
 
-  it("retargets a populated draft in place and pins its exact folder", () => {
+  it("retargets a populated draft in place", () => {
     useComposerDraftStore.getState().setPrompt(draftId, "Keep this prompt");
-    useSelectDraftProject(draftId)(destination, "destination", true);
+    useSelectDraftProject(draftId)(destination, "destination");
     const store = useComposerDraftStore.getState();
     expect(store.getDraftSessionByLogicalProjectKey("destination")).toMatchObject({
       draftId,
       projectId: destination.id,
-      environmentSelection: "manual",
-      loadBalancedEnvironmentId: null,
     });
     expect(store.getComposerDraft(draftId)?.prompt).toBe("Keep this prompt");
     expect(openProjectDraft).not.toHaveBeenCalled();
   });
 
-  it("pins a reselected current folder that was chosen by auto balance", () => {
-    const store = useComposerDraftStore.getState();
-    store.setLogicalProjectDraftThreadId(
-      "destination",
-      { environmentId, projectId: destination.id },
-      draftId,
-      { environmentSelection: "auto", loadBalancedEnvironmentId: environmentId },
-    );
-    store.setPrompt(draftId, "Keep working here");
-    useSelectDraftProject(draftId)(destination, "destination", true);
-    expect(useComposerDraftStore.getState().getDraftSession(draftId)).toMatchObject({
-      projectId: destination.id,
-      environmentSelection: "manual",
-      loadBalancedEnvironmentId: null,
-    });
-  });
-
-  it("ignores selection after a draft has been removed", () => {
+  it.each([
+    [
+      "removed",
+      () => useComposerDraftStore.getState().clearProjectDraftThreadById(sourceProjectRef, draftId),
+    ],
+    ["promoted by Send", () => useComposerDraftStore.getState().markDraftThreadPromoting(draftId)],
+  ])("ignores selection after a draft has been %s", (_, endSession) => {
     const select = useSelectDraftProject(draftId);
-    useComposerDraftStore.getState().clearProjectDraftThreadById(sourceProjectRef, draftId);
-    select(destination, "destination", true);
+    endSession();
+    select(destination, "destination");
     expect(
       useComposerDraftStore.getState().getDraftSessionByLogicalProjectKey("destination")?.draftId,
     ).toBe(destinationDraftId);
