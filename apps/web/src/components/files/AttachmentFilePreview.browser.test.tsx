@@ -2554,7 +2554,7 @@ it("keeps workspace PDF page, zoom and scroll when the file changes", async () =
   });
 });
 
-it("keeps workspace PDF fit width and page when edits follow a restored view", async () => {
+it("keeps workspace PDF fit width chosen after a zoomed view is restored", async () => {
   using fixture = await workspacePdfPreview();
   const { preview, urls } = fixture;
   await using screen = await render(preview(urls.original, "one"));
@@ -2563,14 +2563,19 @@ it("keeps workspace PDF fit width and page when edits follow a restored view", a
     .toBeVisible();
   await screen.getByRole("button", { name: "Next page", exact: true }).click();
   await vi.waitFor(() => expect(screen.container.textContent).toContain("2 / 3 pages"));
-  await screen.rerender(preview(urls.updated, "two"));
-  await expect.element(screen.getByText("2 / 3 pages", { exact: true })).toBeVisible();
   for (let index = 0; index < 4; index++) {
     await screen.getByRole("button", { name: "Zoom in", exact: true }).click();
   }
   const { region, offset, scrollTo } = pdfScroll(screen);
+  const zoom = screen.container.textContent!.match(/\d+%/)![0];
   await scrollTo({ left: 80 });
   await vi.waitFor(() => expect(region().scrollLeft).toBe(80));
+  await screen.rerender(preview(urls.updated, "two"));
+  await expect.element(screen.getByText("2 / 3 pages", { exact: true })).toBeVisible();
+  await vi.waitFor(() => {
+    expect(screen.container.textContent).toContain(zoom);
+    expect(region().scrollLeft).toBe(80);
+  });
   await screen.getByRole("button", { name: "Fit width", exact: true }).click();
   await scrollTo({ top: region().scrollTop + 30 });
   const fitOffset = offset(2);
