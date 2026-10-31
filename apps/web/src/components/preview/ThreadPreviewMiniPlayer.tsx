@@ -6,6 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -48,15 +49,19 @@ import {
   usePreviewMiniPlayerStore,
 } from "~/previewMiniPlayerStore";
 import { useRightPanelStore } from "~/rightPanelStore";
+import { useCuaWindowPreview } from "~/state/cua";
 import { useDeviceState } from "~/state/device";
+import { useAssetUrlState } from "~/assets/assetUrls";
 
 import { DeviceStreamView } from "../device/DeviceStreamView";
 import type { DeviceScreenSize } from "@t3tools/client-runtime/device/stream";
 import { Atom } from "effect/reactivity";
 import { deviceScreenKey, deviceStreamScreenAtom } from "../device/deviceStreamSession";
 import type { PreviewStreamViewport } from "@t3tools/client-runtime/preview/server-browser-stream";
+import type { ComputerUsePreview } from "./computerUsePreview";
 import { previewBridge } from "./previewBridge";
 import { showPreviewPopup } from "./showPreviewPopup";
+import { useComputerPreviewFrame } from "./useComputerPreviewFrame";
 import {
   clampPreviewMiniPlayerPosition,
   PREVIEW_MINI_PLAYER_CORNER_RADIUS,
@@ -109,6 +114,9 @@ const useStreamedSourceSize = create<{
   readonly key: string;
   readonly viewport: PreviewStreamViewport;
 } | null>(() => null);
+
+// Before the first frame arrives, the computer card assumes a laptop-sized window.
+const COMPUTER_DEFAULT_SOURCE_SIZE = { width: 1280, height: 800 } as const;
 
 const NO_DEVICE_SCREEN_ATOM = Atom.make<DeviceScreenSize | null>(null).pipe(
   Atom.withLabel("device-stream-screen:none"),
@@ -177,6 +185,13 @@ export function useThreadPreviewCanvasSource(
       ? deviceStreamScreenAtom(miniPlayerDeviceViewId(threadRef, source))
       : NO_DEVICE_SCREEN_ATOM,
   );
+  const computerSize = useStreamedSourceSize((state) =>
+    threadRef &&
+    source?.kind === "computer" &&
+    state?.key === streamedSourceKey(threadRef, sourceKey!)
+      ? state.viewport
+      : null,
+  );
   if (!miniPlayer || !source || sourceKey === null) return null;
   if (source.kind === "browser" && !browser.snapshot) return null;
   return {
@@ -187,26 +202,123 @@ export function useThreadPreviewCanvasSource(
     source:
       source.kind === "browser"
         ? browser.sourceSize
-        : resolveDeviceMiniPlayerSourceSize(source.platform, screen),
+        : source.kind === "device"
+          ? resolveDeviceMiniPlayerSourceSize(source.platform, screen)
+          : (computerSize ?? COMPUTER_DEFAULT_SOURCE_SIZE),
   };
 }
 
-export function ThreadPreviewMiniPlayer({ threadRef, miniPlayer }: Props) {
+export function ThreadPreviewMiniPlayer({
+  threadRef,
+  miniPlayer,
+  computerUse = null,
+}: Props & { readonly computerUse?: ComputerUsePreview | null }) {
   const { source } = miniPlayer;
-  return source.kind === "browser" ? (
-    <BrowserMiniPlayer
-      key={source.tabId}
+  switch (source.kind) {
+    case "browser":
+      return (
+        <BrowserMiniPlayer
+          key={source.tabId}
+          threadRef={threadRef}
+          tabId={source.tabId}
+          miniPlayer={miniPlayer}
+        />
+      );
+    case "device":
+      return (
+        <DeviceMiniPlayer
+          key={previewMiniPlayerSourceKey(source)}
+          threadRef={threadRef}
+          source={source}
+          miniPlayer={miniPlayer}
+        />
+      );
+    case "computer":
+      return (
+        <ComputerMiniPlayer threadRef={threadRef} miniPlayer={miniPlayer} preview={computerUse} />
+      );
+  }
+}
+
+/**
+ * The window an agent drives on the host computer. While a computer use turn
+ * runs, the server captures that window at an adaptive rate and streams
+ * it here; the capture runs only while this card is mounted. Chat dismisses
+ * the card when the turn settles.
+ */
+function ComputerMiniPlayer({
+  threadRef,
+  miniPlayer,
+  preview,
+}: Props & { readonly preview: ComputerUsePreview | null }) {
+  const live = useCuaWindowPreview(threadRef);
+  const liveFrame = live.status === "live" ? (live.frame ?? null) : null;
+  const painted = useComputerPreviewFrame(liveFrame);
+  const frame =
+    live.status === "unavailable" || (live.status === "live" && !liveFrame) ? null : painted.frame;
+  const sourceSize =
+    frame && frame.width > 0 && frame.height > 0
+      ? { width: frame.width, height: frame.height }
+      : COMPUTER_DEFAULT_SOURCE_SIZE;
+  const viewportKey = streamedSourceKey(threadRef, previewMiniPlayerSourceKey(miniPlayer.source));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Publishes the frame size to the store the chat canvas lays this card out from.
+  useLayoutEffect(() => {
+    useStreamedSourceSize.setState(
+      (state) =>
+        state?.key === viewportKey &&
+        state.viewport.width === sourceSize.width &&
+        state.viewport.height === sourceSize.height
+          ? state
+          : { key: viewportKey, viewport: { width: sourceSize.width, height: sourceSize.height } },
+      true,
+    );
+  }, [viewportKey, sourceSize.width, sourceSize.height]);
+  const label = frame?.appName ?? "Computer";
+  const caption =
+    frame?.windowTitle && frame.windowTitle !== label ? `${label} · ${frame.windowTitle}` : label;
+  const appIcon = useAssetUrlState(
+    threadRef.environmentId,
+    frame?.app ? { _tag: "native-app-icon", app: frame.app } : null,
+  );
+
+  return (
+    <MiniPlayerShell
       threadRef={threadRef}
-      tabId={source.tabId}
       miniPlayer={miniPlayer}
-    />
-  ) : (
-    <DeviceMiniPlayer
-      key={previewMiniPlayerSourceKey(source)}
-      threadRef={threadRef}
-      source={source}
-      miniPlayer={miniPlayer}
-    />
+      sourceSize={sourceSize}
+      label="Floating computer use preview"
+      recording={live.status === "live" || preview?.inProgress === true}
+    >
+      {() => (
+        <div
+          className="pointer-events-auto absolute inset-0 overflow-hidden rounded-[inherit] bg-muted"
+          style={{ zIndex: PREVIEW_MINI_PLAYER_WEBVIEW_Z_INDEX }}
+        >
+          <canvas
+            ref={painted.canvasRef}
+            role="img"
+            aria-label={caption}
+            className={cn("size-full select-none object-contain", !frame && "hidden")}
+          />
+          {!frame ? (
+            <div className="flex size-full items-center justify-center text-xs text-muted-foreground">
+              {live.status === "unavailable" ? "Preview unavailable" : "Waiting for the agent…"}
+            </div>
+          ) : null}
+          {live.status === "unavailable" && live.detail ? (
+            <div className="pointer-events-none absolute inset-x-0 top-0 truncate bg-background/80 px-2.5 py-1 text-2xs text-muted-foreground">
+              {live.detail}
+            </div>
+          ) : null}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-background/85 to-background/0 px-2.5 pt-5 pb-2 text-2xs text-foreground">
+            {appIcon._tag === "Success" ? (
+              <img src={appIcon.url} alt="" aria-hidden className="size-3.5 shrink-0" />
+            ) : null}
+            <span className="truncate">{caption}</span>
+          </div>
+        </div>
+      )}
+    </MiniPlayerShell>
   );
 }
 
@@ -428,7 +540,8 @@ function MiniPlayerShell({
   readonly miniPlayer: PreviewMiniPlayerState;
   readonly sourceSize: PreviewMiniPlayerSize;
   readonly label: string;
-  readonly onOpenInPanel: () => void;
+  /** Omitted for sources that have no panel, such as the computer card. */
+  readonly onOpenInPanel?: () => void;
   readonly pillActions?: ReactNode;
   readonly recording?: boolean;
   readonly cornerRadius?: (frame: PreviewMiniPlayerSize) => number;
@@ -574,22 +687,24 @@ function MiniPlayerShell({
                   <span className="size-2 rounded-full bg-destructive motion-safe:animate-status-pulse" />
                 </span>
               ) : null}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label="Open preview in right panel"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={onOpenInPanel}
-                    />
-                  }
-                >
-                  <PanelRightIcon />
-                </TooltipTrigger>
-                <TooltipPopup side="top">Open in right panel</TooltipPopup>
-              </Tooltip>
+              {onOpenInPanel ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="Open preview in right panel"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={onOpenInPanel}
+                      />
+                    }
+                  >
+                    <PanelRightIcon />
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">Open in right panel</TooltipPopup>
+                </Tooltip>
+              ) : null}
               {pillActions}
               <Tooltip>
                 <TooltipTrigger
