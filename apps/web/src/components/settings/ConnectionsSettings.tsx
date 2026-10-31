@@ -2207,6 +2207,8 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   const highlightedSshHostRef = useRef<DesktopDiscoveredSshHost | undefined>(undefined);
   const [savedBackendError, setSavedBackendError] = useState<string | null>(null);
   const [isAddingSavedBackend, setIsAddingSavedBackend] = useState(false);
+  // Bumped on close so a connect that settles after closing cannot touch the next session.
+  const savedBackendSessionRef = useRef(0);
   const [removingSavedEnvironmentId, setRemovingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
   const [isUpdatingDesktopServerExposure, setIsUpdatingDesktopServerExposure] = useState(false);
@@ -2545,7 +2547,20 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
     setIsRevokingOtherDesktopClients(false);
   };
 
+  const closeAddBackendDialog = () => {
+    savedBackendSessionRef.current += 1;
+    setSavedBackendMode("remote");
+    setSavedBackendHost("");
+    setSavedBackendPairingCode("");
+    setSavedBackendSshHost("");
+    setSavedBackendSshUsername("");
+    setSavedBackendSshPort("");
+    setSavedBackendError(null);
+    setAddBackendDialogOpen(false);
+  };
+
   const connectSavedBackendSshTarget = async (target: DesktopSshEnvironmentTarget) => {
+    const session = savedBackendSessionRef.current;
     setIsAddingSavedBackend(true);
     setSavedBackendError(null);
     const result = await connectSshEnvironment({
@@ -2554,19 +2569,14 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
       ...(routeTarget ? { expectedEnvironmentId: routeTarget.environmentId } : {}),
     });
     if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
+      if (session === savedBackendSessionRef.current && !isAtomCommandInterrupted(result)) {
         setSavedBackendError(formatDesktopSshConnectionError(squashAtomCommandFailure(result)));
       }
       setIsAddingSavedBackend(false);
       return;
     }
 
-    setSavedBackendHost("");
-    setSavedBackendPairingCode("");
-    setSavedBackendSshHost("");
-    setSavedBackendSshUsername("");
-    setSavedBackendSshPort("");
-    setAddBackendDialogOpen(false);
+    closeAddBackendDialog();
     toastManager.add({
       type: "success",
       title: routeTarget ? "Route added" : "Environment connected",
@@ -2638,12 +2648,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
       return;
     }
 
-    setSavedBackendHost("");
-    setSavedBackendPairingCode("");
-    setSavedBackendSshHost("");
-    setSavedBackendSshUsername("");
-    setSavedBackendSshPort("");
-    setAddBackendDialogOpen(false);
+    closeAddBackendDialog();
     toastManager.add(
       routeTarget
         ? {
@@ -2671,6 +2676,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   const handleSelectSshHostSuggestion = async (target: DesktopDiscoveredSshHost) => {
     if (isAddingSavedBackend || !desktopBridge) return;
 
+    const session = savedBackendSessionRef.current;
     setIsAddingSavedBackend(true);
     setSavedBackendError(null);
     setSavedBackendSshHost(target.alias);
@@ -2678,7 +2684,13 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
     try {
       resolved = await desktopBridge.resolveSshHost(target.alias);
     } catch (error) {
-      setSavedBackendError(formatDesktopSshConnectionError(error));
+      if (session === savedBackendSessionRef.current) {
+        setSavedBackendError(formatDesktopSshConnectionError(error));
+      }
+      setIsAddingSavedBackend(false);
+      return;
+    }
+    if (session !== savedBackendSessionRef.current) {
       setIsAddingSavedBackend(false);
       return;
     }
@@ -2914,7 +2926,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
       }
       return;
     }
-    setAddBackendDialogOpen(false);
+    closeAddBackendDialog();
     toastManager.add({
       type: "success",
       title: "Route added",
@@ -3942,11 +3954,11 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
             <Dialog
               open={addBackendDialogOpen}
               onOpenChange={(open) => {
-                setAddBackendDialogOpen(open);
                 if (open) {
+                  setAddBackendDialogOpen(true);
                   setRouteTarget(null);
                 } else {
-                  setSavedBackendError(null);
+                  closeAddBackendDialog();
                 }
               }}
             >
@@ -4027,6 +4039,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
       {hasCloudPublicConfig() ? (
         <RemoveT3ConnectEnvironmentDialog
           environmentLabel={pendingT3ConnectRemoval?.label ?? null}
+          environmentId={pendingT3ConnectRemoval?.environmentId ?? null}
           onCancel={() => setPendingT3ConnectRemoval(null)}
           onConfirm={() => {
             if (!pendingT3ConnectRemoval) return;

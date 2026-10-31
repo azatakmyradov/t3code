@@ -69,13 +69,15 @@ export const runDefaultServerCommand = Effect.fn("server.runDefaultServerCommand
 });
 
 export const startCommand = Command.make("start", { ...sharedServerCommandFlags }).pipe(
-  Command.withDescription("Run the T3 Fork server."),
+  Command.withDescription("Same as `t3-fork`."),
+  Command.unlisted,
   Command.withHandler((flags) => runServerCommand(flags, { rejectRunningServer: true })),
 );
 
 export const serveCommand = Command.make("serve", { ...sharedServerCommandFlags }).pipe(
+  Command.withShortDescription("Run T3 Fork in this terminal, with no browser."),
   Command.withDescription(
-    "Run the T3 Fork server without opening a browser and print headless pairing details.",
+    "Run T3 Fork in this terminal without opening a browser, and print pairing details. The background service runs this. To set up access from your other devices, run `t3-fork up`.",
   ),
   Command.withHandler((flags) =>
     runServerCommand(flags, {

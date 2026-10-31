@@ -262,6 +262,8 @@ it.effect("preserves released bot data and migration history", () => {
         { migration_id: 72, name: "PeerLinkFence" },
         { migration_id: 73, name: "WaitingLinkRequestIndex" },
         { migration_id: 74, name: "ActiveTurnItemIndexes" },
+        { migration_id: 75, name: "ExcludeAttachmentPlaceholdersFromSearch" },
+        { migration_id: 76, name: "SubagentDeliveryState" },
       ],
     });
   }).pipe(
