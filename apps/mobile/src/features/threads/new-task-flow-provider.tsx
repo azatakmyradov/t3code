@@ -322,7 +322,9 @@ export function NewTaskFlowProvider(
       ? null
       : (projectsForEnvironment.find(
           (project) => scopedProjectKey(project.environmentId, project.id) === selectedProjectKey,
-        ) ?? (selectedProjectKey === null ? (projectsForEnvironment[0] ?? null) : null));
+        ) ??
+        projectsForEnvironment[0] ??
+        null);
 
   const linkedEnvironments = useLinkedEnvironments(selectedProject?.environmentId ?? null);
   const storedStickyModelSelection = useStickyComposerModelSelection();

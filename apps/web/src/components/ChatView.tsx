@@ -319,8 +319,10 @@ import {
   hasDismissedResumeCompaction,
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
-import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
-import { selectActiveProviderThreadUsage } from "../lib/providerTurnUsage";
+import {
+  deriveLatestContextWindowSnapshot,
+  latestProviderTurnTokenUsage,
+} from "../lib/contextWindow";
 import {
   MOBILE_COMPOSER_VIEW_TRANSITION_NAME,
   MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME,
@@ -521,25 +523,16 @@ export default function ChatView(props: ChatViewProps) {
     status: threadStatus,
   });
   const threadDetailLoading = threadSyncPhase === "loading";
-  const activeProviderThreadId = serverProjection?.thread.activeProviderThreadId ?? null;
-  const projectionProviderThreads = serverProjection?.providerThreads;
-  const projectionProviderTurns = serverProjection?.providerTurns;
-  const projectionAttempts = serverProjection?.attempts;
-  const projectionRuns = serverProjection?.runs;
-  const providerUsageProjection =
-    projectionProviderThreads && projectionProviderTurns && projectionAttempts && projectionRuns
-      ? {
-          thread: { activeProviderThreadId },
-          providerThreads: projectionProviderThreads,
-          providerTurns: projectionProviderTurns,
-          attempts: projectionAttempts,
-          runs: projectionRuns,
-        }
-      : null;
-  const activeThreadUsageSelection = selectActiveProviderThreadUsage(providerUsageProjection);
-  const activeUsageProviderThread =
-    projectionProviderThreads?.find((thread) => thread.id === activeProviderThreadId) ?? null;
+  // Held back briefly, so a quick sync does not flash a status line at the end of the timeline.
   const delayedThreadSyncPhase = useDelayedStatus(routeThreadKey, threadSyncPhase);
+  const activeProviderThread = serverProjection?.providerThreads.find(
+    (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
+  );
+  const activeThreadLiveTokenUsage = latestProviderTurnTokenUsage(
+    serverProjection?.providerTurns ?? [],
+    serverProjection,
+    activeProviderThread,
+  );
   const serverVisibleTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {
@@ -631,7 +624,6 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
-  const [providerUsageHost, setProviderUsageHost] = useState<HTMLDivElement | null>(null);
   const citeAssistantText = (
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
@@ -1506,17 +1498,11 @@ export default function ChatView(props: ChatViewProps) {
     (compactionRunning || (compactRequestIsActive && !compactionSettled));
   const isWorking =
     phase === "running" || isSendBusy || isCompacting || runlessWorkStartedAt !== null;
-  const activeContextWindow = activeThreadUsageSelection.allowFallback
-    ? deriveLatestContextWindowSnapshot(
-        activeThreadUsageSelection.usage !== null || activeUsageProviderThread?.contextUsage != null
-          ? []
-          : (serverVisibleTurnItems ?? []).filter(
-              ({ item }) => item.providerThreadId === activeProviderThreadId,
-            ),
-        activeThreadUsageSelection.usage,
-        activeUsageProviderThread,
-      )
-    : null;
+  const activeContextWindow = deriveLatestContextWindowSnapshot(
+    serverVisibleTurnItems ?? [],
+    activeThreadLiveTokenUsage,
+    activeProviderThread,
+  );
   const pendingBackgroundTasks = deriveThreadPendingBackgroundTasks(serverProjection);
   const activeWorkStartedAt =
     deriveActiveWorkStartedAt(activeActivityRun, activeRuntime, localDispatchStartedAt) ??
@@ -2557,8 +2543,7 @@ export default function ChatView(props: ChatViewProps) {
       provider: selectedProvider,
       usedTokens: activeContextWindow.usedTokens,
       updatedAt: activeContextWindow.updatedAt,
-      // Only the live report carries a TTL, and only when it is the window's source.
-      promptCacheTtlMs: activeThreadUsageSelection.usage?.promptCacheTtlMs,
+      promptCacheTtlMs: activeThreadLiveTokenUsage?.promptCacheTtlMs,
       now: `${nowMinute}:00.000Z`,
     })
       ? activeContextWindow.usedTokens
@@ -3722,10 +3707,6 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeProjectId={activeProject?.id ?? null}
                               activeContextWindow={activeContextWindow}
-                              activeContextModelSelection={
-                                activeThreadUsageSelection.modelSelection
-                              }
-                              providerUsageHost={providerUsageHost}
                               compactThreadUnavailable={compactThreadUnavailable}
                               compactDisabled={compactDisabled}
                               compactDisabledReason={compactDisabledReason}
@@ -3894,9 +3875,6 @@ export default function ChatView(props: ChatViewProps) {
                   anchor={threadPanelPopoverAnchorRef}
                   handle={threadPanelPopoverHandle}
                   forceNewWorktree={multipleModelSelections !== null}
-                  onProviderUsageHostChange={setProviderUsageHost}
-                  activeProjectRef={activeProjectRef}
-                  folderSelectionLocked={isSendBusy}
                   environmentId={activeThread.environmentId}
                   threadId={activeThread.id}
                   projectId={activeThread.projectId}

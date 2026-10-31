@@ -4,7 +4,6 @@ import type {
   ProjectId,
   ProjectScript,
   ResolvedKeybindingsConfig,
-  ScopedProjectRef,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -23,7 +22,6 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
-import { ProjectFolderPicker } from "./ProjectFolderPicker";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import {
   ThreadDetailsContext,
@@ -49,15 +47,12 @@ interface ThreadDetailsPanelProps extends Pick<
   "anchor" | "handle"
 > {
   forceNewWorktree?: boolean;
-  onProviderUsageHostChange?: (host: HTMLDivElement | null) => void;
   environmentId: EnvironmentId;
   threadId: ThreadId;
   projectId: ProjectId;
   worktreePath: string | null;
   isServerThread: boolean;
   draftId?: DraftId;
-  activeProjectRef?: ScopedProjectRef | null;
-  folderSelectionLocked?: boolean;
   activeProjectName: string | undefined;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
   preferredScriptId: string | null;
@@ -156,7 +151,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
         // Section flags follow the rows that will render, so no empty section steals the divider rule.
         const show = {
           environment: density === "full" && visible.environment,
-          folder: density !== "essential" && Boolean(props.activeProjectRef),
           openIn: density !== "essential" && visible.openIn && props.showOpenInPicker,
           scripts: visible.scripts && props.activeProjectScripts !== undefined,
           branch: props.gitCwd !== null && props.isGitRepo && visible.branch,
@@ -168,7 +162,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
         return (
           <>
             <div className="group/details-items">
-              {show.environment || show.folder || show.openIn || show.scripts ? (
+              {show.environment || show.openIn || show.scripts ? (
                 <ThreadDetailsSection
                   headingId="thread-details-workspace-heading"
                   title="Workspace"
@@ -187,15 +181,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         autoEnvironmentLabel={props.autoEnvironmentLabel}
                         onAutoEnvironment={props.onAutoEnvironment}
                         {...branchToolbarProps}
-                      />
-                    ) : null}
-
-                    {show.folder && props.activeProjectRef ? (
-                      <ProjectFolderPicker
-                        projectRef={props.activeProjectRef}
-                        draftId={props.draftId ?? null}
-                        locked={props.envLocked || props.folderSelectionLocked === true}
-                        workspacePath={props.gitCwd}
                       />
                     ) : null}
 
@@ -252,8 +237,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   </div>
                 </ThreadDetailsSection>
               ) : null}
-
-              <div ref={props.onProviderUsageHostChange} />
 
               {density === "full" && !props.draftId && visible.servers ? (
                 <ThreadServersPanel environmentId={props.environmentId} threadId={props.threadId} />
