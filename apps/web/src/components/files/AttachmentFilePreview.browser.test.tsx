@@ -2552,6 +2552,11 @@ it("keeps workspace PDF page, zoom and scroll when the file changes", async () =
     expect(region().scrollLeft).toBe(80);
     expect(offset(3)).toBeCloseTo(savedOffset, 0);
   });
+  await screen.getByRole("button", { name: "Previous page", exact: true }).click();
+  await vi.waitFor(() => {
+    expect(screen.container.textContent).toContain("2 / 3 pages");
+    expect(screen.container.textContent).toContain(zoom);
+  });
 });
 
 it("keeps workspace PDF fit width chosen after a zoomed view is restored", async () => {
