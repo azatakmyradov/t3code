@@ -264,6 +264,7 @@ it.effect("preserves released bot data and migration history", () => {
         { migration_id: 74, name: "ActiveTurnItemIndexes" },
         { migration_id: 75, name: "ExcludeAttachmentPlaceholdersFromSearch" },
         { migration_id: 76, name: "SubagentDeliveryState" },
+        { migration_id: 77, name: "ProjectionProjectsPinArchive" },
       ],
     });
   }).pipe(

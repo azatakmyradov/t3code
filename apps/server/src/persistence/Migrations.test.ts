@@ -15,6 +15,7 @@ import WaitingLinkRequestIndex from "./Migrations/073_WaitingLinkRequestIndex.ts
 import ActiveTurnItemIndexes from "./Migrations/074_ActiveTurnItemIndexes.ts";
 import ExcludeAttachmentPlaceholdersFromSearch from "./Migrations/075_ExcludeAttachmentPlaceholdersFromSearch.ts";
 import SubagentDeliveryState from "./Migrations/076_SubagentDeliveryState.ts";
+import ProjectionProjectsPinArchive from "./Migrations/077_ProjectionProjectsPinArchive.ts";
 
 import ThreadMessageSearch from "./Migrations/070_ThreadMessageSearch.ts";
 
@@ -143,6 +144,10 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* SubagentDeliveryState;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (75, 'SubagentDeliveryState', '2026-10-15 12:00:00')`;
   }
+  if (throughId >= 76) {
+    yield* ProjectionProjectsPinArchive;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (76, 'ProjectionProjectsPinArchive', '2026-10-16 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -217,7 +222,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75])(
+  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76])(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -415,7 +420,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75])(
+  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76])(
     "does not reconcile upstream %s beyond the requested migration limit",
     (id) =>
       Effect.gen(function* () {

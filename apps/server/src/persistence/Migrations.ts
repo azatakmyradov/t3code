@@ -81,6 +81,7 @@ import Migration0073 from "./Migrations/073_WaitingLinkRequestIndex.ts";
 import Migration0074 from "./Migrations/074_ActiveTurnItemIndexes.ts";
 import Migration0075 from "./Migrations/075_ExcludeAttachmentPlaceholdersFromSearch.ts";
 import Migration0076 from "./Migrations/076_SubagentDeliveryState.ts";
+import Migration0077 from "./Migrations/077_ProjectionProjectsPinArchive.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -161,6 +162,7 @@ export const migrationEntries = [
   [74, "ActiveTurnItemIndexes", Migration0074],
   [75, "ExcludeAttachmentPlaceholdersFromSearch", Migration0075],
   [76, "SubagentDeliveryState", Migration0076],
+  [77, "ProjectionProjectsPinArchive", Migration0077],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -250,7 +252,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
             (row.migration_id === 72 && row.name === "WaitingLinkRequestIndex") ||
             (row.migration_id === 73 && row.name === "ActiveTurnItemIndexes") ||
             (row.migration_id === 74 && row.name === "ExcludeAttachmentPlaceholdersFromSearch") ||
-            (row.migration_id === 75 && row.name === "SubagentDeliveryState"),
+            (row.migration_id === 75 && row.name === "SubagentDeliveryState") ||
+            (row.migration_id === 76 && row.name === "ProjectionProjectsPinArchive"),
         )
       ) {
         return yield* new Migrator.MigrationError({
@@ -286,6 +289,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
       }
       yield* Migration0061;
       // Free each destination before shifting the preceding upstream ledger entry.
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = 77
+        WHERE migration_id = 76 AND name = 'ProjectionProjectsPinArchive'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 76
         WHERE migration_id = 75 AND name = 'SubagentDeliveryState'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 75
