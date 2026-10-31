@@ -41,7 +41,9 @@ export function providerTextColor(driverKind: ProviderDriverKind): {
       style: { "--icon-light": icon.fill.light, "--icon-dark": icon.fill.dark } as CSSProperties,
     };
   }
-  const className = PROVIDER_TEXT_COLOR_BY_PROVIDER[driverKind];
+  const className = Object.hasOwn(PROVIDER_TEXT_COLOR_BY_PROVIDER, driverKind)
+    ? PROVIDER_TEXT_COLOR_BY_PROVIDER[driverKind]
+    : undefined;
   return className ? { className } : {};
 }
 
@@ -71,7 +73,9 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   badgeClassName?: string;
   indicatorBackground?: string;
 }) {
-  const Icon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
+  const Icon = Object.hasOwn(PROVIDER_ICON_BY_PROVIDER, props.driverKind)
+    ? (PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null)
+    : null;
   const packageIcon = providerClients.get(props.driverKind)?.icon;
   const indicatorBackground = props.indicatorBackground ?? "var(--card)";
   const accentColor = normalizeProviderAccentColor(props.accentColor);
