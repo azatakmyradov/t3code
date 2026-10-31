@@ -1164,6 +1164,11 @@ export function createServerEnvironmentAtoms<R, E>(
       ]);
     }).pipe(Atom.withLabel(`environment-data:server:usage-scan-settings:${environmentId}`)),
   );
+  const computerUseSettingAtom = Atom.family((environmentId: EnvironmentId) =>
+    Atom.make((get) => get(settingsValueAtom(environmentId))?.enableCua ?? false).pipe(
+      Atom.withLabel(`environment-data:server:computer-use-setting:${environmentId}`),
+    ),
+  );
   const providersValueAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get) => get(configValueAtom(environmentId))?.providers ?? null).pipe(
       Atom.withLabel(`environment-data:server:providers:${environmentId}`),
@@ -1312,6 +1317,17 @@ export function createServerEnvironmentAtoms<R, E>(
     removeProviderInstallation: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:provider:install-remove",
       tag: WS_METHODS.providerInstallRemove,
+    }),
+    computerUse: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:computer-use",
+      tag: WS_METHODS.serverCheckComputerUse,
+      refreshTrigger: ({ environmentId }) => computerUseSettingAtom(environmentId),
+    }),
+    /** Browsers on the host and whether Chrome DevTools MCP is installed. */
+    browserTabs: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:browser-tabs",
+      tag: WS_METHODS.serverCheckBrowserTabs,
+      staleTimeMs: 0,
     }),
     traceDiagnostics: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:trace-diagnostics",
@@ -1559,6 +1575,11 @@ export function createServerEnvironmentAtoms<R, E>(
         mode: "singleFlight",
         key: ({ environmentId, input }) => `${environmentId}:${input.instanceId}`,
       },
+    }),
+    runBrowserTabsAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:run-browser-tabs-action",
+      tag: WS_METHODS.serverRunBrowserTabsAction,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",

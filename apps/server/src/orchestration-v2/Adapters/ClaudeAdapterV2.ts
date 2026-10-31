@@ -186,6 +186,10 @@ import {
   normalizeMcpText,
 } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import {
+  parseCuaToolName,
+  rememberCuaToolResult,
+} from "@t3tools/provider-core/server/cuaToolPresentation";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
@@ -1471,6 +1475,8 @@ export function makeClaudeQueryOptions(input: {
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
   /** The thread's T3 MCP session holds the `device` capability. */
   readonly deviceToolsAvailable?: boolean;
+  /** The browser `chrome-devtools` drives, for its prompt text. */
+  readonly browserTabs?: string;
   readonly tools?: ClaudeAgentSdkQueryTools;
   readonly allowedTools?: ReadonlyArray<string>;
   readonly disallowedTools?: ReadonlyArray<string>;
@@ -1589,7 +1595,11 @@ export function makeClaudeQueryOptions(input: {
       type: "preset" as const,
       preset: "claude_code" as const,
       append: [
-        buildRuntimeInstructions({ harness: "Claude Code" }) +
+        buildRuntimeInstructions({
+          harness: "Claude Code",
+          computerUse: input.mcpServers?.[McpProviderSession.CUA_MCP_SERVER_NAME] !== undefined,
+          browserTabs: input.browserTabs,
+        }) +
           (input.mcpServers === undefined
             ? ""
             : T3_CODE_ORCHESTRATION_INSTRUCTIONS +
@@ -1721,6 +1731,7 @@ export function claudeMcpQueryOverrides(input: {
 }): {
   readonly allowedTools?: ReadonlyArray<string>;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
+  readonly browserTabs?: string;
 } {
   const session = input.mcpSession;
   if (session === undefined) {
@@ -1740,7 +1751,9 @@ export function claudeMcpQueryOverrides(input: {
         },
         timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
       },
+      ...McpProviderSession.localStdioMcpServers(session),
     },
+    ...(session.browserTabs ? { browserTabs: session.browserTabs.browserName } : {}),
   };
 }
 
@@ -5566,6 +5579,31 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           readonly toolNonExecutionKind?: string;
         }) => {
           const completedAt = input.status === "running" ? null : input.updatedAt;
+          // Cua Driver titles follow the call's final input and status, and a
+          // finished call teaches the thread which app each pid is.
+          const cuaTool = parseCuaToolName(input.toolName);
+          if (cuaTool !== undefined && input.status === "completed") {
+            rememberCuaToolResult(
+              input.threadId,
+              cuaTool,
+              claudeNativeToolInputValue(input.toolInput),
+              claudeNativeToolOutputValue(input.output),
+            );
+          }
+          const presentation =
+            cuaTool === undefined
+              ? input.presentation
+              : mcpToolPresentation({
+                  toolName: input.toolName,
+                  threadId: input.threadId,
+                  args: claudeNativeToolInputValue(input.toolInput),
+                  status:
+                    input.status === "running"
+                      ? "inProgress"
+                      : input.status === "completed"
+                        ? "completed"
+                        : "failed",
+                });
           const nodeId = idAllocator.derive.nodeFromProviderItem({
             driver: CLAUDE_PROVIDER,
             nativeItemId: input.nativeItemId,
@@ -5631,7 +5669,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ? formatReadToolLabel(readPath)
                 : (searchTitle ??
                   dynamicToolTitle(input.toolName, nativeToolInput) ??
-                  input.presentation?.title ??
+                  presentation?.title ??
                   null),
             startedAt: input.startedAt,
             completedAt,
@@ -5713,12 +5751,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   : {
                       ...itemBase,
                       type: "dynamic_tool",
-                      ...(input.presentation?.toolIcon === undefined
+                      ...(presentation?.toolSurface === undefined
                         ? {}
-                        : { toolIcon: input.presentation.toolIcon }),
-                      ...(input.presentation?.toolSource === undefined
+                        : { toolSurface: presentation.toolSurface }),
+                      ...(presentation?.toolIcon === undefined
                         ? {}
-                        : { toolSource: input.presentation.toolSource }),
+                        : { toolIcon: presentation.toolIcon }),
+                      ...(presentation?.toolSource === undefined
+                        ? {}
+                        : { toolSource: presentation.toolSource }),
                       toolName: input.toolName,
                       ...(viewedImagePath === undefined ? {} : { viewedImagePath }),
                       input: claudeNativeToolInputValue(input.toolInput),
