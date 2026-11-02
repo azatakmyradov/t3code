@@ -77,7 +77,6 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
       assert.equal(environment.backendCwd, "/repo");
       assert.equal(environment.appUserModelId, "com.azatakmyradov.t3fork.dev");
-      assert.equal(environment.linuxWmClass, "t3-fork-dev");
       assert.equal(
         environment.linuxDesktopEntryName,
         "com.azatakmyradov.t3fork.Development.desktop",

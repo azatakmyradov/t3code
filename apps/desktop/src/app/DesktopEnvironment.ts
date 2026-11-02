@@ -1,9 +1,4 @@
-import {
-  FORK_APP_NAME,
-  FORK_APP_ID,
-  FORK_DEVELOPMENT_SCHEME,
-  FORK_CLI_COMMAND,
-} from "@t3tools/shared/forkIdentity";
+import { FORK_APP_NAME, FORK_APP_ID } from "@t3tools/shared/forkIdentity";
 import type {
   DesktopAppBranding,
   DesktopAppStageLabel,
@@ -81,7 +76,6 @@ export class DesktopEnvironment extends Context.Service<
     readonly displayName: string;
     readonly appUserModelId: string;
     readonly linuxDesktopEntryName: string;
-    readonly linuxWmClass: string;
     readonly linuxApplicationsDir: string;
     readonly desktopLauncherPath: Option.Option<string>;
     readonly appImagePath: Option.Option<string>;
@@ -238,7 +232,6 @@ const make = Effect.fn("desktop.environment.make")(function* (
       isDevelopment ? `${FORK_APP_ID}.dev` : FORK_APP_ID,
     ),
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
-    linuxWmClass: isDevelopment ? FORK_DEVELOPMENT_SCHEME : FORK_CLI_COMMAND,
     linuxApplicationsDir,
     desktopLauncherPath: config.desktopLauncherPath,
     appImagePath: config.appImagePath,

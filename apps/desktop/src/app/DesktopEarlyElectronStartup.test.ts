@@ -84,7 +84,6 @@ describe("DesktopEarlyElectronStartup", () => {
 
     assert.deepEqual(options, {
       isDevelopment: true,
-      linuxWmClass: "t3-fork-dev",
       linuxDesktopEntryName: "com.azatakmyradov.t3fork.Development.desktop",
       passwordStore: "gnome-libsecret",
     });

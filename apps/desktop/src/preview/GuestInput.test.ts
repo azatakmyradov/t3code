@@ -73,9 +73,7 @@ const makeGuest = ({
 } = {}) => {
   const sendCommand = vi.fn(
     async (method: string, params?: { expression?: string; type?: string }) => {
-      if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed") {
-        webview?.focus();
-      }
+      if (params?.type === "mousePressed" || params?.type === "touchStart") webview?.focus();
       return method === "Runtime.evaluate" && params?.expression?.endsWith("!== null")
         ? { result: { value: focusedDocument } }
         : { result: {} };
@@ -95,12 +93,13 @@ const makeGuest = ({
   return {
     webContents,
     sendCommand,
-    send: (method: string, params: Record<string, unknown>) =>
+    send: (method: string, params: Record<string, unknown>, sessionId?: string) =>
       sendPageCommand(
         webContents as unknown as Electron.WebContents,
         { sendCommand } as unknown as Electron.Debugger,
         method,
         params,
+        sessionId,
       ),
   };
 };
@@ -113,6 +112,69 @@ describe("preview guest input", () => {
     expect(guest.sendCommand).not.toHaveBeenCalledWith("Input.insertText", expect.anything());
   });
 
+  it.each([
+    {
+      method: "Input.dispatchMouseEvent",
+      press: "mousePressed",
+      release: "mouseReleased",
+      failPress: false,
+    },
+    {
+      method: "Input.dispatchTouchEvent",
+      press: "touchStart",
+      release: "touchEnd",
+      failPress: false,
+    },
+    {
+      method: "Input.dispatchMouseEvent",
+      press: "mousePressed",
+      release: "mouseReleased",
+      failPress: true,
+    },
+  ])(
+    "keeps $method releases behind presses waiting for host focus, failed press: $failPress",
+    async ({ method, press, release, failPress }) => {
+      const captureStarted = Promise.withResolvers<void>();
+      const finishCapture = Promise.withResolvers<void>();
+      const events: Array<unknown> = [];
+      const guest = {
+        id: 7,
+        focusedFrame: null,
+        hostWebContents: {
+          isDestroyed: () => false,
+          executeJavaScript: async () => {
+            captureStarted.resolve();
+            await finishCapture.promise;
+          },
+        },
+      };
+      const debuggee = {
+        sendCommand: async (_method: string, params: Record<string, unknown>) => {
+          events.push(params["type"]);
+          if (failPress && params["type"] === press) throw new Error("Press failed");
+          return {};
+        },
+      };
+      const send = (type: string) =>
+        sendPageCommand(
+          guest as unknown as Electron.WebContents,
+          debuggee as unknown as Electron.Debugger,
+          method,
+          { type },
+        );
+      const pressed = send(press);
+      await captureStarted.promise;
+      const released = send(release);
+      finishCapture.resolve();
+      const results = await Promise.allSettled([pressed, released]);
+      expect(results.map((result) => result.status)).toEqual([
+        failPress ? "rejected" : "fulfilled",
+        "fulfilled",
+      ]);
+      expect(events).toEqual([press, release]);
+    },
+  );
+
   it("refuses input when a cross-site frame holds the unfocused page's focus", async () => {
     const guest = makeGuest({ focusedDocument: false });
     await expect(guest.send("Input.insertText", { text: "secret" })).rejects.toThrow(
@@ -124,14 +186,21 @@ describe("preview guest input", () => {
   describe("an agent's mouse input in an unfocused guest", () => {
     const press = { type: "mousePressed", button: "left", x: 4, y: 5, clickCount: 1 };
 
-    it("hands the app's focused field its focus back once the page has been clicked", async () => {
-      const host = makeHost();
-      host.composer.focus();
-      const guest = makeGuest({ host });
-      await guest.send("Input.dispatchMouseEvent", press);
-      expect(guest.sendCommand).toHaveBeenCalledWith("Input.dispatchMouseEvent", press);
-      expect(host.activeElement()).toBe(host.composer);
-    });
+    it.each([
+      { method: "Input.dispatchMouseEvent", input: press, sessionId: undefined },
+      { method: "Input.dispatchMouseEvent", input: press, sessionId: "child-frame" },
+      { method: "Input.dispatchTouchEvent", input: { type: "touchStart" }, sessionId: undefined },
+    ])(
+      "hands the app's focused field its focus back after $method in session $sessionId",
+      async ({ method, input, sessionId }) => {
+        const host = makeHost();
+        host.composer.focus();
+        const guest = makeGuest({ host });
+        await guest.send(method, input, sessionId);
+        expect(guest.sendCommand).toHaveBeenCalledWith(method, input, sessionId);
+        expect(host.activeElement()).toBe(host.composer);
+      },
+    );
 
     it("takes focus off the preview when nothing in the app held it", async () => {
       const host = makeHost();

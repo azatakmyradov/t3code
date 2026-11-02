@@ -93,6 +93,8 @@ const evaluate = async (debuggee: Electron.Debugger, expression: string) => {
   return reply.result?.value;
 };
 
+const POINTER_INPUT = new Set(["Input.dispatchMouseEvent", "Input.dispatchTouchEvent"]);
+
 const HELD_FOCUS = "Symbol.for('t3.previewHostFocus')";
 const holdHostFocusScript = `globalThis[${HELD_FOCUS}] = document.activeElement; void 0`;
 const restoreHostFocusScript = (guests: Set<number>) =>
@@ -116,7 +118,7 @@ const heldHostFocus = new WeakMap<
   }
 >();
 
-/** Runs an agent's mouse input in a guest the app does not have focused, then hands the app its focus back. */
+/** Runs an agent's pointer input in a guest the app does not have focused, then hands the app its focus back. */
 const keepingHostFocus = async <A>(webContents: Electron.WebContents, run: () => Promise<A>) => {
   const host = webContents.hostWebContents;
   if (!host || host.isDestroyed()) return run();
@@ -156,19 +158,21 @@ export const sendPageCommand = async (
   debuggee: Electron.Debugger,
   method: string,
   params: Record<string, unknown>,
+  sessionId?: string,
 ): Promise<unknown> => {
+  if (
+    POINTER_INPUT.has(method) &&
+    (!webContents.focusedFrame ||
+      (webContents.hostWebContents && heldHostFocus.has(webContents.hostWebContents)))
+  ) {
+    return keepingHostFocus(webContents, () => debuggee.sendCommand(method, params, sessionId));
+  }
+  if (sessionId !== undefined) return debuggee.sendCommand(method, params, sessionId);
   // Electron's debugger routes Page.reload on a webview to its embedder window.
   if (method === "Page.reload") {
     if (params["ignoreCache"] === true) webContents.reloadIgnoringCache();
     else webContents.reload();
     return {};
-  }
-  if (
-    method === "Input.dispatchMouseEvent" &&
-    (!webContents.focusedFrame ||
-      (webContents.hostWebContents && heldHostFocus.has(webContents.hostWebContents)))
-  ) {
-    return keepingHostFocus(webContents, () => debuggee.sendCommand(method, params));
   }
   if (!FOCUS_ROUTED_INPUT.has(method) || webContents.focusedFrame) {
     return debuggee.sendCommand(method, params);

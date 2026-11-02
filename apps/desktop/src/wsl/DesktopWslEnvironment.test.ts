@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - the executed suite runs the generated install script through a real POSIX shell.
-import { describe, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { afterAll, expect } from "vite-plus/test";
 import * as NodeChildProcess from "node:child_process";
 import * as Deferred from "effect/Deferred";
@@ -15,10 +15,14 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/process";
 
+import { ManagedPolicyFileError } from "@t3tools/shared/managedPolicyFile";
+
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopManagedPolicy from "../app/DesktopManagedPolicy.ts";
 import {
   buildWslRuntimeInstallScript,
+  makeIsAvailable,
   buildWslRuntimeInvalidateScript,
   buildWslRuntimePruneScript,
   buildWslRuntimeProbeScript,
@@ -205,6 +209,7 @@ describe("WSL command deadlines", () => {
               runningUnderArm64Translation: false,
             }).pipe(Layer.provide([Path.layer, DesktopConfig.layerTest({})])),
             FileSystem.layerNoop({ exists: () => Effect.succeed(true) }),
+            DesktopManagedPolicy.layerTest(),
             Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
           ]),
         ),
@@ -966,4 +971,30 @@ describe("formatMissingToolsReason", () => {
     expect(reason).toContain("build-essential");
     expect(reason).not.toContain("nvm");
   });
+});
+
+// Path.layer joins with POSIX separators here, so the test windir is a POSIX path.
+const WSL_EXE = "/windows/System32/wsl.exe";
+
+const isAvailable = (policy?: Parameters<typeof DesktopManagedPolicy.layerTest>[0]) =>
+  makeIsAvailable("win32", "/windows").pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        FileSystem.layerNoop({ exists: (path) => Effect.succeed(path === WSL_EXE) }),
+        Path.layer,
+        DesktopManagedPolicy.layerTest(policy),
+      ),
+    ),
+  );
+
+describe("makeIsAvailable", () => {
+  it.effect("turns WSL off on a machine with a managed policy, even an invalid one", () =>
+    Effect.gen(function* () {
+      assert.isTrue(yield* isAvailable());
+      assert.isFalse(yield* isAvailable({ schemaVersion: 1, organization: "Example Corp" }));
+      assert.isFalse(
+        yield* isAvailable(new ManagedPolicyFileError({ path: "/test", reason: "bad JSON" })),
+      );
+    }),
+  );
 });

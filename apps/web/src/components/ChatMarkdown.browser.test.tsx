@@ -86,6 +86,27 @@ vi.mock(import("./chat/MermaidDiagram"), async (original) => {
   };
 });
 
+// `null` keeps the real rendered appearance, which the theme draft tests drive.
+const appearance = vi.hoisted(() => ({
+  value: null as "light" | "dark" | null,
+  listeners: new Set<() => void>(),
+}));
+vi.mock(import("../hooks/useTheme"), async (original) => {
+  const { useSyncExternalStore } = await import("react");
+  const actual = await original();
+  const subscribe = (listener: () => void) => {
+    appearance.listeners.add(listener);
+    return () => appearance.listeners.delete(listener);
+  };
+  return {
+    ...actual,
+    useRenderedAppearance: () => {
+      const rendered = actual.useRenderedAppearance();
+      return useSyncExternalStore(subscribe, () => appearance.value) ?? rendered;
+    },
+  };
+});
+
 const settingsOverrides = vi.hoisted(() => ({ mathRenderingEnabled: false }));
 vi.mock(import("../hooks/useSettings"), async (original) => {
   const actual = await original();
@@ -127,6 +148,7 @@ it("keeps compact audio playback loaded across signed URL renewals", async () =>
 const roots: Root[] = [];
 
 beforeEach(() => {
+  appearance.value = null;
   parsedSources.length = 0;
   settingsOverrides.mathRenderingEnabled = false;
   renderDiagram.mockReset();
@@ -460,6 +482,34 @@ it("loads a host image through the page's own route when there is no environment
   expect(new Set(hostImageUrl.mock.calls.map(([path]) => path))).toEqual(
     new Set(["/work/my shot.png"]),
   );
+});
+
+it("loads the <picture> source for the current theme through the image route", async () => {
+  appearance.value = "light";
+  const pixel =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  const hostImageUrl = (path: string) => `${pixel}#${path}`;
+  await using screen = await renderDisposable(
+    <HostImageUrlContext value={hostImageUrl}>
+      <ChatMarkdown
+        cwd={undefined}
+        text={
+          '<picture><source media="(prefers-color-scheme: dark)" srcset="/work/dark.png"><img src="/work/light.png" alt="Shot"></picture>'
+        }
+      />
+    </HostImageUrlContext>,
+  );
+  await expect
+    .element(screen.getByAltText("Shot"))
+    .toHaveAttribute("src", `${pixel}#/work/light.png`);
+
+  await act(() => {
+    appearance.value = "dark";
+    for (const listener of appearance.listeners) listener();
+  });
+  await expect
+    .element(screen.getByAltText("Shot"))
+    .toHaveAttribute("src", `${pixel}#/work/dark.png`);
 });
 
 it("reuses the parse of a streaming reply's finished blocks when it remounts", async () => {

@@ -4,6 +4,7 @@ import { useNavigation, type StaticScreenProps } from "@react-navigation/native"
 import {
   AuthProvidersManageScope,
   AuthOrchestrationReadScope,
+  managedUpdatesDenial,
   type EnvironmentId,
   type ServerProvider,
 } from "@t3tools/contracts";
@@ -13,7 +14,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import { useRef, useState } from "react";
-import { View } from "react-native";
+import { Linking, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -103,6 +104,10 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
   const capabilities = config?.environment.capabilities;
   const desktopManaged = capabilities?.serverSelfUpdate === "desktop-managed";
   const desktopUpdateTarget = desktopEnvironmentUpdateTarget(config?.environment);
+  const managedPolicy = config?.managedPolicy;
+  const supportUrl = managedPolicy?.supportUrl;
+  // The server refuses checks and installs; say so instead of offering them.
+  const updatesDenial = managedUpdatesDenial(managedPolicy);
 
   async function run(label: string, action: () => Promise<void>) {
     if (pendingRef.current) return;
@@ -252,6 +257,14 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                 <SettingsSection title="T3 Code">
                   <View className="gap-1 p-4">
                     <Text className="text-base text-foreground">Version {version}</Text>
+                    {managedPolicy ? (
+                      <Text className="text-sm text-foreground-muted">
+                        Managed by {managedPolicy.organization}
+                      </Text>
+                    ) : null}
+                    {updatesDenial ? (
+                      <Text className="text-sm text-foreground-muted">{updatesDenial}</Text>
+                    ) : null}
                     {running ? (
                       <Text className="text-sm text-foreground-muted">
                         {updateState.stage === "resuming"
@@ -263,7 +276,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                         {updateState.message}
                       </Text>
                     ) : null}
-                    {checkedRelease ? (
+                    {checkedRelease && !updatesDenial ? (
                       <Text className="text-sm text-foreground-muted">
                         {checkedRelease.targetVersion
                           ? `Version ${checkedRelease.targetVersion} is available.`
@@ -271,6 +284,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                       </Text>
                     ) : null}
                     {checkedRelease?.targetVersion &&
+                    !updatesDenial &&
                     !supportsEnvironmentUpdate(config.environment.capabilities) ? (
                       <Text className="text-sm text-foreground-muted">
                         {capabilities?.serverSelfUpdate === "desktop-managed"
@@ -279,32 +293,47 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                       </Text>
                     ) : null}
                   </View>
-                  {desktopManaged &&
+                  {supportUrl ? (
+                    <SettingsActionRow
+                      icon="questionmark.bubble"
+                      label={`Get help from ${managedPolicy.organization}`}
+                      onPress={() => void Linking.openURL(supportUrl).catch(() => undefined)}
+                    />
+                  ) : null}
+                  {!updatesDenial &&
+                  desktopManaged &&
                   desktopUpdateTarget === null &&
                   supportsEnvironmentUpdate(config.environment.capabilities) ? (
                     <Text className="px-4 pb-3 text-sm text-foreground-muted">
                       Check for updates in the desktop app on this machine.
                     </Text>
                   ) : null}
-                  <SettingsActionRow
-                    icon="arrow.clockwise"
-                    label={desktopManaged ? "Check and update desktop app" : "Check for updates"}
-                    disabled={disabled || (desktopManaged && desktopUpdateTarget === null)}
-                    loading={desktopManaged ? pending === "server" || running : pending === "check"}
-                    onPress={() => {
-                      if (disabled) return;
-                      if (desktopManaged) {
-                        if (desktopUpdateTarget !== null) requestServerUpdate(desktopUpdateTarget);
-                        return;
+                  {updatesDenial ? null : (
+                    <SettingsActionRow
+                      icon="arrow.clockwise"
+                      label={desktopManaged ? "Check and update desktop app" : "Check for updates"}
+                      disabled={disabled || (desktopManaged && desktopUpdateTarget === null)}
+                      loading={
+                        desktopManaged ? pending === "server" || running : pending === "check"
                       }
-                      void run("check", async () => {
-                        const environment = config.environment;
-                        const exit = await checkRelease(async () => environment);
-                        if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
-                      });
-                    }}
-                  />
+                      onPress={() => {
+                        if (disabled) return;
+                        if (desktopManaged) {
+                          if (desktopUpdateTarget !== null)
+                            requestServerUpdate(desktopUpdateTarget);
+                          return;
+                        }
+                        void run("check", async () => {
+                          const environment = config.environment;
+                          const exit = await checkRelease(async () => environment);
+                          // `run` owns the error message, so a failed lookup rethrows to it.
+                          if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
+                        });
+                      }}
+                    />
+                  )}
                   {checkedRelease?.targetVersion &&
+                  !updatesDenial &&
                   supportsEnvironmentUpdate(config.environment.capabilities) ? (
                     <SettingsActionRow
                       icon="arrow.up.circle"

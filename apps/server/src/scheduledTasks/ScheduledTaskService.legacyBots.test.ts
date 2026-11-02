@@ -13,6 +13,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 
 const now = "2026-10-10T12:00:00.000Z";
@@ -63,6 +64,7 @@ const serviceLayer = (dispatched: string[], runDueAtStart = false) =>
     Layer.provide(
       Layer.mergeAll(
         NodeCrypto.layer,
+        ManagedPolicy.layerTest(),
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
           isScratchProject: () => Effect.succeed(false),
           namedProjectsRoot: "/test/managed-projects",

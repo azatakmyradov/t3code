@@ -1,8 +1,4 @@
-import {
-  FORK_APP_ID,
-  FORK_DEVELOPMENT_SCHEME,
-  FORK_CLI_COMMAND,
-} from "@t3tools/shared/forkIdentity";
+import { FORK_APP_ID } from "@t3tools/shared/forkIdentity";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -31,7 +27,6 @@ type EarlyLinuxElectronOptionsInput = EarlyDesktopSettingsInput;
 
 export interface EarlyLinuxElectronOptions {
   readonly isDevelopment: boolean;
-  readonly linuxWmClass: string;
   readonly linuxDesktopEntryName: string;
   readonly passwordStore: LinuxPasswordStoreSwitch | null;
 }
@@ -151,7 +146,6 @@ export function resolveEarlyLinuxElectronOptions(
   const isDevelopment = isDevelopmentEnvironment(input.env);
   return {
     isDevelopment,
-    linuxWmClass: isDevelopment ? FORK_DEVELOPMENT_SCHEME : FORK_CLI_COMMAND,
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
     passwordStore: resolveLinuxPasswordStoreSwitch({
       preference,

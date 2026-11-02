@@ -93,6 +93,7 @@ import {
   reusePullRequestEntries,
   settlePullRequestOverrides,
   pullRequestHostActions,
+  comparePullRequestsByRecency,
   largestPullRequestReadCount,
 } from "../components/pullRequest/pullRequestList.logic";
 import {
@@ -769,7 +770,7 @@ function PullRequestsRouteView() {
       const held = new Set(ordered.entries.map(pullRequestEntryKey));
       const arrived = answered.entries.filter((entry) => !held.has(pullRequestEntryKey(entry)));
       const appended = rankPullRequestMatches(
-        arrived.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+        arrived.toSorted(comparePullRequestsByRecency),
         sentParsed.text,
       );
       setOrdered({ key: filterKey, source: answered, entries: [...ordered.entries, ...appended] });
@@ -2010,9 +2011,7 @@ function pullRequestGroups({
         )
       : involvementEntries;
     if (text.length === 0) {
-      return narrowedEntries.toSorted((left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt),
-      );
+      return narrowedEntries.toSorted(comparePullRequestsByRecency);
     }
     return narrowedEntries.filter(
       (entry) =>
