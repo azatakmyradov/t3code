@@ -92,7 +92,7 @@ const makeHarness = Effect.fn("ServerUpdateNoOpTest.makeHarness")(function* (
         release: sessionRelease ?? undefined,
       },
     } as ServerConfig),
-    subscribeServerConfig: (input) => client.subscribeServerConfig(input),
+    subscribeServerConfig: (input = {}) => client.subscribeServerConfig(input),
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,

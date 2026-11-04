@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -9,7 +10,9 @@ import * as GitVcsDriver from "./GitVcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 import { gitHubCredentialFallback } from "./gitHubCredentialHelper.ts";
 
-const layer = VcsProcess.layer.pipe(Layer.provideMerge(NodeServices.layer));
+const layer = VcsProcess.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 const repositoryUrl = "https://github.com/acme/project.git";
 
 const setup = Effect.gen(function* () {
@@ -143,7 +146,7 @@ done
             ServerConfig.layerTest(process.cwd(), { prefix: "t3-github-helper-core-" }),
           ),
         ),
-      ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),
 );

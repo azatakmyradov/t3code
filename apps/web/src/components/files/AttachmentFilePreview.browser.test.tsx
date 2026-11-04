@@ -2624,6 +2624,7 @@ it("resets an edited, restored workspace PDF view for a different file", async (
   await expect
     .element(screen.getByText("1 / 3 pages", { exact: true }), { timeout: 10_000 })
     .toBeVisible();
+  using workers = vi.spyOn(window, "Worker");
   await screen.getByRole("button", { name: "Zoom in", exact: true }).click();
   const zoom = screen.container.textContent!.match(/\d+%/)![0];
   await screen.rerender(preview(urls.original, "first-page"));
@@ -2639,6 +2640,7 @@ it("resets an edited, restored workspace PDF view for a different file", async (
     expect(region().scrollTop).toBe(0);
     expect(region().scrollLeft).toBe(0);
   });
+  expect(workers).not.toHaveBeenCalled();
 });
 
 it("clamps workspace PDF scroll when pages shrink or disappear", async () => {

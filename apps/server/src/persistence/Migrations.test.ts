@@ -16,6 +16,9 @@ import ActiveTurnItemIndexes from "./Migrations/074_ActiveTurnItemIndexes.ts";
 import ExcludeAttachmentPlaceholdersFromSearch from "./Migrations/075_ExcludeAttachmentPlaceholdersFromSearch.ts";
 import SubagentDeliveryState from "./Migrations/076_SubagentDeliveryState.ts";
 import ProjectionProjectsPinArchive from "./Migrations/077_ProjectionProjectsPinArchive.ts";
+import RepairBooleanSettledOverride from "./Migrations/078_RepairBooleanSettledOverride.ts";
+import DropOrchestrationEventCorrelationIndex from "./Migrations/079_DropOrchestrationEventCorrelationIndex.ts";
+import DelegatedRecoveryIndexes from "./Migrations/080_DelegatedRecoveryIndexes.ts";
 
 import ThreadMessageSearch from "./Migrations/070_ThreadMessageSearch.ts";
 
@@ -148,6 +151,18 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* ProjectionProjectsPinArchive;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (76, 'ProjectionProjectsPinArchive', '2026-10-16 12:00:00')`;
   }
+  if (throughId >= 77) {
+    yield* RepairBooleanSettledOverride;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (77, 'RepairBooleanSettledOverride', '2026-10-17 12:00:00')`;
+  }
+  if (throughId >= 78) {
+    yield* DropOrchestrationEventCorrelationIndex;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (78, 'DropOrchestrationEventCorrelationIndex', '2026-10-18 12:00:00')`;
+  }
+  if (throughId >= 79) {
+    yield* DelegatedRecoveryIndexes;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (79, 'DelegatedRecoveryIndexes', '2026-10-19 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -222,7 +237,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76])(
+  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79])(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -420,7 +435,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76])(
+  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79])(
     "does not reconcile upstream %s beyond the requested migration limit",
     (id) =>
       Effect.gen(function* () {
@@ -501,6 +516,44 @@ describe("runMigrations", () => {
       assert.deepStrictEqual(yield* runMigrations(), v2Migrations);
       assert.deepStrictEqual(yield* history, migrationManifest);
       assert.isAbove(yield* v2TableCount, 0);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("drops the unused correlation index and keeps correlation values", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 54 });
+      yield* sql`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at,
+          command_id, causation_event_id, correlation_id, actor_kind, payload_json, metadata_json
+        )
+        VALUES (
+          'event-1', 'thread', 'thread-1', 0, 'thread.created', '2026-01-01T00:00:00.000Z',
+          'command-1', NULL, 'correlation-1', 'client', '{}', '{}'
+        )
+      `;
+
+      yield* runMigrations();
+
+      const indexes = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master
+        WHERE type = 'index' AND tbl_name = 'orchestration_events' AND sql IS NOT NULL
+      `;
+      const indexNames = indexes.map((row) => row.name);
+      assert.notInclude(indexNames, "idx_orch_events_correlation_id");
+      for (const kept of [
+        "idx_orch_events_stream_version",
+        "idx_orch_events_stream_sequence",
+        "idx_orch_events_command_id",
+        "idx_orchestration_events_agent_stream_sequence",
+      ]) {
+        assert.include(indexNames, kept);
+      }
+      const events = yield* sql<{ readonly correlation_id: string | null }>`
+        SELECT correlation_id FROM orchestration_events WHERE event_id = 'event-1'
+      `;
+      assert.deepStrictEqual(events, [{ correlation_id: "correlation-1" }]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 

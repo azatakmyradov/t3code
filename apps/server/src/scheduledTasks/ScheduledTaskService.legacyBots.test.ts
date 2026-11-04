@@ -190,7 +190,7 @@ it.effect(
         const before = yield* sql`SELECT * FROM scheduled_tasks ORDER BY task_id`;
         for (const id of ["bot:check-in:saved", "bot-running", "bot-routine"]) {
           const failure = yield* service.runNow({ id: ScheduledTaskId.make(id) }).pipe(Effect.flip);
-          assert.include(String(failure.cause), "removed Bots feature");
+          assert.include(failure.message, "removed Bots feature");
         }
         assert.deepEqual(dispatched, []);
         assert.deepEqual(yield* sql`SELECT * FROM scheduled_tasks ORDER BY task_id`, before);

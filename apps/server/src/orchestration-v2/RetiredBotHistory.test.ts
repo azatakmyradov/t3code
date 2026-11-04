@@ -22,15 +22,15 @@ import * as CommandReceipts from "../persistence/OrchestrationCommandReceipts.ts
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventStore from "./EventStore.ts";
-import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ProjectionReplay from "./testkit/ProjectionReplay.ts";
 
 const layerStores = Layer.mergeAll(
   EventStore.layer,
   ProjectionStore.layer,
   CommandReceipts.layer,
 ).pipe(Layer.provideMerge(SqlitePersistence.layerMemory));
-const layerTest = ProjectionMaintenance.layer.pipe(Layer.provideMerge(layerStores));
+const layerTest = ProjectionReplay.layer.pipe(Layer.provideMerge(layerStores));
 
 it.effect.each(["codex", "retiredForkProvider"])(
   "replays retired bot history and receipts with a %s provider without the removed command contract",
@@ -38,7 +38,7 @@ it.effect.each(["codex", "retiredForkProvider"])(
     Effect.gen(function* () {
       const events = yield* EventStore.EventStoreV2;
       const receipts = yield* CommandReceipts.OrchestrationCommandReceiptRepository;
-      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const replay = yield* ProjectionReplay.ProjectionReplay;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const sql = yield* SqlClient.SqlClient;
       const now = yield* DateTime.now;
@@ -142,7 +142,7 @@ it.effect.each(["codex", "retiredForkProvider"])(
         ),
         [update],
       );
-      assert.isTrue((yield* maintenance.rebuild).valid);
+      assert.isTrue((yield* replay.rebuild).valid);
       const projection = yield* projections.getThreadProjection(threadId);
       assert.deepStrictEqual(projection.thread.modelSelection, modelSelection);
       assert.deepStrictEqual(projection.providerSessions, [session]);

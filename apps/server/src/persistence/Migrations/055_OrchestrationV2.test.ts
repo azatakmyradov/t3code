@@ -15,7 +15,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 77 }, (_, index) => index + 1),
+        Array.from({ length: 80 }, (_, index) => index + 1),
       );
     }),
   );
@@ -51,6 +51,9 @@ layer("055_OrchestrationV2", (it) => {
         [75, "ExcludeAttachmentPlaceholdersFromSearch"],
         [76, "SubagentDeliveryState"],
         [77, "ProjectionProjectsPinArchive"],
+        [78, "RepairBooleanSettledOverride"],
+        [79, "DropOrchestrationEventCorrelationIndex"],
+        [80, "DelegatedRecoveryIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -94,6 +97,9 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 75, name: "ExcludeAttachmentPlaceholdersFromSearch" },
         { migration_id: 76, name: "SubagentDeliveryState" },
         { migration_id: 77, name: "ProjectionProjectsPinArchive" },
+        { migration_id: 78, name: "RepairBooleanSettledOverride" },
+        { migration_id: 79, name: "DropOrchestrationEventCorrelationIndex" },
+        { migration_id: 80, name: "DelegatedRecoveryIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
