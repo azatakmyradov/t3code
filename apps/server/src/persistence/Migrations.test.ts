@@ -19,6 +19,7 @@ import ProjectionProjectsPinArchive from "./Migrations/077_ProjectionProjectsPin
 import RepairBooleanSettledOverride from "./Migrations/078_RepairBooleanSettledOverride.ts";
 import DropOrchestrationEventCorrelationIndex from "./Migrations/079_DropOrchestrationEventCorrelationIndex.ts";
 import DelegatedRecoveryIndexes from "./Migrations/080_DelegatedRecoveryIndexes.ts";
+import ScheduledTaskThreadMode from "./Migrations/081_ScheduledTaskThreadMode.ts";
 
 import ThreadMessageSearch from "./Migrations/070_ThreadMessageSearch.ts";
 
@@ -163,6 +164,10 @@ const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
     yield* DelegatedRecoveryIndexes;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (79, 'DelegatedRecoveryIndexes', '2026-10-19 12:00:00')`;
   }
+  if (throughId >= 80) {
+    yield* ScheduledTaskThreadMode;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (80, 'ScheduledTaskThreadMode', '2026-10-20 12:00:00')`;
+  }
 });
 
 describe("runMigrations", () => {
@@ -237,7 +242,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79])(
+  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80])(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -435,7 +440,7 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79])(
+  it.effect.each([62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80])(
     "does not reconcile upstream %s beyond the requested migration limit",
     (id) =>
       Effect.gen(function* () {

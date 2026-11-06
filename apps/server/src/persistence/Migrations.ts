@@ -85,6 +85,7 @@ import Migration0077 from "./Migrations/077_ProjectionProjectsPinArchive.ts";
 import Migration0078 from "./Migrations/078_RepairBooleanSettledOverride.ts";
 import Migration0079 from "./Migrations/079_DropOrchestrationEventCorrelationIndex.ts";
 import Migration0080 from "./Migrations/080_DelegatedRecoveryIndexes.ts";
+import Migration0081 from "./Migrations/081_ScheduledTaskThreadMode.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -169,6 +170,7 @@ export const migrationEntries = [
   [78, "RepairBooleanSettledOverride", Migration0078],
   [79, "DropOrchestrationEventCorrelationIndex", Migration0079],
   [80, "DelegatedRecoveryIndexes", Migration0080],
+  [81, "ScheduledTaskThreadMode", Migration0081],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -262,7 +264,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
             (row.migration_id === 76 && row.name === "ProjectionProjectsPinArchive") ||
             (row.migration_id === 77 && row.name === "RepairBooleanSettledOverride") ||
             (row.migration_id === 78 && row.name === "DropOrchestrationEventCorrelationIndex") ||
-            (row.migration_id === 79 && row.name === "DelegatedRecoveryIndexes"),
+            (row.migration_id === 79 && row.name === "DelegatedRecoveryIndexes") ||
+            (row.migration_id === 80 && row.name === "ScheduledTaskThreadMode"),
         )
       ) {
         return yield* new Migrator.MigrationError({
@@ -298,6 +301,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
       }
       yield* Migration0061;
       // Free each destination before shifting the preceding upstream ledger entry.
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = 81
+        WHERE migration_id = 80 AND name = 'ScheduledTaskThreadMode'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 80
         WHERE migration_id = 79 AND name = 'DelegatedRecoveryIndexes'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 79

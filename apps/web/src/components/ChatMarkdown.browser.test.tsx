@@ -21,7 +21,7 @@ import { useRightPanelStore } from "../rightPanelStore";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
 import { MarkdownFindContext } from "./chat/markdownFindContext";
 import { useThreadFindHighlights } from "./chat/threadFindHighlights";
-import { setMarkdownTaskChecked } from "./files/filePreviewMode";
+import { setMarkdownTaskChecked } from "@t3tools/shared/markdownTaskList";
 import { HostImageUrlContext } from "./chat/hostImageUrl";
 
 const { workspaceSearch, filesystemMetadata } = vi.hoisted(() => ({
@@ -734,6 +734,9 @@ describe("ChatMarkdown streaming", () => {
     await act(async () => original.click());
     expect(editedText).toBe("- [ ] A longer first task\n- [x] Second");
     await vi.waitFor(() => expect(checkboxes()[1]!.checked).toBe(true));
+    await rerender(message("- [ ] A longer first task\n- [ ] Second"));
+    expect(checkboxes()[1]).toBe(original);
+    expect(checkboxes()[1]!.checked).toBe(false);
   });
 });
 

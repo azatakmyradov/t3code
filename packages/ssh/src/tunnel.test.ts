@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
@@ -27,6 +28,8 @@ import { SshCommandError, SshPasswordPromptError } from "./errors.ts";
 import * as SshTunnel from "./tunnel.ts";
 
 const TEST_NODE_ENGINE_RANGE = "^22.16 || ^23.11 || >=24.10";
+
+const isSshCommandError = Schema.is(SshCommandError);
 
 const makeSuccessfulProcess = (stdout: string) => {
   const stdoutStream = Stream.make(new TextEncoder().encode(stdout));
@@ -351,7 +354,12 @@ describe("ssh tunnel scripts", () => {
       Effect.succeed(makeDelayedSuccessfulProcess('{"remotePort":3774}\n', 75_000)),
     );
     const layerSpawner = Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner);
-    const layerProcess = Layer.mergeAll(NodeServices.layer, layerSpawner, TestClock.layer());
+    const layerProcess = Layer.mergeAll(
+      NodeServices.layer,
+      NodeCrypto.layer,
+      layerSpawner,
+      TestClock.layer(),
+    );
 
     return Effect.gen(function* () {
       const fiber = yield* Effect.forkChild(
@@ -376,7 +384,12 @@ describe("ssh tunnel scripts", () => {
       Effect.succeed(makeDelayedSuccessfulProcess('{"remotePort":3774}\n', 800_000)),
     );
     const layerSpawner = Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner);
-    const layerProcess = Layer.mergeAll(NodeServices.layer, layerSpawner, TestClock.layer());
+    const layerProcess = Layer.mergeAll(
+      NodeServices.layer,
+      NodeCrypto.layer,
+      layerSpawner,
+      TestClock.layer(),
+    );
 
     return Effect.gen(function* () {
       const fiber = yield* Effect.forkChild(
@@ -459,7 +472,7 @@ describe("ssh tunnel scripts", () => {
       ),
     );
     const layerSpawner = Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner);
-    const layerProcess = Layer.merge(NodeServices.layer, layerSpawner);
+    const layerProcess = Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, layerSpawner);
     return Effect.gen(function* () {
       const result = yield* SshTunnel.issueRemotePairingToken(target, undefined, ARCHIVE);
       assert.equal(result.credential, "LCL4R2TPHDKQ");
@@ -527,6 +540,7 @@ describe("ssh tunnel scripts", () => {
       );
       const layer = Layer.mergeAll(
         NodeServices.layer,
+        NodeCrypto.layer,
         Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Layer.succeed(HttpClient.HttpClient, httpClient),
         Layer.succeed(NetService.NetService, testNetService),
@@ -587,6 +601,7 @@ describe("ssh tunnel scripts", () => {
       );
       const layer = Layer.mergeAll(
         NodeServices.layer,
+        NodeCrypto.layer,
         Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Layer.succeed(HttpClient.HttpClient, testHttpClient),
         Layer.succeed(NetService.NetService, testNetService),
@@ -682,6 +697,7 @@ describe("ssh tunnel scripts", () => {
       );
       const layer = Layer.mergeAll(
         NodeServices.layer,
+        NodeCrypto.layer,
         Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Layer.succeed(HttpClient.HttpClient, httpClient),
         Layer.succeed(NetService.NetService, testNetService),
@@ -739,7 +755,7 @@ describe("ssh tunnel scripts", () => {
         assert.isTrue(Result.isFailure(result));
         if (Result.isFailure(result)) {
           assert.instanceOf(result.failure, SshCommandError);
-          if (result.failure instanceof SshCommandError) {
+          if (isSshCommandError(result.failure)) {
             assert.equal(result.failure.exitCode, 1);
             assert.equal(result.failure.stderr.length, 16_384);
             assert.isTrue(result.failure.stderr.endsWith(diagnostic));
@@ -797,7 +813,7 @@ describe("ssh tunnel scripts", () => {
         assert.isTrue(Result.isFailure(result));
         if (Result.isFailure(result)) {
           assert.instanceOf(result.failure, SshCommandError);
-          if (result.failure instanceof SshCommandError) {
+          if (isSshCommandError(result.failure)) {
             assert.equal(result.failure.exitCode, 255);
             assert.equal(result.failure.stderr, diagnostic);
           }
@@ -881,7 +897,7 @@ describe("ssh tunnel scripts", () => {
         assert.equal(finalized, 1);
         assert.isFalse(yield* child.isRunning);
       }).pipe(Effect.provide(layer), Effect.scoped);
-    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)), Effect.scoped),
   );
 
   it.effect.each([
@@ -952,7 +968,7 @@ describe("ssh tunnel scripts", () => {
         if (Result.isFailure(result)) {
           if (expectedPromptAttempts.length === 0) {
             assert.instanceOf(result.failure, SshCommandError);
-            if (result.failure instanceof SshCommandError) {
+            if (isSshCommandError(result.failure)) {
               assert.equal(result.failure.stderr, stderr);
             }
           } else {
@@ -1153,7 +1169,7 @@ const runScript = (
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const child = yield* spawner.spawn(
       ChildProcess.make("sh", args, {
-        env: { PATH: options?.path ?? process.env.PATH ?? "", HOME: home },
+        env: { PATH: options?.path ?? (yield* HostProcess.Environment).PATH ?? "", HOME: home },
         extendEnv: false,
         ...(options?.stdin ? { stdin: { stream: options.stdin } } : {}),
       }),
@@ -1237,7 +1253,7 @@ describe("archive runner script", () => {
           yield* fs.writeFileString(`${bin}/${name}`, `#!/bin/sh\n${script}\n`);
           yield* fs.chmod(`${bin}/${name}`, 0o755);
         }
-        const path = `${bin}:${process.env.PATH ?? ""}`;
+        const path = `${bin}:${(yield* HostProcess.Environment).PATH ?? ""}`;
         const installing = yield* Deferred.make<void>();
         const contended = yield* Deferred.make<void>();
         // Hold the first extraction until another runner either waits for the lock

@@ -7,6 +7,7 @@ import {
   type DesktopServerExposureState,
   type DesktopUpdateState,
   type DesktopWslState,
+  type EnvironmentId,
 } from "@t3tools/contracts";
 import {
   getDesktopUpdateDownloadedVersion,
@@ -144,4 +145,23 @@ export async function applyWslEnableSelection(input: {
     await bridge.setWslDistro(nextDistro);
   }
   return await bridge.setWslBackendEnabled(true);
+}
+
+/** An explicit choice while it is listed, else the primary, else a connected environment. */
+export function resolveAccessEnvironmentId(input: {
+  readonly primaryEnvironmentId: EnvironmentId | null;
+  readonly environments: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly connected: boolean;
+  }>;
+  readonly selected: EnvironmentId | null;
+}): EnvironmentId | null {
+  const isListed = (environmentId: EnvironmentId | null) =>
+    input.environments.some((environment) => environment.environmentId === environmentId);
+  if (isListed(input.selected)) return input.selected;
+  if (isListed(input.primaryEnvironmentId)) return input.primaryEnvironmentId;
+  return (
+    (input.environments.find((environment) => environment.connected) ?? input.environments[0])
+      ?.environmentId ?? null
+  );
 }

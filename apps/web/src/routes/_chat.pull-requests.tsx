@@ -7,6 +7,8 @@ import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import type { PullRequestSpeedActionResult } from "~/components/pullRequest/PullRequestSpeedActions";
 import { usePullRequestCloseBatch } from "~/components/pullRequest/usePullRequestActions";
+import { pullRequestPanelReference } from "~/components/pullRequest/usePullRequestDetail";
+import { usePullRequestIntentPrefetch } from "~/components/pullRequest/usePullRequestIntentPrefetch";
 import { SidebarPointerSensor } from "~/components/Sidebar.pointer";
 import { resolveSidebarSweepKeys } from "~/components/Sidebar.logic";
 import { sortProjectsByGroupOrder } from "@t3tools/client-runtime/state/project-grouping";
@@ -22,6 +24,7 @@ import type {
   PullRequestListInput,
   PullRequestListResult,
   PullRequestListState,
+  PullRequestSummary,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
@@ -45,6 +48,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  useDeferredValue,
   useEffect,
   useEffectEvent,
   useRef,
@@ -213,17 +217,32 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   others: UsersIcon,
 };
 
+const FIRST_PAINT_ROWS = 24;
+
+function firstPaintGroups<Group extends { entries: ReadonlyArray<unknown> }>(
+  groups: ReadonlyArray<Group>,
+): ReadonlyArray<Group> {
+  let left = FIRST_PAINT_ROWS;
+  return groups.flatMap((group) => {
+    const entries = group.entries.slice(0, left);
+    left -= entries.length;
+    return entries.length === 0 ? [] : [{ ...group, entries }];
+  });
+}
+
 function PullRequestGroupHeader({
   group,
+  count,
 }: {
-  group: { key: string; label: string; entries: ReadonlyArray<unknown> };
+  group: { key: string; label: string };
+  count: number;
 }) {
   const Icon = GROUP_ICONS[group.key] ?? LayersIcon;
   return (
     <div className="flex items-center gap-2 px-3 pb-1 text-xs font-medium text-muted-foreground/70">
       <Icon aria-hidden className="size-3.5 shrink-0" />
       <h2 className="shrink-0">{group.label}</h2>
-      <span className="shrink-0 tabular-nums text-muted-foreground/50">{group.entries.length}</span>
+      <span className="shrink-0 tabular-nums text-muted-foreground/50">{count}</span>
       <Separator className="min-w-2 flex-1" />
     </div>
   );
@@ -635,9 +654,10 @@ function PullRequestsRouteView() {
   const overrideEntry = (
     entry: EnvironmentPullRequestEntry,
     action: PullRequestAction,
+    reply?: PullRequestSummary,
   ): number | null => {
     const token = ++overrideToken.current;
-    const override = pullRequestOverrideAfterAction(entry, action, new Date(), token);
+    const override = pullRequestOverrideAfterAction(entry, action, new Date(), token, reply);
     if (override === null) return null;
     setOverrides((current) => new Map(current).set(pullRequestEntryKey(entry), override));
     return token;
@@ -652,13 +672,17 @@ function PullRequestsRouteView() {
     });
   };
   const detailOverrideTokens = useRef(new Map<string, number | null>());
-  const onSpeedAction = useStableCallback(({ entry, action }: PullRequestSpeedActionResult) => {
-    // Some hosts accept a merge before it completes. Let the next host read declare it merged.
-    if (action !== "merge") overrideEntry(entry, action);
-  });
-  const onBatchClosed = useStableCallback((entry: EnvironmentPullRequestEntry) => {
-    onSpeedAction({ entry, action: "close" });
-  });
+  const onSpeedAction = useStableCallback(
+    ({ entry, action, reply }: PullRequestSpeedActionResult) => {
+      // Some hosts accept a merge before it completes. Without a reply, let the next read say so.
+      if (reply !== undefined || action !== "merge") overrideEntry(entry, action, reply);
+    },
+  );
+  const onBatchClosed = useStableCallback(
+    (entry: EnvironmentPullRequestEntry, reply: PullRequestSummary | undefined) => {
+      onSpeedAction({ entry, action: "close", reply });
+    },
+  );
   const { close: closeBatch, closingKeys } = usePullRequestCloseBatch(onBatchClosed);
   const [snapshotEnvironmentKey, setSnapshotEnvironmentKey] = useState("");
   if (environmentKey.length > 0 && snapshotEnvironmentKey !== environmentKey) {
@@ -1101,6 +1125,10 @@ function PullRequestsRouteView() {
     text: typedParsed.text,
     involvement: search.involvement,
   });
+  // Every row mounts tooltips and actions; painting a first screenful before the rest keeps
+  // opening the page from blocking on the whole list.
+  const shownGroups = useDeferredValue(displayGroups, firstPaintGroups(displayGroups));
+  const groupCounts = new Map(displayGroups.map((group) => [group.key, group.entries.length]));
   const showProvider = hosts.length > 1;
   const [closeSweepKeys, setCloseSweepKeys] = useState<ReadonlySet<string>>(() => new Set());
   const closeSensorRef = useRef<SidebarPointerSensor | null>(null);
@@ -1271,6 +1299,9 @@ function PullRequestsRouteView() {
     ),
   );
 
+  const prefetchEntry = usePullRequestIntentPrefetch((entry) =>
+    listedPullRequestsBySurface.has(pullRequestListEntryId(entry)),
+  );
   const selectEntry = (entry: PullRequestRowTarget) => {
     if (rightPanelRef === null) return;
     useRightPanelStore.getState().openPullRequest(rightPanelRef, entry);
@@ -1369,9 +1400,14 @@ function PullRequestsRouteView() {
         />
       ) : (
         <div className={cn("space-y-3", closeSweepKeys.size > 0 && "**:pointer-events-none")}>
-          {displayGroups.map((group) => (
+          {shownGroups.map((group) => (
             <div key={group.key} className="space-y-0.5">
-              {group.label ? <PullRequestGroupHeader group={group} /> : null}
+              {group.label ? (
+                <PullRequestGroupHeader
+                  group={group}
+                  count={groupCounts.get(group.key) ?? group.entries.length}
+                />
+              ) : null}
               {group.entries.map((entry) => {
                 const entryKey = pullRequestEntryKey(entry);
                 return (
@@ -1399,6 +1435,7 @@ function PullRequestsRouteView() {
                       selected.number === entry.number
                     }
                     onSelect={selectEntry}
+                    onIntent={prefetchEntry}
                     hostActions={hostActionsOf(entry)}
                     onActed={onSpeedAction}
                     closing={closingKeys.has(entryKey)}
@@ -1745,17 +1782,10 @@ function PullRequestsRouteView() {
                   selectedEnvironmentId: panelEnvironmentId,
                 });
               }}
-              reference={{
+              reference={pullRequestPanelReference({
+                ...renderedPullRequestSurface,
                 projectId: renderedPullRequestSurface.projectId as ProjectId,
-                repository: renderedPullRequestSurface.repository,
-                number: renderedPullRequestSurface.number,
-                ...(renderedPullRequestSurface.expectedAccountId === undefined
-                  ? {}
-                  : { expectedAccountId: renderedPullRequestSurface.expectedAccountId }),
-                ...(renderedPullRequestSurface.host
-                  ? { host: renderedPullRequestSurface.host }
-                  : {}),
-              }}
+              })}
               listEntry={
                 listedPullRequestsBySurface.get(
                   pullRequestListEntryId(renderedPullRequestSurface),
@@ -1771,12 +1801,19 @@ function PullRequestsRouteView() {
               }
               refreshToken={detailRefreshToken}
               tabOnPage
-              onActed={(action, phase = "done") => {
+              onActed={(action, phase = "done", reply) => {
                 // From every row held, not the ones on screen: a pull request closed from an open
                 // list has left the screen, and reopening it has to find it anyway.
                 const acted = heldPullRequestsBySurface.get(
                   pullRequestListEntryId(renderedPullRequestSurface),
                 );
+                if (reply !== undefined) {
+                  if (acted !== undefined) {
+                    if (action !== undefined) overrideEntry(acted, action, reply);
+                    detailOverrideTokens.current.delete(pullRequestEntryKey(acted));
+                  }
+                  return;
+                }
                 const stateOnly =
                   action !== undefined &&
                   acted !== undefined &&
