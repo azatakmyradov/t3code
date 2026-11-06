@@ -5,6 +5,7 @@ import {
   type EnvironmentId,
   type PullRequestListEntry,
   type PullRequestRef,
+  type ProjectId,
 } from "@t3tools/contracts";
 import { useState } from "react";
 
@@ -22,6 +23,25 @@ import {
   readPullRequestDetailSnapshot,
   resolveDisplayedPullRequestDetail,
 } from "./pullRequestDetail.logic";
+
+// Query atoms key on JSON order, so the panel and the row prefetch must build the ref here.
+export function pullRequestPanelReference(target: {
+  readonly projectId: ProjectId;
+  readonly repository: string;
+  readonly number: number;
+  readonly expectedAccountId?: string | undefined;
+  readonly host?: string | undefined;
+}): PullRequestRef {
+  return {
+    projectId: target.projectId,
+    repository: target.repository,
+    number: target.number,
+    ...(target.expectedAccountId === undefined
+      ? {}
+      : { expectedAccountId: target.expectedAccountId }),
+    ...(target.host ? { host: target.host } : {}),
+  };
+}
 
 function pullRequestRefKey(reference: PullRequestRef) {
   return pullRequestReviewKey(reference);

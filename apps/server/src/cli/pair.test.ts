@@ -34,6 +34,7 @@ import {
   persistServerRuntimeState,
   type PersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
+import { resolveHostCliCommand } from "./invocation.ts";
 import {
   DevServerNotProxiableError,
   resolveDirectPairingBaseUrl,
@@ -347,8 +348,10 @@ describe("t3-fork pair", () => {
         typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
       );
       assert.include(rendered, "No running T3 Fork server found.");
-      assert.include(rendered, "npx @azatakmyradov/t3-fork serve");
-      assert.include(rendered, "npx @azatakmyradov/t3-fork connect");
+      for (const subcommand of ["serve", "connect"]) {
+        const { command } = yield* resolveHostCliCommand(subcommand, ["--base-dir", baseDir]);
+        assert.include(rendered, `\`${command}\``);
+      }
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -399,7 +402,7 @@ describe("t3-fork pair", () => {
   it.effect("ignores runtime state whose recorded pid is no longer alive", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
-        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-pid-test-"));
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3 pair pid test-"));
         const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
         const state = yield* makePersistedServerRuntimeState({
           config: { host: "127.0.0.1", devUrl: undefined },
@@ -418,6 +421,10 @@ describe("t3-fork pair", () => {
           typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
         );
         assert.include(rendered, "No running T3 Fork server found.");
+        for (const subcommand of ["serve", "connect"]) {
+          const { command } = yield* resolveHostCliCommand(subcommand, ["--base-dir", baseDir]);
+          assert.include(rendered, `\`${command}\``);
+        }
       }),
     ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );

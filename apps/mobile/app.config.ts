@@ -14,6 +14,8 @@ type AppVariant = "development" | "preview" | "production";
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
+// Expo's TypeScript setup otherwise installs `typescript` on every start; we typecheck with tsrs.
+process.env.EXPO_NO_TYPESCRIPT_SETUP = "1";
 
 const easProjectId = repoEnv.T3CODE_EAS_PROJECT_ID?.trim();
 

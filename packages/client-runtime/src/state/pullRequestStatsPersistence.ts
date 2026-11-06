@@ -37,10 +37,13 @@ export function persistPullRequestStats(): QueryPersistence<PullRequestListStats
     load: Effect.fn("pullRequestStatsPersistence.load")(
       function* (environmentId, key) {
         const [, input] = yield* Schema.decodeEffect(requestKey)(key);
-        const rows = yield* Effect.forEach(input.refs, (ref) =>
-          row
-            .load(environmentId, statKey(ref))
-            .pipe(Effect.map((value) => Option.filter(value, (stat) => matchesStat(ref, stat)))),
+        const rows = yield* Effect.forEach(
+          input.refs,
+          (ref) =>
+            row
+              .load(environmentId, statKey(ref))
+              .pipe(Effect.map((value) => Option.filter(value, (stat) => matchesStat(ref, stat)))),
+          { concurrency: "unbounded" },
         );
         const stats = rows.flatMap((value) => (Option.isSome(value) ? [value.value] : []));
         return stats.length ? Option.some({ stats }) : Option.none();

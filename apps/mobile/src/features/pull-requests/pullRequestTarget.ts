@@ -1,4 +1,9 @@
-import { EnvironmentId, ProjectId, type PullRequestListEntry } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  type PullRequestListEntry,
+  type PullRequestSummary,
+} from "@t3tools/contracts";
 import type { EnvironmentPullRequestListEntry } from "./pullRequestList";
 
 export type PullRequestParams = {
@@ -8,7 +13,7 @@ export type PullRequestParams = {
   readonly number: number;
   readonly host?: string;
   readonly expectedAccountId?: string;
-  readonly initialSummary?: PullRequestListEntry;
+  readonly initialSummary?: PullRequestListEntry | PullRequestSummary;
 };
 
 /** Preserve the selected workspace and account through every detail read and action. */
