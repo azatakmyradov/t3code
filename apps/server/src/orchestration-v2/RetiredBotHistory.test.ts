@@ -145,7 +145,7 @@ it.effect.each(["codex", "retiredForkProvider"])(
       assert.isTrue((yield* replay.rebuild).valid);
       const projection = yield* projections.getThreadProjection(threadId);
       assert.deepStrictEqual(projection.thread.modelSelection, modelSelection);
-      assert.deepStrictEqual(projection.providerSessions, [session]);
+      assert.deepStrictEqual(projection.providerSessions, [{ ...session, extensionStatuses: [] }]);
       assert.deepStrictEqual(projection.turnItems, [update.payload]);
       assert.equal(projection.runs.length, 0);
       assert.deepStrictEqual(
