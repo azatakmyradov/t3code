@@ -41,9 +41,16 @@ export function isRuntimeExternalCliDependency(id: string): boolean {
   );
 }
 
+// Staged for the external Cursor SDK but also bundled: @effect/platform-node's NodeHttpClient
+// imports it as ESM, which a single-executable cannot resolve from disk.
+const BUNDLED_RUNTIME_DEPENDENCIES = ["undici"] as const;
+
 /** Use neverBundle: false from alwaysBundle means no opinion and leaves transitive packages bundled. */
 export function isExternalCliDependency(id: string): boolean {
-  return isRuntimeExternalCliDependency(id);
+  return (
+    isRuntimeExternalCliDependency(id) &&
+    !BUNDLED_RUNTIME_DEPENDENCIES.some((name) => id === name || id.startsWith(`${name}/`))
+  );
 }
 
 export function shouldBundleCliDependency(id: string): boolean {

@@ -50,6 +50,13 @@ describe("shouldBundleCliDependency", () => {
   it("treats prefix-matched siblings as external", () => {
     assert.strictEqual(shouldBundleCliDependency("node-gyp-build-optional-packages"), false);
   });
+
+  it("bundles undici for ESM importers while still staging it for Cursor", () => {
+    assert.strictEqual(shouldBundleCliDependency("undici"), true);
+    assert.deepStrictEqual(selectCliRuntimeExternalDependencies({ undici: "8.12.4" }), {
+      undici: "8.12.4",
+    });
+  });
 });
 
 it.layer(NodeServices.layer)("external package dependency closure", (it) => {
