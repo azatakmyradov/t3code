@@ -1,3 +1,4 @@
+import { useSearch } from "@tanstack/react-router";
 import { useNowSecond } from "../../hooks/useNowSecond";
 import { useDesktopUpdateState } from "~/state/desktopUpdate";
 import { resolveLocalVersionStatusLabel } from "./ConnectionsSettings.logic";
@@ -45,7 +46,7 @@ import {
   type DesktopSshEnvironmentTarget,
   type DesktopServerExposureState,
   type DesktopWslState,
-  type EnvironmentId,
+  EnvironmentId,
   connectReachabilityHelpUrl,
   formatConnectReachable,
   managedCapabilityDenial,
@@ -79,12 +80,12 @@ import {
   isQrShareableEndpoint,
   isWslSettingsRowVisible,
   missingTailscaleEndpointDescription,
-  resolveAccessEnvironmentId,
   resolveTailscaleServeBaseUrl,
   selectQrEndpointOption,
   togglePairingScopeSelection,
 } from "./ConnectionsSettings.logic";
 import { settingsScopeEnvironmentLabel } from "./settingsScopeAxis";
+import { useAccessEnvironment } from "./useAccessEnvironment";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { ManagedByOrganization } from "../ManagedPolicy";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
@@ -195,7 +196,6 @@ import {
   useEnvironments,
   usePrimaryEnvironment,
   useRelayEnvironmentDiscovery,
-  usePrimaryEnvironmentId,
 } from "~/state/environments";
 import { APP_VERSION } from "~/branding";
 import { requestConfirmDialog } from "~/confirmDialog";
@@ -2116,22 +2116,17 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
 }
 
 function AccessSettings() {
-  const { environments } = useEnvironments();
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(null);
-  const candidates = environments.filter(
-    (environment) =>
-      environment.environmentId === primaryEnvironmentId ||
-      (environment.entry.enabled && !isDesktopLocalConnectionTarget(environment.entry.target)),
-  );
-  const accessEnvironmentId = resolveAccessEnvironmentId({
-    primaryEnvironmentId,
-    environments: candidates.map((environment) => ({
-      environmentId: environment.environmentId,
-      connected: environment.connection.phase === "connected",
-    })),
-    selected: selectedEnvironmentId,
+  // A link that names an environment, such as the MCP wizard's, opens the page on it. The
+  // settings layout remounts this page when the link changes.
+  const linkedEnvironmentId = useSearch({
+    strict: false,
+    select: (search) =>
+      typeof search.machine === "string" ? EnvironmentId.make(search.machine) : null,
   });
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState(linkedEnvironmentId);
+  const { candidates, environment: accessEnvironment } =
+    useAccessEnvironment(selectedEnvironmentId);
+  const accessEnvironmentId = accessEnvironment?.environmentId ?? null;
   const picker =
     candidates.length > 1 && accessEnvironmentId !== null ? (
       <div className="flex min-w-0 items-center gap-1.5 px-3 text-sm text-muted-foreground sm:px-4">

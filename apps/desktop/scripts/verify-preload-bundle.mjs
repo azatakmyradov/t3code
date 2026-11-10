@@ -104,13 +104,19 @@ const executeBundle = (source, sandboxModules) => {
     return sandboxModules.get(moduleName);
   };
 
+  const document = Object.assign(new EventTarget(), {
+    fullscreenElement: null,
+    documentElement: { style: { setProperty: () => undefined } },
+  });
+  const window = { document, addEventListener: (_event, listener) => listener() };
+
   NodeVM.runInNewContext(
     source,
     {
+      document,
       process: sandboxProcess,
       require: requireSandboxModule,
-      window: { addEventListener: (_event, listener) => listener() },
-      document: { documentElement: { style: { setProperty: () => undefined } } },
+      window,
     },
     {
       filename: "desktop-preload.cjs",
