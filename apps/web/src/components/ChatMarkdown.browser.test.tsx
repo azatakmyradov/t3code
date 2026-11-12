@@ -18,6 +18,7 @@ import { readLocalApi } from "../localApi";
 import { toastManager } from "./ui/toast";
 import { filesystemEnvironment } from "../state/filesystem";
 import { useRightPanelStore } from "../rightPanelStore";
+import { remarkEnableOrderedListNumbers } from "@t3tools/shared/markdownPipeline";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
 import { MarkdownFindContext } from "./chat/markdownFindContext";
 import { useThreadFindHighlights } from "./chat/threadFindHighlights";
@@ -52,6 +53,7 @@ vi.mock(import("../state/server"), async (original) => {
   const { Atom } = await import("effect/reactivity");
   const noConfig = Atom.make(null);
   const modelsConfig = Atom.make({
+    environment: { platform: { os: "darwin" } },
     availableEditors: [],
     settings: { providerInstances: {} },
     providers: [
@@ -972,18 +974,17 @@ describe("ChatMarkdown file citations", () => {
   );
 
   it("leaves an unfinished streaming citation visible until it is complete", async () => {
-    const container = await renderText(
-      'Created :codex-file-citation{path="/tmp/project/outputs/report.xlsx"',
-      { isStreaming: true },
-    );
+    const container = await renderText('Created :codex-file-citation{path="outputs/report.xlsx"', {
+      isStreaming: true,
+    });
     expect(container.textContent).toContain(":codex-file-citation");
     expect(fileOptions(container)).toEqual([]);
   });
 
   it.each([
     ':codex-file-citation{purpose="output"}',
-    ':codex-file-citation-extra{path="/tmp/project/outputs/report.xlsx"}',
-    'Example: \\:codex-file-citation{path="/tmp/project/outputs/report.xlsx"}',
+    ':codex-file-citation-extra{path="outputs/report.xlsx"}',
+    'Example: \\:codex-file-citation{path="outputs/report.xlsx"}',
   ])("leaves %s literal", async (text) => {
     const container = await renderText(text);
     expect(container.textContent).toContain(text.replace("\\", ""));
@@ -1724,5 +1725,102 @@ describe("ChatMarkdown math", () => {
         node.getAttribute("data-markdown-copy"),
       ),
     ).toEqual(["\\[\nx^2\n\\]\n\n"]);
+  });
+});
+
+describe("ChatMarkdown upstream rendering", () => {
+  const SOURCE_NUMBER_PLUGINS = [remarkEnableOrderedListNumbers];
+
+  it("keeps decimal markers in nested user lists while documents keep their counter styles", async () => {
+    const text = "1. Outer\n   1. Nested\n   7. Skipped\n      1. Deeper\n      4. Fourth";
+    await using screen = await renderDisposable(
+      <div className="grid grid-cols-2 gap-8 p-8">
+        <section>
+          <h2>User message</h2>
+          <ChatMarkdown
+            cwd={undefined}
+            text={text}
+            className="user-message-markdown"
+            extraRemarkPlugins={SOURCE_NUMBER_PLUGINS}
+          />
+        </section>
+        <section>
+          <h2>Markdown preview</h2>
+          <ChatMarkdown cwd={undefined} text={text} />
+        </section>
+      </div>,
+    );
+    await expect.element(screen.getByText("User message", { exact: true })).toBeVisible();
+    const [message, preview] = screen.container.querySelectorAll(".chat-markdown");
+    expect(
+      [...message!.querySelectorAll("ol")].map((list) => getComputedStyle(list).listStyleType),
+    ).toEqual(["decimal", "decimal", "decimal"]);
+    expect(
+      [...preview!.querySelectorAll("ol")].map((list) => getComputedStyle(list).listStyleType),
+    ).toEqual(["decimal", "lower-alpha", "lower-roman"]);
+  });
+
+  it("highlights a code block's own source when an earlier block of the same length was cached", async () => {
+    const highlightedText = (container: HTMLElement) =>
+      container.querySelector(".chat-markdown-shiki")?.textContent?.trim();
+    // These two lines share a 32-bit FNV-1a hash and a length.
+    const first = 'const commitSha = "f36a6d8fe0aa";';
+    const second = 'const commitSha = "cb06f8d135b3";';
+    const block = (source: string) => (
+      <ChatMarkdown cwd="/tmp/project" text={`\`\`\`ts\n${source}\n\`\`\``} />
+    );
+    {
+      await using screen = await renderDisposable(block(first));
+      await vi.waitFor(() => expect(highlightedText(screen.container)).toBe(first));
+    }
+    await using screen = await renderDisposable(block(second));
+    await vi.waitFor(() => expect(highlightedText(screen.container)).toBe(second));
+  });
+
+  it("keeps a leading emoji whole in external link labels", async () => {
+    await using screen = await renderDisposable(
+      <ChatMarkdown cwd="/tmp/project" text="[😀 Read the documentation](https://example.com)" />,
+    );
+    await vi.waitFor(() => {
+      const link = screen.container.querySelector("a");
+      expect(link?.textContent).toContain("😀 Read");
+      const walker = document.createTreeWalker(link!, NodeFilter.SHOW_TEXT);
+      const textNodes: string[] = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode.nodeValue ?? "");
+      expect(textNodes.filter((node) => /\p{Surrogate}/u.test(node))).toEqual([]);
+    });
+  });
+
+  it("keeps insight streaming, reference links, and heading anchors in one message", async () => {
+    const rule = "─".repeat(20);
+    const text = `## Setup\n\nBefore [source][src].\n\n★ Insight ${rule}\nA **streaming** note.`;
+    const message = (text: string, isStreaming: boolean) => (
+      <ChatMarkdown
+        cwd={undefined}
+        text={text}
+        renderInsights
+        lineBreaks
+        isStreaming={isStreaming}
+      />
+    );
+    await using screen = await renderDisposable(message(text, true));
+    await expect.element(screen.getByRole("note")).toHaveTextContent("Insight A streaming note.");
+    await screen.rerender(
+      message(
+        `${text}\n${rule}\n\n## Setup\n\nAfter [source][src].\n\n[src]:\n  https://example.com`,
+        false,
+      ),
+    );
+    await expect.element(screen.getByRole("note")).toHaveTextContent("Insight A streaming note.");
+    expect([...screen.container.querySelectorAll("h2")].map((heading) => heading.id)).toEqual([
+      "user-content-setup",
+      "user-content-setup-1",
+    ]);
+    expect(
+      [...screen.container.querySelectorAll("a")].filter(
+        (link) => link.href === "https://example.com/",
+      ),
+    ).toHaveLength(2);
+    await expect.element(screen.getByRole("note")).not.toHaveTextContent("After");
   });
 });

@@ -13,6 +13,8 @@ export type PullRequestParams = {
   readonly number: number;
   readonly host?: string;
   readonly expectedAccountId?: string;
+  readonly navigationUrl?: string;
+  readonly navigationId?: number;
   readonly initialSummary?: PullRequestListEntry | PullRequestSummary;
 };
 

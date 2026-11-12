@@ -20,6 +20,7 @@ import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/cli";
 
 import { makeCli } from "../binCli.ts";
+import { CLOUD_CLI_DESIRED_LINK_SECRET } from "../cloud/CliState.ts";
 import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
@@ -255,9 +256,12 @@ it.effect("points a failed relay unlink at retry and account deregistration", ()
 );
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))(
-  "t3 connect unlink",
+  "t3 connect unlink and status",
   (it) => {
-    const runUnlink = (recordedPid: number, options?: { readonly portFreed?: boolean }) =>
+    const runConnect = (
+      recordedPid: number,
+      options?: { readonly portFreed?: boolean; readonly command?: "unlink" | "status" },
+    ) =>
       Effect.gen(function* () {
         const requests: Array<string> = [];
         const warnings: Array<string> = [];
@@ -292,10 +296,18 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
           path: `${baseDir}/userdata/server-runtime.json`,
           state: { ...state, pid: recordedPid },
         });
+        if (options?.command === "status") {
+          // Status asks the server for reachability only for a managed link.
+          yield* fs.makeDirectory(`${baseDir}/userdata/secrets`, { recursive: true });
+          yield* fs.writeFileString(
+            `${baseDir}/userdata/secrets/${CLOUD_CLI_DESIRED_LINK_SECRET}.bin`,
+            "managed",
+          );
+        }
 
         yield* Command.runWith(makeCli({ cloudEnabled: true }), { version: "0.0.0" })([
           "connect",
-          "unlink",
+          options?.command ?? "unlink",
           "--base-dir",
           baseDir,
         ]).pipe(
@@ -324,7 +336,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
 
     it.effect("does not tell the user to restart a server that is gone", () =>
       Effect.gen(function* () {
-        const { printed, warnings } = yield* runUnlink(deadPid, { portFreed: true });
+        const { printed, warnings } = yield* runConnect(deadPid, { portFreed: true });
 
         assert.include(printed, "T3 Connect is disabled locally.");
         assert.notInclude(warnings.join("\n"), "Restart that server");
@@ -333,7 +345,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
 
     it.effect("warns that a server that is gone may have left its connector running", () =>
       Effect.gen(function* () {
-        const { warnings } = yield* runUnlink(deadPid, { portFreed: true });
+        const { warnings } = yield* runConnect(deadPid, { portFreed: true });
 
         assert.include(warnings.join("\n"), "its cloudflared process may still be running");
       }),
@@ -341,15 +353,31 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
 
     it.effect("does not send a token to whatever took over a dead server's port", () =>
       Effect.gen(function* () {
-        const { requests } = yield* runUnlink(deadPid);
+        const { requests } = yield* runConnect(deadPid);
 
         assert.deepEqual(requests, []);
       }),
     );
 
+    it.effect("status does not send a token to whatever took over a dead server's port", () =>
+      Effect.gen(function* () {
+        const { requests } = yield* runConnect(deadPid, { command: "status" });
+
+        assert.deepEqual(requests, []);
+      }),
+    );
+
+    it.effect("status asks a running server to check reachability", () =>
+      Effect.gen(function* () {
+        const { requests } = yield* runConnect(process.pid, { command: "status" });
+
+        assert.deepEqual(requests, ["POST /api/connect/reachability"]);
+      }),
+    );
+
     it.effect("asks a running server to stop its tunnel", () =>
       Effect.gen(function* () {
-        const { requests, printed, warnings } = yield* runUnlink(process.pid);
+        const { requests, printed, warnings } = yield* runConnect(process.pid);
 
         assert.deepEqual(requests, ["POST /api/connect/unlink"]);
         assert.include(printed, "T3 Connect is disabled locally.");
