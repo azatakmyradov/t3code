@@ -86,6 +86,8 @@ import Migration0078 from "./Migrations/078_RepairBooleanSettledOverride.ts";
 import Migration0079 from "./Migrations/079_DropOrchestrationEventCorrelationIndex.ts";
 import Migration0080 from "./Migrations/080_DelegatedRecoveryIndexes.ts";
 import Migration0081 from "./Migrations/081_ScheduledTaskThreadMode.ts";
+import Migration0082 from "./Migrations/082_ProjectionMessageSearchText.ts";
+import Migration0083 from "./Migrations/083_TurnItemConversationIndex.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -171,6 +173,8 @@ export const migrationEntries = [
   [79, "DropOrchestrationEventCorrelationIndex", Migration0079],
   [80, "DelegatedRecoveryIndexes", Migration0080],
   [81, "ScheduledTaskThreadMode", Migration0081],
+  [82, "ProjectionMessageSearchText", Migration0082],
+  [83, "TurnItemConversationIndex", Migration0083],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -186,6 +190,24 @@ const makeMigrationLoader = (throughId?: number) =>
 
 const FIRST_V2_MIGRATION_ID = 55;
 
+export function skippedV2Migrations(
+  recorded: ReadonlyArray<{ readonly id: number; readonly name: string }>,
+  throughId?: number,
+): string[] {
+  const latestRecordedId = Math.max(0, ...recorded.map((row) => row.id));
+  const recordedNames = new Map(recorded.map((row) => [row.id, row.name]));
+  return migrationManifest.flatMap(([id, name]) => {
+    if (
+      id < FIRST_V2_MIGRATION_ID ||
+      id > latestRecordedId ||
+      (throughId !== undefined && id > throughId)
+    )
+      return [];
+    const recordedName = recordedNames.get(id);
+    return recordedName === name ? [] : [`${id}_${name} (recorded: ${recordedName ?? "nothing"})`];
+  });
+}
+
 // Migrators skip ids up to the highest recorded; reject collisions that would skip V2 schema.
 const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function* (
   throughId?: number,
@@ -199,24 +221,35 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
     readonly migration_id: number;
     readonly name: string;
   }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const skipped = skippedV2Migrations(
+    recorded.map((row) => ({ id: row.migration_id, name: row.name })),
+    throughId,
+  );
   const latestRecordedId = Math.max(0, ...recorded.map((row) => row.migration_id));
-  const recordedNames = new Map(recorded.map((row) => [row.migration_id, row.name]));
-  const skipped = migrationEntries.flatMap(([id, name]) => {
-    if (
-      id < FIRST_V2_MIGRATION_ID ||
-      id > latestRecordedId ||
-      (throughId !== undefined && id > throughId)
-    )
-      return [];
-    const recordedName = recordedNames.get(id);
-    if (recordedName === name) return [];
-    return [`${id}_${name} (recorded: ${recordedName ?? "nothing"})`];
-  });
   if (skipped.length === 0) return;
   return yield* new Migrator.MigrationError({
     kind: "BadState",
     message: `This database's migration history would skip required schema migrations: ${skipped.join(", ")}. The migrator skips every id up to the highest recorded id (${latestRecordedId}), regardless of name. It was probably written by a different build. Start the build that wrote it, or report this migration history so an upgrade path can be added.`,
   });
+});
+
+const latestMigrationId = Math.max(...migrationEntries.map(([id]) => id));
+
+// Mirrors the Migrator, which runs only ids above the highest recorded, plus the V2-preview reconciliation.
+export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (tables.length === 0) return true;
+  const rows = yield* sql<{ readonly latestId: number | null; readonly previewRows: number }>`
+    SELECT
+      MAX(migration_id) AS latestId,
+      SUM(name = 'OrchestrationV2' AND migration_id IN (53, 54)) AS previewRows
+    FROM effect_sql_migrations
+  `;
+  const row = rows[0];
+  return (row?.latestId ?? 0) < latestMigrationId || (row?.previewRows ?? 0) > 0;
 });
 
 // Upstream released review guides at 61 and the failure index at 62. This fork
@@ -265,7 +298,9 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
             (row.migration_id === 77 && row.name === "RepairBooleanSettledOverride") ||
             (row.migration_id === 78 && row.name === "DropOrchestrationEventCorrelationIndex") ||
             (row.migration_id === 79 && row.name === "DelegatedRecoveryIndexes") ||
-            (row.migration_id === 80 && row.name === "ScheduledTaskThreadMode"),
+            (row.migration_id === 80 && row.name === "ScheduledTaskThreadMode") ||
+            (row.migration_id === 81 && row.name === "ProjectionMessageSearchText") ||
+            (row.migration_id === 82 && row.name === "TurnItemConversationIndex"),
         )
       ) {
         return yield* new Migrator.MigrationError({
@@ -301,6 +336,10 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
       }
       yield* Migration0061;
       // Free each destination before shifting the preceding upstream ledger entry.
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = 83
+        WHERE migration_id = 82 AND name = 'TurnItemConversationIndex'`;
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = 82
+        WHERE migration_id = 81 AND name = 'ProjectionMessageSearchText'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 81
         WHERE migration_id = 80 AND name = 'ScheduledTaskThreadMode'`;
       yield* sql`UPDATE effect_sql_migrations SET migration_id = 80

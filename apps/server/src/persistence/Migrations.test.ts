@@ -291,7 +291,9 @@ describe("runMigrations", () => {
         yield* sql`INSERT INTO orchestration_v2_message_search (rowid, text) VALUES (42, 'saved search needle')`;
         const searchSchema = yield* sql`
           SELECT name, rootpage, sql FROM sqlite_master
-          WHERE name LIKE 'orchestration_v2_message_search%' OR sql LIKE '%orchestration_v2_message_search%' ORDER BY name
+          WHERE type = 'table'
+            AND (name LIKE 'orchestration_v2_message_search%' OR sql LIKE '%orchestration_v2_message_search%')
+          ORDER BY name
         `;
         const searchHistory = yield* sql<{ readonly created_at: string }>`
           SELECT created_at FROM effect_sql_migrations WHERE name = 'ThreadMessageSearch'
@@ -311,7 +313,9 @@ describe("runMigrations", () => {
         assert.deepStrictEqual(
           yield* sql`
           SELECT name, rootpage, sql FROM sqlite_master
-          WHERE name LIKE 'orchestration_v2_message_search%' OR sql LIKE '%orchestration_v2_message_search%' ORDER BY name
+          WHERE type = 'table'
+            AND (name LIKE 'orchestration_v2_message_search%' OR sql LIKE '%orchestration_v2_message_search%')
+          ORDER BY name
         `,
           searchSchema,
         );
@@ -368,7 +372,8 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([69, 70, 71, 72])("rejects upstream 72 with a gap at %s atomically", (missingId) =>
+  // IF NOT EXISTS makes a missing final entry replay safely, so only interior gaps reject.
+  it.effect.each([69, 70, 71])("rejects upstream 72 with a gap at %s atomically", (missingId) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* seedUpstream(72);
@@ -594,6 +599,20 @@ describe("runMigrations", () => {
       );
       assert.notInclude(String(exit), "57_ScheduledTaskWebhooks");
       assert.deepStrictEqual(yield* history, before);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("reapplies peer link migrations whose ledger rows are missing", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 72 });
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id BETWEEN 70 AND 72`;
+
+      assert.deepStrictEqual(
+        yield* runMigrations(),
+        migrationManifest.filter(([id]) => id >= 70),
+      );
+      assert.deepStrictEqual(yield* history, migrationManifest);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
