@@ -78,6 +78,15 @@ const makeHarness = Effect.fn("ServerUpdateNoOpTest.makeHarness")(function* (
     },
     [WS_METHODS.subscribeServerConfig]: () => Stream.never,
     [WS_METHODS.subscribeServerLifecycle]: () => {
+      // Launcher updates read the accepting server's ready before they send the request.
+      if (requests.length === 0) {
+        return Stream.make({
+          version: 1,
+          sequence: 1,
+          type: "ready",
+          payload: { at: "2026-08-01T00:00:00.000Z", environment: { serverVersion: "1.2.0" } },
+        });
+      }
       lifecycleSubscriptions += 1;
       return Stream.die("A no-op must not wait for a restart");
     },
