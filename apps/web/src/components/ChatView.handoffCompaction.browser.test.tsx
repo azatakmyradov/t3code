@@ -74,7 +74,9 @@ function coldClaudeThread() {
     createdAt: at,
     updatedAt: at,
   };
-  return { ...thread, providerThreads: [providerThread] };
+  // The fork reads retained context only from a provider thread its latest run belongs to.
+  const runs = thread.runs.map((run) => ({ ...run, providerThreadId: providerThread.id }));
+  return { ...thread, runs, providerThreads: [providerThread] };
 }
 
 it("sends a Codex follow-up on a cold Claude thread without compacting first", async () => {
