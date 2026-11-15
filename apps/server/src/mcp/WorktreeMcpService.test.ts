@@ -139,8 +139,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
               : Effect.succeed({
                   sequence: 1,
                   storedEvents:
-                    command.type !== "thread.metadata.update" ||
-                    command.worktreeContinuation === undefined
+                    command.type !== "thread.metadata.update" || command.continuation === undefined
                       ? []
                       : [
                           {
@@ -161,7 +160,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
                                   model: "test-model",
                                 },
                                 providerThreadId: null,
-                                userMessageId: command.worktreeContinuation.messageId,
+                                userMessageId: command.continuation.messageId,
                                 rootNodeId: null,
                                 activeAttemptId: null,
                                 status: options.continuation === "started" ? "starting" : "queued",
@@ -493,7 +492,7 @@ describe("t3_worktree_handoff", () => {
           threadId,
           worktreePath: result.worktreePath,
           expectedWorktreePath: null,
-          worktreeContinuation: {
+          continuation: {
             messageId: expect.stringContaining("worktree-continuation"),
             text: "Keep fixing the login bug in the new worktree.",
           },
@@ -881,7 +880,7 @@ describe("t3_worktree_handoff", () => {
       expect(harness.dispatch).toHaveBeenCalledTimes(1);
       expect(harness.dispatch).toHaveBeenCalledWith(
         expect.objectContaining({
-          worktreeContinuation: expect.objectContaining({ text: "Keep going in the worktree." }),
+          continuation: expect.objectContaining({ text: "Keep going in the worktree." }),
         }),
       );
       expect(harness.sendToThread).not.toHaveBeenCalled();

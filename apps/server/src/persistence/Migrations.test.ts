@@ -1,5 +1,3 @@
-import ShellStopRequestIndex from "./Migrations/069_ShellStopRequestIndex.ts";
-import WebhookDedupe from "./Migrations/068_WebhookDedupe.ts";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -9,28 +7,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import PeerLinks from "./Migrations/071_PeerLinks.ts";
-import PeerLinkFence from "./Migrations/072_PeerLinkFence.ts";
-import WaitingLinkRequestIndex from "./Migrations/073_WaitingLinkRequestIndex.ts";
-import ActiveTurnItemIndexes from "./Migrations/074_ActiveTurnItemIndexes.ts";
-import ExcludeAttachmentPlaceholdersFromSearch from "./Migrations/075_ExcludeAttachmentPlaceholdersFromSearch.ts";
-import SubagentDeliveryState from "./Migrations/076_SubagentDeliveryState.ts";
-import ProjectionProjectsPinArchive from "./Migrations/077_ProjectionProjectsPinArchive.ts";
-import RepairBooleanSettledOverride from "./Migrations/078_RepairBooleanSettledOverride.ts";
-import DropOrchestrationEventCorrelationIndex from "./Migrations/079_DropOrchestrationEventCorrelationIndex.ts";
-import DelegatedRecoveryIndexes from "./Migrations/080_DelegatedRecoveryIndexes.ts";
-import ScheduledTaskThreadMode from "./Migrations/081_ScheduledTaskThreadMode.ts";
-
-import ThreadMessageSearch from "./Migrations/070_ThreadMessageSearch.ts";
-
-import { migrationManifest, runMigrations } from "./Migrations.ts";
-import PullRequestReviewGuides from "./Migrations/062_PullRequestReviewGuides.ts";
-import ThreadFailureLookupIndex from "./Migrations/063_ThreadFailureLookupIndex.ts";
-import DropUnusedV1Projections from "./Migrations/064_DropUnusedV1Projections.ts";
-import CanonicalizeThreadPullRequestLinks from "./Migrations/065_CanonicalizeThreadPullRequestLinks.ts";
-
-import CodexUsageNativeTurnIndex from "./Migrations/066_CodexUsageNativeTurnIndex.ts";
-import RepairClientSettlementTimestamps from "./Migrations/067_RepairClientSettlementTimestamps.ts";
+import { migrationEntries, migrationManifest, runMigrations } from "./Migrations.ts";
 
 const v2Migrations = migrationManifest.filter(([id]) => id >= 55);
 const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
@@ -79,94 +56,22 @@ const botTables = Effect.gen(function* () {
 const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: 60 });
-  yield* PullRequestReviewGuides;
-  yield* sql`
-    INSERT INTO effect_sql_migrations (migration_id, name, created_at)
-    VALUES (61, 'PullRequestReviewGuides', '2026-10-01 12:00:00')
-  `;
-  yield* sql`
-    INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
-    VALUES ('github.com', 'test/repo', 7, '{"title":"Saved review"}')
-  `;
-  if (throughId >= 62) {
-    yield* ThreadFailureLookupIndex;
-    yield* sql`
-      INSERT INTO effect_sql_migrations (migration_id, name, created_at)
-      VALUES (62, 'ThreadFailureLookupIndex', '2026-10-02 12:00:00')
-    `;
-  }
-  if (throughId >= 63) {
-    yield* DropUnusedV1Projections;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (63, 'DropUnusedV1Projections', '2026-10-03 12:00:00')`;
-  }
-  if (throughId >= 64) {
-    yield* CanonicalizeThreadPullRequestLinks;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (64, 'CanonicalizeThreadPullRequestLinks', '2026-10-04 12:00:00')`;
-  }
-  if (throughId >= 65) {
-    yield* CodexUsageNativeTurnIndex;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (65, 'CodexUsageNativeTurnIndex', '2026-10-05 12:00:00')`;
-  }
-  if (throughId >= 66) {
-    yield* RepairClientSettlementTimestamps;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (66, 'RepairClientSettlementTimestamps', '2026-10-06 12:00:00')`;
-  }
-  if (throughId >= 67) {
-    yield* WebhookDedupe;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (67, 'WebhookDedupe', '2026-10-07 12:00:00')`;
-  }
-  if (throughId >= 68) {
-    yield* ShellStopRequestIndex;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (68, 'ShellStopRequestIndex', '2026-10-08 12:00:00')`;
-  }
-  if (throughId >= 69) {
-    yield* ThreadMessageSearch;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (69, 'ThreadMessageSearch', '2026-10-09 12:00:00')`;
-  }
-  if (throughId >= 70) {
-    yield* PeerLinks;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (70, 'PeerLinks', '2026-10-10 12:00:00')`;
-  }
-  if (throughId >= 71) {
-    yield* PeerLinkFence;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (71, 'PeerLinkFence', '2026-10-11 12:00:00')`;
-    yield* sql`INSERT INTO peer_environment_links (environment_id, secret_name, label, urls_json, access, linked_at, expires_at, fenced) VALUES ('saved-peer', 'fixture-placeholder', 'Saved peer', '[]', 'read', '2026-10-11', '2026-11-11', 1)`;
-  }
-  if (throughId >= 72) {
-    yield* WaitingLinkRequestIndex;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (72, 'WaitingLinkRequestIndex', '2026-10-12 12:00:00')`;
-  }
-  if (throughId >= 73) {
-    yield* ActiveTurnItemIndexes;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (73, 'ActiveTurnItemIndexes', '2026-10-13 12:00:00')`;
-  }
-  if (throughId >= 74) {
-    yield* ExcludeAttachmentPlaceholdersFromSearch;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (74, 'ExcludeAttachmentPlaceholdersFromSearch', '2026-10-14 12:00:00')`;
-  }
-  if (throughId >= 75) {
-    yield* SubagentDeliveryState;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (75, 'SubagentDeliveryState', '2026-10-15 12:00:00')`;
-  }
-  if (throughId >= 76) {
-    yield* ProjectionProjectsPinArchive;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (76, 'ProjectionProjectsPinArchive', '2026-10-16 12:00:00')`;
-  }
-  if (throughId >= 77) {
-    yield* RepairBooleanSettledOverride;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (77, 'RepairBooleanSettledOverride', '2026-10-17 12:00:00')`;
-  }
-  if (throughId >= 78) {
-    yield* DropOrchestrationEventCorrelationIndex;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (78, 'DropOrchestrationEventCorrelationIndex', '2026-10-18 12:00:00')`;
-  }
-  if (throughId >= 79) {
-    yield* DelegatedRecoveryIndexes;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (79, 'DelegatedRecoveryIndexes', '2026-10-19 12:00:00')`;
-  }
-  if (throughId >= 80) {
-    yield* ScheduledTaskThreadMode;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (80, 'ScheduledTaskThreadMode', '2026-10-20 12:00:00')`;
+  // Upstream's ids from 61 on are this fork's ids minus one.
+  for (const [forkId, name, migration] of migrationEntries) {
+    const id = forkId - 1;
+    if (id < 61 || id > throughId) continue;
+    yield* migration;
+    const createdAt = `2026-10-01 12:${String(id - 61).padStart(2, "0")}:00`;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (${id}, ${name}, ${createdAt})`;
+    if (id === 61) {
+      yield* sql`
+        INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
+        VALUES ('github.com', 'test/repo', 7, '{"title":"Saved review"}')
+      `;
+    }
+    if (id === 71) {
+      yield* sql`INSERT INTO peer_environment_links (environment_id, secret_name, label, urls_json, access, linked_at, expires_at, fenced) VALUES ('saved-peer', 'fixture-placeholder', 'Saved peer', '[]', 'read', '2026-10-11', '2026-11-11', 1)`;
+    }
   }
 });
 
@@ -242,7 +147,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each([61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80])(
+  it.effect.each(Array.from({ length: 34 }, (_, index) => index + 61))(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -599,6 +504,22 @@ describe("runMigrations", () => {
       );
       assert.notInclude(String(exit), "57_ScheduledTaskWebhooks");
       assert.deepStrictEqual(yield* history, before);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("keeps the migrations that finished before a later one failed", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 81 });
+      yield* sql`CREATE TABLE orchestration_v2_projection_turn_item_counts (thread_id TEXT)`;
+
+      const exit = yield* Effect.exit(runMigrations());
+
+      assert.isTrue(Exit.isFailure(exit));
+      assert.deepStrictEqual(
+        yield* history,
+        migrationManifest.filter(([id]) => id <= 85),
+      );
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 

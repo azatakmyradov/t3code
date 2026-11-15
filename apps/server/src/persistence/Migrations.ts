@@ -1,6 +1,11 @@
 import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
+import {
+  DATABASE_MIGRATION_PROGRESS_MESSAGE,
+  DATABASE_MIGRATIONS_FINISHED_MESSAGE,
+  DATABASE_MIGRATIONS_STARTED_MESSAGE,
+} from "@t3tools/shared/databaseMigrationLog";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -70,11 +75,9 @@ import Migration0064 from "./Migrations/064_DropUnusedV1Projections.ts";
 import Migration0065 from "./Migrations/065_CanonicalizeThreadPullRequestLinks.ts";
 import Migration0066 from "./Migrations/066_CodexUsageNativeTurnIndex.ts";
 import Migration0067 from "./Migrations/067_RepairClientSettlementTimestamps.ts";
-
 import Migration0068 from "./Migrations/068_WebhookDedupe.ts";
 import Migration0069 from "./Migrations/069_ShellStopRequestIndex.ts";
 import Migration0070 from "./Migrations/070_ThreadMessageSearch.ts";
-
 import Migration0071 from "./Migrations/071_PeerLinks.ts";
 import Migration0072 from "./Migrations/072_PeerLinkFence.ts";
 import Migration0073 from "./Migrations/073_WaitingLinkRequestIndex.ts";
@@ -88,6 +91,18 @@ import Migration0080 from "./Migrations/080_DelegatedRecoveryIndexes.ts";
 import Migration0081 from "./Migrations/081_ScheduledTaskThreadMode.ts";
 import Migration0082 from "./Migrations/082_ProjectionMessageSearchText.ts";
 import Migration0083 from "./Migrations/083_TurnItemConversationIndex.ts";
+import Migration0084 from "./Migrations/084_CommandReadIndexes.ts";
+import Migration0085 from "./Migrations/085_LastExecutedRunIndex.ts";
+import Migration0086 from "./Migrations/086_TurnItemCounts.ts";
+import Migration0087 from "./Migrations/087_QueuedTurnInputIndex.ts";
+import Migration0088 from "./Migrations/088_ProjectionProjectsCustomTitle.ts";
+import Migration0089 from "./Migrations/089_TurnItemTypeStatusIndex.ts";
+import Migration0090 from "./Migrations/090_ShellThreadReadIndexes.ts";
+import Migration0091 from "./Migrations/091_AuthConnectDevices.ts";
+import Migration0092 from "./Migrations/092_AuthConnectDeniedRequests.ts";
+import Migration0093 from "./Migrations/093_QueuedTurnInputIndexJsonValid.ts";
+import Migration0094 from "./Migrations/094_ProviderTurnAttemptIndex.ts";
+import Migration0095 from "./Migrations/095_TurnItemMessageOrdinalIndex.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -175,6 +190,18 @@ export const migrationEntries = [
   [81, "ScheduledTaskThreadMode", Migration0081],
   [82, "ProjectionMessageSearchText", Migration0082],
   [83, "TurnItemConversationIndex", Migration0083],
+  [84, "CommandReadIndexes", Migration0084],
+  [85, "LastExecutedRunIndex", Migration0085],
+  [86, "TurnItemCounts", Migration0086],
+  [87, "QueuedTurnInputIndex", Migration0087],
+  [88, "ProjectionProjectsCustomTitle", Migration0088],
+  [89, "TurnItemTypeStatusIndex", Migration0089],
+  [90, "ShellThreadReadIndexes", Migration0090],
+  [91, "AuthConnectDevices", Migration0091],
+  [92, "AuthConnectDeniedRequests", Migration0092],
+  [93, "QueuedTurnInputIndexJsonValid", Migration0093],
+  [94, "ProviderTurnAttemptIndex", Migration0094],
+  [95, "TurnItemMessageOrdinalIndex", Migration0095],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -252,10 +279,46 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
   return (row?.latestId ?? 0) < latestMigrationId || (row?.previewRows ?? 0) > 0;
 });
 
-// Upstream released review guides at 61 and the failure index at 62. This fork
-// already released Bots at 61 and guides at 62, so keep those fork identities.
-// Normalize only known upstream histories, preserving their schema,
-// data, and migration timestamps. Unknown later histories must fail untouched.
+// Upstream's ids from 61 on are this fork's ids minus one, because the fork released
+// Bots at 61. Shift only a known upstream history, preserving its schema, data, and
+// migration timestamps, then record Bots. Unknown later histories must fail untouched.
+const UPSTREAM_MIGRATIONS_FROM_61 = [
+  "PullRequestReviewGuides",
+  "ThreadFailureLookupIndex",
+  "DropUnusedV1Projections",
+  "CanonicalizeThreadPullRequestLinks",
+  "CodexUsageNativeTurnIndex",
+  "RepairClientSettlementTimestamps",
+  "WebhookDedupe",
+  "ShellStopRequestIndex",
+  "ThreadMessageSearch",
+  "PeerLinks",
+  "PeerLinkFence",
+  "WaitingLinkRequestIndex",
+  "ActiveTurnItemIndexes",
+  "ExcludeAttachmentPlaceholdersFromSearch",
+  "SubagentDeliveryState",
+  "ProjectionProjectsPinArchive",
+  "RepairBooleanSettledOverride",
+  "DropOrchestrationEventCorrelationIndex",
+  "DelegatedRecoveryIndexes",
+  "ScheduledTaskThreadMode",
+  "ProjectionMessageSearchText",
+  "TurnItemConversationIndex",
+  "CommandReadIndexes",
+  "LastExecutedRunIndex",
+  "TurnItemCounts",
+  "QueuedTurnInputIndex",
+  "ProjectionProjectsCustomTitle",
+  "TurnItemTypeStatusIndex",
+  "ShellThreadReadIndexes",
+  "AuthConnectDevices",
+  "AuthConnectDeniedRequests",
+  "QueuedTurnInputIndexJsonValid",
+  "ProviderTurnAttemptIndex",
+  "TurnItemMessageOrdinalIndex",
+] as const;
+
 const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(function* (
   throughId?: number,
 ) {
@@ -277,31 +340,7 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         return [];
       }
       if (
-        !recorded.every(
-          (row) =>
-            (row.migration_id === 61 && row.name === "PullRequestReviewGuides") ||
-            (row.migration_id === 62 && row.name === "ThreadFailureLookupIndex") ||
-            (row.migration_id === 63 && row.name === "DropUnusedV1Projections") ||
-            (row.migration_id === 64 && row.name === "CanonicalizeThreadPullRequestLinks") ||
-            (row.migration_id === 65 && row.name === "CodexUsageNativeTurnIndex") ||
-            (row.migration_id === 66 && row.name === "RepairClientSettlementTimestamps") ||
-            (row.migration_id === 67 && row.name === "WebhookDedupe") ||
-            (row.migration_id === 68 && row.name === "ShellStopRequestIndex") ||
-            (row.migration_id === 69 && row.name === "ThreadMessageSearch") ||
-            (row.migration_id === 70 && row.name === "PeerLinks") ||
-            (row.migration_id === 71 && row.name === "PeerLinkFence") ||
-            (row.migration_id === 72 && row.name === "WaitingLinkRequestIndex") ||
-            (row.migration_id === 73 && row.name === "ActiveTurnItemIndexes") ||
-            (row.migration_id === 74 && row.name === "ExcludeAttachmentPlaceholdersFromSearch") ||
-            (row.migration_id === 75 && row.name === "SubagentDeliveryState") ||
-            (row.migration_id === 76 && row.name === "ProjectionProjectsPinArchive") ||
-            (row.migration_id === 77 && row.name === "RepairBooleanSettledOverride") ||
-            (row.migration_id === 78 && row.name === "DropOrchestrationEventCorrelationIndex") ||
-            (row.migration_id === 79 && row.name === "DelegatedRecoveryIndexes") ||
-            (row.migration_id === 80 && row.name === "ScheduledTaskThreadMode") ||
-            (row.migration_id === 81 && row.name === "ProjectionMessageSearchText") ||
-            (row.migration_id === 82 && row.name === "TurnItemConversationIndex"),
-        )
+        !recorded.every((row) => UPSTREAM_MIGRATIONS_FROM_61[row.migration_id - 61] === row.name)
       ) {
         return yield* new Migrator.MigrationError({
           kind: "BadState",
@@ -309,14 +348,8 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         });
       }
       const latestUpstreamId = Math.max(...recorded.map((row) => row.migration_id));
+      // Shifting the latest entry up one would exceed a caller's requested migration limit.
       if (throughId !== undefined && throughId < latestUpstreamId + 1) return [];
-      const hasFailureIndex = recorded.some((row) => row.migration_id === 62);
-      const hasCleanup = recorded.some((row) => row.migration_id === 63);
-      const hasCanonicalLinks = recorded.some((row) => row.migration_id === 64);
-      if (hasCanonicalLinks && throughId !== undefined && throughId < 65) return [];
-      if (hasCleanup && throughId !== undefined && throughId < 64) return [];
-      // Moving the index to 63 would exceed a caller's requested migration limit.
-      if (hasFailureIndex && throughId === 62) return [];
       yield* assertV2MigrationsCanRun(60);
       const earlierHistory = yield* sql<{ readonly migration_id: number; readonly name: string }>`
         SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id < ${FIRST_V2_MIGRATION_ID}
@@ -335,60 +368,11 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         });
       }
       yield* Migration0061;
-      // Free each destination before shifting the preceding upstream ledger entry.
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 83
-        WHERE migration_id = 82 AND name = 'TurnItemConversationIndex'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 82
-        WHERE migration_id = 81 AND name = 'ProjectionMessageSearchText'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 81
-        WHERE migration_id = 80 AND name = 'ScheduledTaskThreadMode'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 80
-        WHERE migration_id = 79 AND name = 'DelegatedRecoveryIndexes'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 79
-        WHERE migration_id = 78 AND name = 'DropOrchestrationEventCorrelationIndex'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 78
-        WHERE migration_id = 77 AND name = 'RepairBooleanSettledOverride'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 77
-        WHERE migration_id = 76 AND name = 'ProjectionProjectsPinArchive'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 76
-        WHERE migration_id = 75 AND name = 'SubagentDeliveryState'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 75
-        WHERE migration_id = 74 AND name = 'ExcludeAttachmentPlaceholdersFromSearch'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 74
-        WHERE migration_id = 73 AND name = 'ActiveTurnItemIndexes'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 73
-        WHERE migration_id = 72 AND name = 'WaitingLinkRequestIndex'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 72
-        WHERE migration_id = 71 AND name = 'PeerLinkFence'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 71
-        WHERE migration_id = 70 AND name = 'PeerLinks'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 70
-        WHERE migration_id = 69 AND name = 'ThreadMessageSearch'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 69
-        WHERE migration_id = 68 AND name = 'ShellStopRequestIndex'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 68
-        WHERE migration_id = 67 AND name = 'WebhookDedupe'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 67
-        WHERE migration_id = 66 AND name = 'RepairClientSettlementTimestamps'`;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = 66
-        WHERE migration_id = 65 AND name = 'CodexUsageNativeTurnIndex'`;
-      // Move later entries first to avoid primary-key collisions while preserving timestamps.
-      yield* sql`
-        UPDATE effect_sql_migrations SET migration_id = 65
-        WHERE migration_id = 64 AND name = 'CanonicalizeThreadPullRequestLinks'
-      `;
-      yield* sql`
-        UPDATE effect_sql_migrations SET migration_id = 64
-        WHERE migration_id = 63 AND name = 'DropUnusedV1Projections'
-      `;
-      yield* sql`
-        UPDATE effect_sql_migrations SET migration_id = 63
-        WHERE migration_id = 62 AND name = 'ThreadFailureLookupIndex'
-      `;
-      yield* sql`
-        UPDATE effect_sql_migrations SET migration_id = 62
-        WHERE migration_id = 61 AND name = 'PullRequestReviewGuides'
-      `;
+      // Move later entries first to avoid primary-key collisions.
+      for (let id = latestUpstreamId; id >= 61; id--) {
+        yield* sql`UPDATE effect_sql_migrations SET migration_id = ${id + 1}
+          WHERE migration_id = ${id} AND name = ${UPSTREAM_MIGRATIONS_FROM_61[id - 61]!}`;
+      }
       yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (61, 'Bots')`;
       yield* assertV2MigrationsCanRun(throughId);
       return [[61, "Bots"]] as const;
@@ -409,50 +393,72 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  // The desktop waits past its readiness budget until the finished line follows this one.
+  if (yield* hasPendingMigrations()) yield* Effect.log(DATABASE_MIGRATIONS_STARTED_MESSAGE);
+  const includesV2 =
+    toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
+  const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
+  const upstreamMigrations = includesV2
+    ? yield* reconcileUpstreamMigrations(toMigrationInclusive)
+    : [];
+  if (includesV2) {
+    yield* assertV2MigrationsCanRun(toMigrationInclusive);
+  }
   const sql = yield* SqlClient.SqlClient;
-  return yield* sql.withTransaction(
-    Effect.gen(function* () {
-      const includesV2 =
-        toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
-      const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
-      const upstreamMigrations = includesV2
-        ? yield* reconcileUpstreamMigrations(toMigrationInclusive)
-        : [];
-      if (includesV2) {
-        yield* assertV2MigrationsCanRun(toMigrationInclusive);
-      }
-      const executedMigrations = [
-        ...previewMigrations,
-        ...upstreamMigrations,
-        ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
-      ];
-      const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
-      yield* migrations.length === 0
-        ? Effect.logDebug("Database schema is current")
-        : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
-
-      const recorded = yield* sql<{
-        readonly migration_id: number;
-        readonly name: string;
-      }>`SELECT migration_id, name FROM effect_sql_migrations`;
-      const manifestNames = new Map<number, string>(
-        migrationEntries.map(([id, name]) => [id, name]),
-      );
-      const divergent = recorded.flatMap((row) => {
-        const expected = manifestNames.get(row.migration_id);
-        if (expected === undefined) {
-          return [`${row.migration_id}:${row.name} (unknown to this build)`];
-        }
-        return expected === row.name
-          ? []
-          : [`${row.migration_id}:${row.name} (this build: ${expected})`];
-      });
-      if (divergent.length > 0) {
-        yield* Effect.logWarning(
-          "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
-        ).pipe(Effect.annotateLogs({ divergent }));
-      }
-      return executedMigrations;
-    }),
+  const ledger = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  const [latest] =
+    ledger.length === 0
+      ? []
+      : yield* sql<{
+          readonly id: number | null;
+        }>`SELECT MAX(migration_id) AS id FROM effect_sql_migrations`;
+  const latestRecordedId = latest?.id ?? 0;
+  const pending = migrationEntries.filter(
+    ([id]) =>
+      id > latestRecordedId && (toMigrationInclusive === undefined || id <= toMigrationInclusive),
   );
+  // One transaction per migration: an index build on a large database can take minutes, and a
+  // restart then resumes after the last finished migration instead of rolling all of them back.
+  const executedMigrations: Array<readonly [id: number, name: string]> = [
+    ...previewMigrations,
+    ...upstreamMigrations,
+  ];
+  for (const [index, [id, name]] of pending.entries()) {
+    if (latestRecordedId > 0) {
+      yield* Effect.log(DATABASE_MIGRATION_PROGRESS_MESSAGE).pipe(
+        Effect.annotateLogs({
+          migration: `${id}_${name}`,
+          progress: `${index + 1} of ${pending.length}`,
+        }),
+      );
+    }
+    executedMigrations.push(...(yield* run({ loader: makeMigrationLoader(id) })));
+  }
+  const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
+  yield* migrations.length === 0
+    ? Effect.logDebug("Database schema is current")
+    : Effect.log(DATABASE_MIGRATIONS_FINISHED_MESSAGE).pipe(Effect.annotateLogs({ migrations }));
+
+  const recorded = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+  }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
+  const divergent = recorded.flatMap((row) => {
+    const expected = manifestNames.get(row.migration_id);
+    if (expected === undefined) {
+      return [`${row.migration_id}:${row.name} (unknown to this build)`];
+    }
+    return expected === row.name
+      ? []
+      : [`${row.migration_id}:${row.name} (this build: ${expected})`];
+  });
+  if (divergent.length > 0) {
+    yield* Effect.logWarning(
+      "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
+    ).pipe(Effect.annotateLogs({ divergent }));
+  }
+  return executedMigrations;
 });

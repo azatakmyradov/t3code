@@ -276,17 +276,17 @@ export function ServerUpdateAction({
     (settings) => settings.continueThreadsAfterServerUpdate,
   );
   const update = useServerUpdate();
+  const updatesInstall =
+    installation?.kind === "npm-global" || installation?.kind === "t3-launcher";
   const { copyToClipboard } = useCopyToClipboard<{ command: string }>({
-    target: installation?.kind === "npm-global" ? "update command" : "relaunch command",
+    target: updatesInstall ? "update command" : "relaunch command",
     onCopy: ({ command }) => {
       toastManager.add({
         type: "success",
-        title:
-          installation?.kind === "npm-global" ? "Update command copied" : "Relaunch command copied",
-        description:
-          installation?.kind === "npm-global"
-            ? `Run \`${command}\` on ${serverLabel}, then restart ${FORK_CLI_COMMAND} with your usual options.`
-            : `Stop ${FORK_CLI_COMMAND} on ${serverLabel}, then relaunch with \`${command}\` using the same subcommand and options. This does not update an installed ${FORK_CLI_COMMAND} command.`,
+        title: updatesInstall ? "Update command copied" : "Relaunch command copied",
+        description: updatesInstall
+          ? `Run \`${command}\` on ${serverLabel}, then restart ${FORK_CLI_COMMAND} with your usual options.`
+          : `Stop ${FORK_CLI_COMMAND} on ${serverLabel}, then relaunch with \`${command}\` using the same subcommand and options. This does not update an installed ${FORK_CLI_COMMAND} command.`,
       });
     },
     onError: (error) => {
@@ -333,7 +333,7 @@ export function ServerUpdateAction({
   const actionLabel = unsupportedDesktopUpdate
     ? "Update the desktop app on"
     : manualCommand !== null
-      ? installation?.kind === "npm-global"
+      ? updatesInstall
         ? "Copy update command"
         : "Copy relaunch command"
       : label;

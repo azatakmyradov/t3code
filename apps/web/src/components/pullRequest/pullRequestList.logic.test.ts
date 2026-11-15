@@ -670,21 +670,23 @@ describe("ranking what a search found", () => {
   const row = (overrides: Partial<PullRequestListEntry> & { number?: number }) =>
     entry({ number: 1, ...overrides });
 
-  it("puts the pull request whose title says it above one that merely mentions it", () => {
-    const titled = row({
-      number: 1,
-      title: "Add the welcome wizard",
-      updatedAt: "2026-07-01T00:00:00Z",
-    });
-    const mentioned = row({
-      number: 2,
-      title: "Unrelated work",
-      updatedAt: "2026-08-01T00:00:00Z",
-    });
-    expect(
-      rankPullRequestMatches([mentioned, titled], "welcome wizard").map((entry) => entry.number),
-    ).toEqual([1, 2]);
-  });
+  it.each([
+    ["welcome wizard", "Add the welcome wizard"],
+    ["24", "Upgrade Node to 24"],
+  ])(
+    "puts the pull request whose title says %j above one that merely mentions it",
+    (query, title) => {
+      const titled = row({ number: 1, title, updatedAt: "2026-07-01T00:00:00Z" });
+      const mentioned = row({
+        number: 2,
+        title: "Unrelated work",
+        updatedAt: "2026-08-01T00:00:00Z",
+      });
+      expect(
+        rankPullRequestMatches([mentioned, titled], query).map((entry) => entry.number),
+      ).toEqual([1, 2]);
+    },
+  );
 
   it("finds the words in any order, which is how people type them", () => {
     expect(
@@ -696,9 +698,9 @@ describe("ranking what a search found", () => {
     expect(scorePullRequestMatch(row({ title: "A wizard, of sorts" }), "welcome wizard")).toBe(30);
   });
 
-  it("answers a number with the pull request that has it, and nothing else", () => {
+  it("answers a number with the pull request that has it, then titles holding it", () => {
     expect(scorePullRequestMatch(row({ number: 42 }), "#42")).toBe(100);
-    expect(scorePullRequestMatch(row({ number: 42 }), "43")).toBe(0);
+    expect(scorePullRequestMatch(row({ number: 42, title: "Bump to 43" }), "43")).toBe(80);
   });
 
   it("keeps recency where nothing tells two results apart", () => {

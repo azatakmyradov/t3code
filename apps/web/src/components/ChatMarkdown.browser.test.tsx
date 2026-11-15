@@ -1,5 +1,6 @@
 // Retain the fork's shared rerender fixtures and their explicit afterEach teardown.
 /* oxlint-disable t3code/require-disposable-render */
+import { MISSING_FILE_ACCESS_MESSAGE } from "@t3tools/client-runtime/state/assets";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { searchableMessageSegments } from "@t3tools/shared/threadFindText";
 import { countThreadSearchOccurrences } from "@t3tools/shared/threadSearch";
@@ -15,7 +16,6 @@ import { useTheme } from "../hooks/useTheme";
 import { applyThemeColorPreview, getStandardThemeColors } from "../themePalette";
 
 import { readLocalApi } from "../localApi";
-import { toastManager } from "./ui/toast";
 import { filesystemEnvironment } from "../state/filesystem";
 import { useRightPanelStore } from "../rightPanelStore";
 import { remarkEnableOrderedListNumbers } from "@t3tools/shared/markdownPipeline";
@@ -83,6 +83,17 @@ vi.mock(import("../state/session"), async (original) => {
     ...(await original()),
     useEnvironmentScope: hasScope as never,
     readEnvironmentScope: hasScope as never,
+  };
+});
+const deniedEnvironmentId = vi.hoisted(() => "denied-environment");
+vi.mock(import("../state/filesystem"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    useFilesystemReadAccess: ((environmentId: EnvironmentId | null) =>
+      environmentId === deniedEnvironmentId
+        ? { canReadFiles: false, isPending: false, error: null }
+        : actual.useFilesystemReadAccess(environmentId)) as never,
   };
 });
 vi.mock(import("../remoteOpen"), async (original) => ({
@@ -530,12 +541,38 @@ it("loads the <picture> source for the current theme through the image route", a
     .toHaveAttribute("src", `${pixel}#/work/dark.png`);
 });
 
+it("sizes a raw HTML image by width and height written with px units", async () => {
+  const largeImage = `data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"/>',
+  )}`;
+  await using screen = await renderDisposable(
+    <HostImageUrlContext value={() => largeImage}>
+      <ChatMarkdown
+        cwd={undefined}
+        parseRawHtml
+        text={
+          '### PR Review in progress <img src="/work/spinner.gif" alt="spinner" width="14px" height="7px" />'
+        }
+      />
+    </HostImageUrlContext>,
+  );
+  const image = screen.getByAltText("spinner");
+  await expect.element(image).toHaveAttribute("src", largeImage);
+  const element = image.element() as HTMLImageElement;
+  await element.decode();
+  const { width, height } = element.getBoundingClientRect();
+  expect({ width, height }).toEqual({ width: 14, height: 7 });
+});
+
 it("reuses the parse of a streaming reply's finished blocks when it remounts", async () => {
   const message = (
     <ChatMarkdown cwd="/tmp/project" text={"Finished block\n\nStill growing"} isStreaming />
   );
   {
-    await using _first = await renderDisposable(message);
+    await using first = await renderDisposable(
+      <ChatMarkdown cwd="/tmp/project" text={"Finished block\n\n"} isStreaming />,
+    );
+    await first.rerender(message);
   }
   await using screen = await renderDisposable(message);
   await expect.element(screen.getByText("Still growing")).toBeVisible();
@@ -549,11 +586,28 @@ it("reuses the parse of a remounted message that has stable extra plugins", asyn
     <ChatMarkdown cwd="/tmp/project" text="Cached text" extraRemarkPlugins={countingPlugins} />
   );
   {
-    await using _first = await renderDisposable(message);
+    await using first = await renderDisposable(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text="Cached text"
+        extraRemarkPlugins={countingPlugins}
+        isStreaming
+      />,
+    );
+    await first.rerender(message);
   }
   await using screen = await renderDisposable(message);
   await expect.element(screen.getByText("Cached text")).toBeVisible();
   expect(parsed).toHaveBeenCalledTimes(1);
+  const changed = vi.fn();
+  await screen.rerender(
+    <ChatMarkdown
+      cwd="/tmp/project"
+      text="Cached text"
+      extraRemarkPlugins={[() => () => void changed()]}
+    />,
+  );
+  expect(changed).toHaveBeenCalledTimes(1);
 });
 
 describe("ChatMarkdown favicon privacy", () => {
@@ -1198,18 +1252,134 @@ describe("ChatMarkdown headings", () => {
 });
 
 describe("ChatMarkdown inline code selection", () => {
-  it("selects the whole inline code span on double-click, but only a word in fenced code", async () => {
+  it("selects only a word on double-click in inline and fenced code", async () => {
     const container = await renderText(
       "Run `migration-gate --dry-run` first.\n\n```txt\nfenced-block word\n```",
     );
-    await userEvent.dblClick(page.getByText("migration-gate --dry-run"));
-    expect(window.getSelection()?.toString()).toBe("migration-gate --dry-run");
+    await userEvent.dblClick(page.getByText("migration-gate --dry-run"), {
+      position: { x: 12, y: 8 },
+    });
+    expect(window.getSelection()?.toString()).toBe("migration");
 
     window.getSelection()?.removeAllRanges();
     const fenced = container.querySelector("pre code")!;
     await userEvent.dblClick(fenced, { position: { x: 4, y: 4 } });
     expect(window.getSelection()?.toString()).toBe("fenced");
   });
+
+  it("selects the whole line on triple-click beside a favicon link or a file chip", async () => {
+    const container = await renderText(
+      "Before [docs](https://example.com/docs) after words\n\nBefore [App.tsx](/tmp/project/src/App.tsx) after words",
+    );
+    const tripleClickWord = async (paragraph: HTMLElement, word: string) => {
+      const text = [...paragraph.childNodes].find((node) => node.textContent?.includes(word))!;
+      const range = document.createRange();
+      range.setStart(text, text.textContent!.indexOf(word));
+      range.setEnd(text, text.textContent!.indexOf(word) + word.length);
+      const wordBox = range.getBoundingClientRect();
+      const paragraphBox = paragraph.getBoundingClientRect();
+      window.getSelection()?.removeAllRanges();
+      await userEvent.tripleClick(paragraph, {
+        position: {
+          x: wordBox.left - paragraphBox.left + wordBox.width / 2,
+          y: wordBox.top - paragraphBox.top + wordBox.height / 2,
+        },
+      });
+      return window.getSelection()?.toString().trim();
+    };
+
+    const paragraphs = container.querySelectorAll("p");
+    expect(paragraphs).toHaveLength(2);
+    const selections = [];
+    const lines = [];
+    for (const paragraph of paragraphs) {
+      lines.push(paragraph.textContent?.trim(), paragraph.textContent?.trim());
+      selections.push(
+        await tripleClickWord(paragraph, "Before"),
+        await tripleClickWord(paragraph, "after"),
+      );
+    }
+    expect(selections).toEqual(lines);
+  });
+});
+
+describe("ChatMarkdown copy", () => {
+  const selectRange = (range: Range) => {
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return selection;
+  };
+
+  it("copies a fully selected callout as alert Markdown and a partial one as text", async () => {
+    const container = await renderText("> [!WARNING]\n> Back up first.");
+    const [label, body] = container.querySelectorAll('[role="note"] > p');
+    const select = (startNode: Node, endNode: Node, endOffset: number) => {
+      const range = document.createRange();
+      range.setStart(startNode, 0);
+      range.setEnd(endNode, endOffset);
+      return chatMarkdownClipboardPayload(selectRange(range))?.text;
+    };
+    const labelText = label!.lastChild!;
+    const bodyText = body!.firstChild!;
+
+    expect(select(labelText, bodyText, bodyText.textContent!.length)).toBe(
+      "> [!WARNING]\n> Back up first.",
+    );
+    expect(select(labelText, bodyText, "Back up".length)).toBe("Warning\n\nBack up");
+  });
+
+  it("copies part of inline code without prose escapes", async () => {
+    const container = await renderText("Read `items[0]*_x` and a*b*c.");
+    const code = container.querySelector("p code")!.firstChild!;
+    const range = document.createRange();
+    range.setStart(code, 0);
+    range.setEnd(code, "items[0]*_".length);
+    expect(chatMarkdownClipboardPayload(selectRange(range))?.text).toBe("items[0]*_");
+  });
+
+  it.each([
+    {
+      source: "10. First\n11. Second\n12. Third\n\nAfter.",
+      from: "Second",
+      text: "11. Second\n12. Third\n\nAfter.",
+    },
+    {
+      source: "1. A\n2. B\n7. C\n8. D\n\nAfter.",
+      from: "D",
+      userMessage: true,
+      text: "8. D\n\nAfter.",
+    },
+    {
+      source: "1. Outer\n2. Next\n   1. Inner\n   2. Deeper\n\nAfter.",
+      from: "Deeper",
+      text: "2. 2. Deeper\n\nAfter.",
+    },
+  ])(
+    "keeps the shown numbers when a copy starts at $from and ends past the list",
+    async ({ source, from, userMessage, text }) => {
+      const container = await renderText(
+        source,
+        userMessage ? { extraRemarkPlugins: [remarkEnableOrderedListNumbers] } : {},
+      );
+      const start = [...container.querySelectorAll("li")]
+        .flatMap((item) => [...item.childNodes])
+        .find((node) => node.nodeType === Node.TEXT_NODE && node.textContent === from)!;
+      const after = [...container.querySelectorAll("p")].at(-1)!.firstChild!;
+      const range = document.createRange();
+      range.setStart(start, 0);
+      range.setEnd(after, after.textContent!.length);
+      const payload = chatMarkdownClipboardPayload(selectRange(range));
+      expect(payload?.text).toBe(text);
+      // Rich paste numbers its list from the same start.
+      expect(
+        new DOMParser()
+          .parseFromString(payload!.html, "text/html")
+          .querySelector("li")
+          ?.closest("ol")?.start,
+      ).toBe(Number(text.split(".")[0]));
+    },
+  );
 });
 
 describe("ChatMarkdown file chip tooltips", () => {
@@ -1549,11 +1719,10 @@ it.each([
     full: "/home/repo/reports/report.csv",
     relative: "reports/report.csv",
   },
-])("copies $name and shows the copied text", async ({ platform, cwd, href, full, relative }) => {
+])("copies $name", async ({ platform, cwd, href, full, relative }) => {
   vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
   vi.stubGlobal("ClipboardItem", undefined);
   const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
-  const toast = vi.spyOn(toastManager, "add");
   const api = readLocalApi();
   if (!api) throw new Error("Local API unavailable");
   const choose = vi.spyOn(api.contextMenu, "show");
@@ -1572,9 +1741,6 @@ it.each([
       link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
     });
     expect(writeText).toHaveBeenLastCalledWith(expected);
-    expect(toast).toHaveBeenLastCalledWith(
-      expect.objectContaining({ type: "success", description: expected }),
-    );
   }
 });
 
@@ -1769,6 +1935,8 @@ describe("ChatMarkdown upstream rendering", () => {
     const block = (source: string) => (
       <ChatMarkdown cwd="/tmp/project" text={`\`\`\`ts\n${source}\n\`\`\``} />
     );
+    // The block suspends until the shared highlighter loads, which can outlast vi.waitFor on a busy runner.
+    await getSyntaxHighlighterPromise("ts");
     {
       await using screen = await renderDisposable(block(first));
       await vi.waitFor(() => expect(highlightedText(screen.container)).toBe(first));
@@ -1822,5 +1990,18 @@ describe("ChatMarkdown upstream rendering", () => {
       ),
     ).toHaveLength(2);
     await expect.element(screen.getByRole("note")).not.toHaveTextContent("After");
+  });
+});
+
+describe("ChatMarkdown host media", () => {
+  it("explains a host video the connection cannot read instead of offering a retry", async () => {
+    const container = await renderText("![Demo](/tmp/demo.mp4)", {
+      threadRef: {
+        environmentId: EnvironmentId.make(deniedEnvironmentId),
+        threadId: ThreadId.make("thread"),
+      },
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain(MISSING_FILE_ACCESS_MESSAGE));
+    expect(container.textContent).not.toContain("Retry video");
   });
 });

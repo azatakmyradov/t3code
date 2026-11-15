@@ -14,7 +14,7 @@ import { useSelectDraftProject } from "~/hooks/useSelectDraftProject";
 import { useOrderWhileOpen } from "~/hooks/useOrderWhileOpen";
 import { useProjectPin } from "~/hooks/useProjectGroupUpdate";
 import { useScratchProject } from "~/hooks/useScratchProject";
-import { isTriagePrompt } from "~/hooks/useStartTriage";
+import { isTriagePrompt } from "@t3tools/shared/triagePrompt";
 import { useClientSettings } from "~/hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -23,15 +23,14 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import {
   buildSidebarProjectPickerEntries,
-  buildSidebarProjectSnapshots,
   projectGroupsSpanEnvironments,
 } from "~/sidebarProjectGrouping";
-import { useProjects, useVisibleThreadShells } from "~/state/entities";
+import { useProjects } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { ProjectEnvironmentBadge } from "../ProjectEnvironmentBadge";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { isProjectPinShortcut, ProjectPinButton } from "../ProjectPinButton";
-import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
+import { useSortedProjectGroups } from "../CommandPaletteLookups";
 import {
   Combobox,
   ComboboxEmpty,
@@ -67,11 +66,9 @@ export function DraftHeroHeadline({
   activeProjectTitle,
 }: DraftHeroHeadlineProps) {
   const projects = useProjects();
-  const threads = useVisibleThreadShells();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
-  const projectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
   const selectDraftProject = useSelectDraftProject(draftId);
   // A boolean, so typing in a draft does not re-render the hero.
   const isTriageDraftPrompt = useComposerDraftStore((store) =>
@@ -89,16 +86,7 @@ export function DraftHeroHeadline({
   const environmentLabelById = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
-  const projectGroups = sortLogicalProjectsForSidebar(
-    buildSidebarProjectSnapshots({
-      projects,
-      settings: projectGroupingSettings,
-      primaryEnvironmentId,
-      resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
-    }),
-    threads,
-    projectSortOrder,
-  );
+  const projectGroups = useSortedProjectGroups(environmentLabelById);
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const environmentMachineById = new Map(
     environments.map(

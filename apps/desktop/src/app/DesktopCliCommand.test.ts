@@ -160,7 +160,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
         expect(yield* fs.exists(upgradedLink)).toBe(false);
         expect((yield* upgraded.install).installedPath).toBe(upgradedLink);
       }
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("never replaces or removes a t3 it did not create", () =>
@@ -202,7 +202,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect((yield* Effect.flip(command.install)).message).toContain("Could not set up");
       yield* command.uninstall;
       expect(yield* fs.readFileString(launcher)).toBe("npm's t3\n");
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("finds and removes a link left by a previous T3 home", () =>
@@ -262,7 +262,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       );
       expect(yield* fs.exists(path.join(home, ".local", "bin", "t3-fork"))).toBe(false);
       expect(yield* fs.readFileString(path.join(home, "bin", "t3-fork.staging"))).toBe("mine");
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("does not read a large binary another t3 links to", () =>
@@ -278,7 +278,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect((yield* command.state).installedPath).toBeNull();
       yield* command.uninstall;
       expect(yield* fs.readLink(path.join(home, ".local", "bin", "t3-fork"))).toBe(binary);
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("installs alongside the upstream t3 command without changing it", () =>
@@ -301,7 +301,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect(installed.shadowedBy).toBeUndefined();
       yield* command.uninstall;
       expect(yield* fs.readFileString(upstreamCommand)).toBe("#!/bin/sh\n");
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("refuses to install behind another t3-fork that runs first", () =>
@@ -351,7 +351,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
         installedPath: path.join(home, ".local", "bin", "t3-fork"),
       });
       expect(installed.shadowedBy).toBeUndefined();
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
@@ -385,7 +385,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
           onPath: true,
           installedPath: path.join(home, ".local", "bin", "t3-fork"),
         });
-      }).pipe(Effect.scoped),
+      }),
   );
 
   it.effect("does not treat its own launcher as another t3 when its folder is first on PATH", () =>
@@ -414,7 +414,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect(yield* command.state).toEqual(removed);
       expect(yield* fs.exists(installed.installedPath!)).toBe(false);
       expect(yield* fs.exists(launcher)).toBe(true);
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("leaves the Windows PATH alone when it cannot be read", () =>
@@ -453,7 +453,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       const reader = yield* commandIn({ home, platform: "win32" }, inherited.spawner);
       yield* reader.install;
       expect(inherited.registry).toMatchObject({ path: `${userPath};${launcherDir}`, writes: 1 });
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("does not claim or remove a Windows PATH entry the user added", () =>
@@ -486,7 +486,7 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       yield* (yield* commandIn({ home: besideHome, platform: "win32" }, beside.spawner))
         .installOnFirstLaunch;
       expect(beside.registry).toMatchObject({ path: "C:\\Tools", writes: 0 });
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("offers nothing for a development build", () =>
@@ -497,6 +497,6 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
         isPackaged: false,
       });
       expect((yield* command.state).supported).toBe(false);
-    }).pipe(Effect.scoped),
+    }),
   );
 });

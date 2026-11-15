@@ -28,6 +28,9 @@ import type {
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { heldPullRequestListEntriesAtom } from "@t3tools/client-runtime/state/pull-requests";
+import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownUpIcon,
@@ -169,7 +172,7 @@ import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useEnvironments } from "../state/environments";
 import {
   pullRequestEnvironment,
-  usePullRequestList,
+  usePullRequestHostList,
   usePullRequestListStats,
   restoredPullRequestList,
   usePullRequestTurnRefreshes,
@@ -288,11 +291,45 @@ const EMPTY_PREVIEW_DESKTOP_STATE = {};
 const EMPTY_TERMINAL_LABELS = new Map<string, string>();
 const EMPTY_PENDING_SURFACES = new Set<string>();
 const MAX_SEARCH_LABEL_CANDIDATES = 100;
+const UNREACHABLE_PHASES: ReadonlySet<EnvironmentConnectionPhase> = new Set([
+  "offline",
+  "reconnecting",
+  "error",
+  "unsupported",
+]);
+const heldRowReaders = new WeakMap<
+  EnvironmentPullRequestEntry,
+  Map<string, ReturnType<typeof heldPullRequestListEntriesAtom<EnvironmentPullRequestEntry>>>
+>();
+
+function usePendingListEntries(
+  input: PullRequestListInput,
+  entries: ReadonlyArray<EnvironmentPullRequestEntry> | undefined,
+) {
+  const key = JSON.stringify(input);
+  return useAtomValue(
+    Atom.make((get) =>
+      (entries ?? []).flatMap((entry) => {
+        let readers = heldRowReaders.get(entry);
+        if (readers === undefined) {
+          readers = new Map();
+          heldRowReaders.set(entry, readers);
+        }
+        let reader = readers.get(key);
+        if (reader === undefined) {
+          reader = heldPullRequestListEntriesAtom(entry.environmentId, input, [entry]);
+          readers.set(key, reader);
+        }
+        return AsyncResult.getOrElse(get(reader), () => []);
+      }),
+    ),
+  );
+}
 
 const pullRequestListEntryId = (target: Parameters<typeof pullRequestSurfaceId>[0]) =>
   pullRequestSurfaceId({ ...target, repository: target.repository.toLowerCase() });
 
-function pullRequestSearchLabels(raw: unknown): Partial<Pick<PullRequestsSearch, "labels">> {
+function pullRequestSearchLabels(raw: unknown): PullRequestsSearch["labels"] {
   const values = (Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : []).slice(
     0,
     MAX_SEARCH_LABEL_CANDIDATES,
@@ -308,7 +345,7 @@ function pullRequestSearchLabels(raw: unknown): Partial<Pick<PullRequestsSearch,
     seen.add(key);
     if (labels.length === 10) break;
   }
-  return labels.length === 0 ? {} : { labels };
+  return labels.length === 0 ? undefined : labels;
 }
 
 export const Route = createFileRoute("/_chat/pull-requests")({
@@ -346,7 +383,7 @@ export const Route = createFileRoute("/_chat/pull-requests")({
     ...(typeof raw.selectedEnvironmentId === "string" && raw.selectedEnvironmentId
       ? { selectedEnvironmentId: raw.selectedEnvironmentId as EnvironmentId }
       : {}),
-    // Always include q to override numeric values in the parent route's unvalidated search.
+    // Always include free-text keys to override numeric values in the parent route's unvalidated search.
     q: typeof raw.q === "string" && raw.q ? raw.q.slice(0, 200) : undefined,
     ...(raw.draft === "only" || raw.draft === "hide" ? { draft: raw.draft } : {}),
     ...(raw.review === "approved" ||
@@ -356,10 +393,11 @@ export const Route = createFileRoute("/_chat/pull-requests")({
       ? { review: raw.review }
       : {}),
     ...(raw.checks === "passing" || raw.checks === "failing" ? { checks: raw.checks } : {}),
-    ...(typeof raw.author === "string" && raw.author.trim()
-      ? { author: raw.author.trim().slice(0, 200) }
-      : {}),
-    ...pullRequestSearchLabels(raw.labels),
+    author:
+      typeof raw.author === "string" && raw.author.trim()
+        ? raw.author.trim().slice(0, 200)
+        : undefined,
+    labels: pullRequestSearchLabels(raw.labels),
   }),
   component: PullRequestsForkPage,
 });
@@ -552,7 +590,7 @@ function PullRequestsRouteView() {
       },
     ];
   });
-  const listQuery = usePullRequestList(listTargets);
+  const listQuery = usePullRequestHostList(listTargets);
 
   /**
    * Kept as its own read rather than remembered from an earlier answer because an answer cannot
@@ -571,7 +609,7 @@ function PullRequestsRouteView() {
       ...(menuFiltered ? { filters: menuFilters } : {}),
     } satisfies PullRequestListInput,
   }));
-  const baselineQuery = usePullRequestList(baselineTargets);
+  const baselineQuery = usePullRequestHostList(baselineTargets);
   const baselineEmpty =
     baselineQuery.data?.entries.length === 0 &&
     baselineQuery.data.errors.length === 0 &&
@@ -591,7 +629,7 @@ function PullRequestsRouteView() {
       } satisfies PullRequestListInput,
     }));
   })();
-  const facetQuery = usePullRequestList(facetTargets);
+  const facetQuery = usePullRequestHostList(facetTargets);
   const filterOptionScope = environmentQueries.map(({ environmentId, projectIds }) => ({
     environmentId,
     input: {
@@ -627,8 +665,8 @@ function PullRequestsRouteView() {
       }));
     return { authored: targetsFor("authored"), reviewing: targetsFor("reviewing") };
   })();
-  const authoredQuery = usePullRequestList(partitionTargets.authored);
-  const reviewingQuery = usePullRequestList(partitionTargets.reviewing);
+  const authoredQuery = usePullRequestHostList(partitionTargets.authored);
+  const reviewingQuery = usePullRequestHostList(partitionTargets.reviewing);
   const invalidate = useAtomCommand(pullRequestEnvironment.invalidate, { reportFailure: false });
   const [detailRefreshToken, setDetailRefreshToken] = useState(0);
   const [invalidating, setInvalidating] = useState(false);
@@ -907,6 +945,19 @@ function PullRequestsRouteView() {
     search.state,
   );
 
+  const heldEntries = ordered?.key === filterKey ? ordered.entries : (listData?.entries ?? []);
+  const overlayInput = { state: search.state, filters };
+  const shownEntries = usePendingListEntries(overlayInput, heldEntries);
+  const shownAuthored = usePendingListEntries(
+    overlayInput,
+    partitionsWanted ? authoredQuery.data?.entries : undefined,
+  );
+  const shownReviewing = usePendingListEntries(
+    overlayInput,
+    partitionsWanted ? reviewingQuery.data?.entries : undefined,
+  );
+  const shownHeldAuthored = usePendingListEntries(overlayInput, heldPartitions?.authored);
+  const shownHeldReviewing = usePendingListEntries(overlayInput, heldPartitions?.reviewing);
   const scrollRef = useRef<HTMLDivElement>(null);
   const {
     entries,
@@ -915,7 +966,7 @@ function PullRequestsRouteView() {
     entriesByStatsKey,
     heldPullRequestsBySurface,
   } = pullRequestGroups({
-    known: ordered?.key === filterKey ? ordered.entries : (listData?.entries ?? []),
+    known: shownEntries,
     providers: baselineQuery.data?.providers ?? listData?.providers ?? [],
     viewers,
     involvement: search.involvement,
@@ -925,11 +976,14 @@ function PullRequestsRouteView() {
     answeredLocally: querySettled && !showingCarried,
     baselineEmpty,
     held:
-      loaded !== null && loaded.environmentKey === environmentKey && loaded.scope === scopeKey
-        ? loaded.partitions
-        : undefined,
-    authored: partitionsWanted ? authoredQuery.data?.entries : undefined,
-    reviewing: partitionsWanted ? reviewingQuery.data?.entries : undefined,
+      heldPartitions === undefined
+        ? undefined
+        : {
+            authored: shownHeldAuthored,
+            reviewing: shownHeldReviewing,
+          },
+    authored: partitionsWanted && authoredQuery.data !== null ? shownAuthored : undefined,
+    reviewing: partitionsWanted && reviewingQuery.data !== null ? shownReviewing : undefined,
     partitionsWanted,
   });
 
@@ -1357,6 +1411,9 @@ function PullRequestsRouteView() {
       {panelToggleControls}
     </div>
   );
+  const listError = listQuery.error
+    ? `${environmentLabels.get(listQuery.error.environmentId) || "Environment"}: ${listQuery.error.message}`
+    : null;
   const carriedToNothing =
     shownCount === 0 &&
     typedQuery.length === 0 &&
@@ -1372,9 +1429,9 @@ function PullRequestsRouteView() {
         />
       ) : firstLoad ? (
         <PullRequestListGhost rows={7} caption="Loading pull requests…" />
-      ) : listQuery.error && shownCount === 0 ? (
+      ) : listError && shownCount === 0 ? (
         <PullRequestsUnavailableState
-          error={listQuery.error}
+          error={listError}
           refreshing={listQuery.isPending}
           onRetry={() => listQuery.refresh()}
         />
@@ -1450,9 +1507,9 @@ function PullRequestsRouteView() {
         </div>
       )}
 
-      {listQuery.error && shownCount > 0 ? (
+      {listError && shownCount > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-surface px-3 py-2 text-xs">
-          <span>{listQuery.error} Showing the last pull requests loaded.</span>
+          <span>{listError} Showing the last pull requests loaded.</span>
           <Button size="xs" variant="outline" onClick={() => listQuery.refresh()}>
             Retry
           </Button>
@@ -1651,19 +1708,13 @@ function PullRequestsRouteView() {
     event.stopPropagation();
     if (event.repeat) return;
     const url = openPanelPullRequestUrl;
-    void writeTextToClipboard(url, "pull request link").then(
-      (didCopy) => {
-        if (didCopy)
-          toastManager.add({ type: "success", title: "PR link copied", description: url });
-      },
-      (error) => {
-        toastManager.add({
-          type: "error",
-          title: "Failed to copy PR link",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-      },
-    );
+    void writeTextToClipboard(url, "pull request link").then(undefined, (error) => {
+      toastManager.add({
+        type: "error",
+        title: "Failed to copy PR link",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    });
   });
   const closeActiveSurfaceFromShortcut = useEffectEvent((event: KeyboardEvent) => {
     if (activePullRequestSurface === null) return;
@@ -1914,10 +1965,17 @@ function usePullRequestScope(search: PullRequestsSearch) {
   }> => {
     const plain = queryEnvironmentIds.map((environmentId) => ({ environmentId }));
     if (!projectsKnown || scopedProjectId !== undefined) return plain;
+    const unreachable = new Set(
+      environments.flatMap((environment) =>
+        UNREACHABLE_PHASES.has(environment.connection.phase) ? [environment.environmentId] : [],
+      ),
+    );
     const assignment = assignProjectsToEnvironments(
       projects,
       queryEnvironmentIds,
       queryEnvironmentIds[0],
+      undefined,
+      unreachable,
     );
     const totals = new Map<EnvironmentId, number>();
     for (const project of projects) {

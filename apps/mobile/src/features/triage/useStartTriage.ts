@@ -7,12 +7,9 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { FORK_NPM_PACKAGE } from "@t3tools/shared/forkIdentity";
 import { useNavigation } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
-import Constants from "expo-constants";
 
 import * as Dialog from "../../components/ui/Dialog";
-import { authClientMetadata } from "../../lib/authClientMetadata";
 import { projectEnvironment } from "../../state/projects";
-import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
   createNewTaskDraft,
@@ -20,6 +17,7 @@ import {
   waitForComposerDraftsLoaded,
 } from "../../state/use-composer-drafts";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
+import { usePrepareTriage } from "./usePrepareTriage";
 
 const CLI_COMMAND = `npx ${FORK_NPM_PACKAGE} triage`;
 
@@ -30,7 +28,7 @@ const CLI_COMMAND = `npx ${FORK_NPM_PACKAGE} triage`;
 export function useStartTriage() {
   const navigation = useNavigation();
   const selectDetail = useSelectWorkspaceDetail();
-  const prepare = useAtomCommand(serverEnvironment.prepareTriage, { reportFailure: false });
+  const prepare = usePrepareTriage();
   const openScratch = useAtomCommand(projectEnvironment.openScratch, { reportFailure: false });
 
   const fail = (message: string) =>
@@ -78,10 +76,7 @@ export function useStartTriage() {
       }
       return;
     }
-    const prepared = await prepare({
-      environmentId,
-      input: { client: authClientMetadata(Constants.expoConfig?.version) },
-    });
+    const prepared = await prepare(environmentId);
     if (prepared._tag === "Failure") {
       if (!isAtomCommandInterrupted(prepared)) {
         pipe(
