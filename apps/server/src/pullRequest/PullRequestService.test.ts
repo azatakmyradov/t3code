@@ -7585,7 +7585,7 @@ it.effect("explicit and turn invalidations make the next listing ask the host ag
     yield* service.invalidate({ reference });
     yield* service.list({ state: "open" });
     assert.strictEqual(hostCalls, 2);
-    yield* service.refreshAfterTurn("p1" as ProjectId);
+    yield* service.refreshAfterTurn("p1" as ProjectId, { pushed: true });
     const refresh = Option.getOrThrow(yield* Stream.runHead(service.subscribeRefreshes));
     yield* service.list({ state: "open" });
     assert.isAbove(refresh, 0);

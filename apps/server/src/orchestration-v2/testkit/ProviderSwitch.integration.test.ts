@@ -2023,7 +2023,8 @@ describe("orchestration v2 provider switching", () => {
         const projection = yield* orchestrator.getThreadProjection(scenarioThreadId);
         assert.equal(projection.runs.at(-1)?.status, "completed");
         const toolCall = projection.turnItems.find((item) => item.id === toolCallId);
-        assert.equal(toolCall?.status, "interrupted");
+        // The fork cancels tool calls a workspace detach orphans (#36).
+        assert.equal(toolCall?.status, "cancelled");
         assert.isNotNull(toolCall?.completedAt);
         assert.deepEqual(
           derivePendingBackgroundWork({
