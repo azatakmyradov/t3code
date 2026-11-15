@@ -15,7 +15,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 83 }, (_, index) => index + 1),
+        Array.from({ length: 95 }, (_, index) => index + 1),
       );
     }),
   );
@@ -57,6 +57,18 @@ layer("055_OrchestrationV2", (it) => {
         [81, "ScheduledTaskThreadMode"],
         [82, "ProjectionMessageSearchText"],
         [83, "TurnItemConversationIndex"],
+        [84, "CommandReadIndexes"],
+        [85, "LastExecutedRunIndex"],
+        [86, "TurnItemCounts"],
+        [87, "QueuedTurnInputIndex"],
+        [88, "ProjectionProjectsCustomTitle"],
+        [89, "TurnItemTypeStatusIndex"],
+        [90, "ShellThreadReadIndexes"],
+        [91, "AuthConnectDevices"],
+        [92, "AuthConnectDeniedRequests"],
+        [93, "QueuedTurnInputIndexJsonValid"],
+        [94, "ProviderTurnAttemptIndex"],
+        [95, "TurnItemMessageOrdinalIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -106,6 +118,18 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 81, name: "ScheduledTaskThreadMode" },
         { migration_id: 82, name: "ProjectionMessageSearchText" },
         { migration_id: 83, name: "TurnItemConversationIndex" },
+        { migration_id: 84, name: "CommandReadIndexes" },
+        { migration_id: 85, name: "LastExecutedRunIndex" },
+        { migration_id: 86, name: "TurnItemCounts" },
+        { migration_id: 87, name: "QueuedTurnInputIndex" },
+        { migration_id: 88, name: "ProjectionProjectsCustomTitle" },
+        { migration_id: 89, name: "TurnItemTypeStatusIndex" },
+        { migration_id: 90, name: "ShellThreadReadIndexes" },
+        { migration_id: 91, name: "AuthConnectDevices" },
+        { migration_id: 92, name: "AuthConnectDeniedRequests" },
+        { migration_id: 93, name: "QueuedTurnInputIndexJsonValid" },
+        { migration_id: 94, name: "ProviderTurnAttemptIndex" },
+        { migration_id: 95, name: "TurnItemMessageOrdinalIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

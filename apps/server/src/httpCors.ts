@@ -25,3 +25,6 @@ export const DESKTOP_RENDERER_ORIGINS = [
   `${FORK_DEVELOPMENT_SCHEME}://app`,
   `${FORK_PREVIEW_SCHEME}://app`,
 ] as const;
+
+/** MCP refuses every browser Origin with 403, so the browser CORS layer must not answer for it. */
+export const MCP_HTTP_PATH = "/mcp";

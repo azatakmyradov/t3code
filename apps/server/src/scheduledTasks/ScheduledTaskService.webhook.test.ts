@@ -240,7 +240,15 @@ const withService = <A, E>(
         namedProjectsRoot: "/projects",
         isScratchProject: () => Effect.succeed(false),
       }),
-      Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+      Layer.mock(ThreadManagementService.ThreadManagementService)({
+        // Saved destinations (the retained bot thread) are live threads in the task's project.
+        getThreadShell: () =>
+          Effect.succeed({
+            projectId: "project-webhook",
+            archivedAt: null,
+            deletedAt: null,
+          } as never),
+      }),
       Layer.mock(SecretRequests.SecretRequests)({
         consume: ({ ref }) => {
           const value = secretsByRef.get(ref);

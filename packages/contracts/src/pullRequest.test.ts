@@ -372,7 +372,7 @@ describe("PullRequestCapabilities", () => {
       capabilities: {
         ...base,
         actions: options.actions,
-        mergeMethods: ["squash", "fast-forward", "merge"],
+        mergeMethods: ["squash", "semi-linear", "merge"],
         updateMethods: options.updateMethods,
         review: { ...base.review, verdicts: options.verdicts },
       },
@@ -404,7 +404,7 @@ describe("pull request mutation requests", () => {
     const ref = { projectId: "project-1", repository: "acme/web", number: 7 };
 
     expect(() => decodeAction({ ...ref, action: "archive" })).toThrow();
-    expect(() => decodeAction({ ...ref, action: "merge", mergeMethod: "fast-forward" })).toThrow();
+    expect(() => decodeAction({ ...ref, action: "merge", mergeMethod: "octopus" })).toThrow();
     const review = { ...ref, body: "", comments: [], verdict: "approve" };
     expect(decodeReview(review).verdict).toBe("approve");
     expect(() => decodeReview({ ...review, verdict: "block" })).toThrow();

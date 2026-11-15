@@ -77,8 +77,12 @@ import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls
 import {
   applyWslEnableSelection,
   canRevokeOtherClients,
+  connectDeviceName,
+  formatAccessTimestamp,
   isQrShareableEndpoint,
+  isServerNetworkAccessible,
   isWslSettingsRowVisible,
+  parseManualDesktopSshTarget,
   missingTailscaleEndpointDescription,
   resolveTailscaleServeBaseUrl,
   selectQrEndpointOption,
@@ -90,6 +94,7 @@ import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsL
 import { ManagedByOrganization } from "../ManagedPolicy";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { searchableSetting } from "./settingsSearch";
+import { ConnectDeviceApprovalSettings } from "./ConnectDeviceApprovalSettings";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { EnvironmentRoutesList } from "./EnvironmentRoutesList";
 import {
@@ -199,6 +204,7 @@ import {
 } from "~/state/environments";
 import { APP_VERSION } from "~/branding";
 import { requestConfirmDialog } from "~/confirmDialog";
+import { useUpdateEnvironmentSettings } from "~/hooks/useSettings";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { environmentIdsKey } from "~/state/environmentAtomList";
 import {
@@ -222,27 +228,24 @@ import {
   threadJumpCommandForIndex,
   threadJumpIndexFromCommand,
 } from "../../keybindings";
+import {
+  type ConnectDeviceRevokeRequest,
+  RevokeConnectDeviceDialog,
+} from "./RevokeConnectDeviceDialog";
 
+// Sessions T3 Connect minted for a device signed in to the linked account.
+const CLOUD_CONNECT_SESSION_SUBJECT = "cloud-connect";
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 const EMPTY_ADVERTISED_ENDPOINTS: ReadonlyArray<AdvertisedEndpoint> = [];
 const EMPTY_DISCOVERED_SSH_HOSTS: ReadonlyArray<DesktopDiscoveredSshHost> = [];
+// known_hosts can list one host on several ports. Its own bracketed form keeps an IPv6
+// host's port separate from the address; no portless known_hosts entry has that form.
+const sshHostSuggestionValue = (target: DesktopDiscoveredSshHost) =>
+  target.port === null ? target.alias : `[${target.alias}]:${target.port}`;
 
 // Colons are invalid in distro names, keeping picker sentinels collision-free.
 const BACKEND_VALUE_DEFAULT_WSL = "backend:default-wsl";
 const BACKEND_VALUE_WSL_OFF = "backend:wsl-off";
-
-const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-function formatAccessTimestamp(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return accessTimestampFormatter.format(parsed);
-}
 
 function AccessScopeSummary({
   scopes,
@@ -286,64 +289,6 @@ function AccessScopeSummary({
       </PopoverPopup>
     </Popover>
   );
-}
-
-function parseManualDesktopSshTarget(input: {
-  readonly host: string;
-  readonly username: string;
-  readonly port: string;
-}): DesktopSshEnvironmentTarget {
-  const rawHost = input.host.trim();
-  if (rawHost.length === 0) {
-    throw new Error("SSH host or alias is required.");
-  }
-
-  let hostname = rawHost;
-  let username = input.username.trim() || null;
-  let port: number | null = null;
-
-  const atIndex = hostname.lastIndexOf("@");
-  if (atIndex > 0) {
-    const inlineUsername = hostname.slice(0, atIndex).trim();
-    hostname = hostname.slice(atIndex + 1).trim();
-    if (!username && inlineUsername.length > 0) {
-      username = inlineUsername;
-    }
-  }
-
-  const bracketedHostMatch = /^\[([^\]]+)\](?::(\d+))?$/u.exec(hostname);
-  if (bracketedHostMatch) {
-    hostname = bracketedHostMatch[1]!.trim();
-    if (bracketedHostMatch[2]) {
-      port = Number.parseInt(bracketedHostMatch[2], 10);
-    }
-  } else {
-    const colonSegments = hostname.split(":");
-    if (colonSegments.length === 2 && /^\d+$/u.test(colonSegments[1] ?? "")) {
-      hostname = colonSegments[0]!.trim();
-      port = Number.parseInt(colonSegments[1]!, 10);
-    }
-  }
-
-  const rawPort = input.port.trim();
-  if (rawPort.length > 0) {
-    port = Number.parseInt(rawPort, 10);
-  }
-
-  if (hostname.length === 0) {
-    throw new Error("SSH host or alias is required.");
-  }
-
-  if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
-    throw new Error("SSH port must be between 1 and 65535.");
-  }
-
-  return {
-    alias: hostname,
-    hostname,
-    username,
-    port,
-  };
 }
 
 function parsePairingUrlFields(
@@ -662,23 +607,6 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     value: string;
     kind: "code" | "hosted-link" | "link";
   }>({
-    onCopy: ({ kind }) => {
-      toastManager.add({
-        type: "success",
-        title:
-          kind === "hosted-link"
-            ? "Hosted app link copied"
-            : kind === "link"
-              ? "Pairing URL copied"
-              : "Pairing code copied",
-        description:
-          kind === "hosted-link"
-            ? "Open it in the browser on the device you want to connect."
-            : kind === "link"
-              ? "Open it in the client you want to pair to this environment."
-              : "Paste it into another client to finish pairing.",
-      });
-    },
     onError: (error, { value, kind }) => {
       // Captured per attempt so concurrent copies cannot make the dialog
       // reveal a different value than the one that failed.
@@ -1465,6 +1393,9 @@ function savedBackendStatus(environment: EnvironmentPresentation): {
     case "connecting":
       return { text: "Connecting", tone: "muted" };
     case "reconnecting":
+      if (connection.awaitingApproval) {
+        return { text: connection.error ?? "Waiting for approval", tone: "muted" };
+      }
       return {
         text: connection.error ? `Reconnecting: ${connection.error}` : "Reconnecting",
         tone: "error",
@@ -1502,13 +1433,6 @@ function SavedBackendListRow({
   const errorTraceId = environment.connection.traceId;
   const { copyToClipboard: copyTraceIdToClipboard } = useCopyToClipboard<{ traceId: string }>({
     target: "trace ID",
-    onCopy: ({ traceId }) => {
-      toastManager.add({
-        type: "success",
-        title: "Trace ID copied",
-        description: traceId,
-      });
-    },
     onError: (error) => {
       toastManager.add(
         stackedThreadToast({
@@ -1858,10 +1782,13 @@ function CloudLinkSwitch({
 function ConfiguredCloudLinkRow({
   environmentId,
   canManageRelay,
+  connectDeviceApproval,
 }: {
   readonly environmentId: EnvironmentId;
   readonly canManageRelay: boolean;
+  readonly connectDeviceApproval: ConnectDeviceApprovalControl | null;
 }) {
+  const updateEnvironmentSettings = useUpdateEnvironmentSettings(environmentId);
   const {
     isSignedIn,
     linkState: cloudLinkState,
@@ -2041,18 +1968,47 @@ function ConfiguredCloudLinkRow({
           }
         />
       ) : null}
+      {managedTunnelActive && connectDeviceApproval ? (
+        <SettingsRow
+          title={searchableSetting("connect-device-approval").title}
+          description="Devices that sign in to your T3 Connect account wait until someone already connected here approves them."
+          control={
+            <CloudLinkSwitch
+              ariaLabel="Require approval for new T3 Connect devices"
+              checked={connectDeviceApproval.required}
+              disabled={!connectDeviceApproval.canManage}
+              disabledReason={
+                connectDeviceApproval.canManage
+                  ? null
+                  : "Your session does not have permission to manage access."
+              }
+              onCheckedChange={(enabled) =>
+                updateEnvironmentSettings({ requireConnectDeviceApproval: enabled })
+              }
+            />
+          }
+        />
+      ) : null}
     </>
   );
+}
+
+/** Older servers have no device approval, so callers pass null and the row stays hidden. */
+interface ConnectDeviceApprovalControl {
+  readonly required: boolean;
+  readonly canManage: boolean;
 }
 
 function CloudLinkRow({
   environmentId,
   canReadRelay,
   canManageRelay,
+  connectDeviceApproval,
 }: {
   readonly environmentId: EnvironmentId;
   readonly canReadRelay: boolean;
   readonly canManageRelay: boolean;
+  readonly connectDeviceApproval: ConnectDeviceApprovalControl | null;
 }) {
   if (!hasCloudPublicConfig()) return null;
   if (!canReadRelay) {
@@ -2063,7 +2019,13 @@ function CloudLinkRow({
       />
     );
   }
-  return <ConfiguredCloudLinkRow environmentId={environmentId} canManageRelay={canManageRelay} />;
+  return (
+    <ConfiguredCloudLinkRow
+      environmentId={environmentId}
+      canManageRelay={canManageRelay}
+      connectDeviceApproval={connectDeviceApproval}
+    />
+  );
 }
 
 function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnabled?: boolean }) {
@@ -2448,7 +2410,10 @@ function ConnectionsSettingsContent({
   })();
   const isLocalBackendNetworkAccessible = desktopBridge
     ? desktopServerExposureState?.mode === "network-accessible"
-    : currentAuthPolicy === "remote-reachable";
+    : isServerNetworkAccessible({
+        authPolicy: currentAuthPolicy,
+        directEndpoints: accessEnvironment?.serverConfig?.directEndpoints,
+      });
   const trimmedTailscaleServePortInput = tailscaleServePortInput.trim();
   const parsedTailscaleServePort = Number(trimmedTailscaleServePortInput);
   const isTailscaleServePortValid =
@@ -2802,6 +2767,7 @@ function ConnectionsSettingsContent({
       setIsAddingSavedBackend(false);
       return;
     }
+    if (target.port !== null) resolved = { ...resolved, port: target.port };
     setSavedBackendSshUsername(resolved.username ?? "");
     setSavedBackendSshPort(resolved.port === null ? "" : String(resolved.port));
     await connectSavedBackendSshTarget(resolved);
@@ -2902,7 +2868,58 @@ function ConnectionsSettingsContent({
     if (confirmed === true) await removeSavedBackend(environment);
   };
 
-  const visibleDesktopPairingLinks = desktopPairingLinks;
+  // T3 Connect devices waiting for approval have their own list.
+  const visibleDesktopPairingLinks = desktopPairingLinks.filter(
+    (pairingLink) => pairingLink.connectDeviceRequest === undefined,
+  );
+  const connectDeviceRequests = desktopPairingLinks.filter(
+    (pairingLink) => pairingLink.connectDeviceRequest !== undefined,
+  );
+  // Older servers omit the list; they cannot hold devices for approval.
+  const connectDevices =
+    authAccessChanges.data?.type === "snapshot"
+      ? (authAccessChanges.data.payload.connectDevices ?? null)
+      : null;
+  const updateAccessSettings = useUpdateEnvironmentSettings(accessEnvironmentId);
+  const [pendingConnectRevoke, setPendingConnectRevoke] =
+    useState<ConnectDeviceRevokeRequest | null>(null);
+  // With approval off a revoked T3 Connect device signs straight back in, so offer to turn it
+  // on. Older servers have no such setting, and revoking there goes ahead as before.
+  const connectApprovalOff =
+    accessEnvironment?.serverConfig?.settings.requireConnectDeviceApproval === false;
+  const requestConnectRevoke = (title: string, revoke: () => Promise<void>) => {
+    if (connectApprovalOff && canWriteAccess) setPendingConnectRevoke({ title, revoke });
+    else void revoke();
+  };
+  const requireConnectApproval = () =>
+    new Promise<boolean>((resolve) =>
+      updateAccessSettings(
+        { requireConnectDeviceApproval: true },
+        { onSaved: () => resolve(true), onFailed: () => resolve(false) },
+      ),
+    );
+  const requestRevokeClientSession = (sessionId: ServerClientSessionRecord["sessionId"]) => {
+    const session = desktopClientSessions.find((candidate) => candidate.sessionId === sessionId);
+    if (session?.subject === CLOUD_CONNECT_SESSION_SUBJECT) {
+      requestConnectRevoke(`Revoke ${connectDeviceName(session)}?`, () =>
+        handleRevokeDesktopClientSession(sessionId),
+      );
+    } else {
+      void handleRevokeDesktopClientSession(sessionId);
+    }
+  };
+  const requestRevokeOtherClients = () => {
+    const revokesConnectDevices =
+      (connectDevices?.length ?? 0) > 0 ||
+      desktopClientSessions.some(
+        (session) => !session.current && session.subject === CLOUD_CONNECT_SESSION_SUBJECT,
+      );
+    if (revokesConnectDevices) {
+      requestConnectRevoke("Revoke all other clients?", handleRevokeOtherDesktopClients);
+    } else {
+      void handleRevokeOtherDesktopClients();
+    }
+  };
   const tailscaleHttpsEndpoint = desktopAdvertisedEndpoints.find(isTailscaleHttpsEndpoint) ?? null;
   const visibleDesktopNetworkAdvertisedEndpoints = isLocalBackendNetworkAccessible
     ? desktopAdvertisedEndpoints.filter((endpoint) => !isTailscaleHttpsEndpoint(endpoint))
@@ -2953,6 +2970,7 @@ function ConnectionsSettingsContent({
         )}
         disabled={isAddingSavedBackend}
         onClick={() => {
+          if (!selected) setSavedBackendError(null);
           setSavedBackendMode(input.mode);
         }}
       >
@@ -3083,7 +3101,7 @@ function ConnectionsSettingsContent({
           </label>
           <Autocomplete
             items={filteredDiscoveredSshHosts}
-            itemToStringValue={(target) => target.alias}
+            itemToStringValue={sshHostSuggestionValue}
             mode="none"
             openOnInputClick
             open={sshHostSuggestionsOpen}
@@ -3096,7 +3114,9 @@ function ConnectionsSettingsContent({
               setSavedBackendSshHost(value);
               if (eventDetails.reason !== "item-press") return;
 
-              const target = filteredDiscoveredSshHosts.find((host) => host.alias === value);
+              const target = filteredDiscoveredSshHosts.find(
+                (host) => sshHostSuggestionValue(host) === value,
+              );
               if (target) void handleSelectSshHostSuggestion(target);
             }}
           >
@@ -3512,7 +3532,7 @@ function ConnectionsSettingsContent({
       revokingPairingLinkId={revokingDesktopPairingLinkId}
       revokingClientSessionId={revokingDesktopClientSessionId}
       onRevokePairingLink={handleRevokeDesktopPairingLink}
-      onRevokeClientSession={handleRevokeDesktopClientSession}
+      onRevokeClientSession={requestRevokeClientSession}
       canRevoke={canWriteAccess}
     />
   );
@@ -3565,7 +3585,7 @@ function ConnectionsSettingsContent({
       description={
         desktopBridge
           ? "This connection cannot view or change network exposure."
-          : currentAuthPolicy === "remote-reachable"
+          : isLocalBackendNetworkAccessible
             ? "Remote access is already configured. Change network exposure where the server starts."
             : currentAuthPolicy === "loopback-browser"
               ? "Only this machine can connect. Restart with a non-loopback host for remote pairing."
@@ -3714,6 +3734,14 @@ function ConnectionsSettingsContent({
                 environmentId={accessEnvironmentId}
                 canReadRelay={canReadRelay}
                 canManageRelay={canManageRelay}
+                connectDeviceApproval={
+                  accessServerConfig?.settings.requireConnectDeviceApproval === undefined
+                    ? null
+                    : {
+                        required: accessServerConfig.settings.requireConnectDeviceApproval,
+                        canManage: canWriteAccess,
+                      }
+                }
               />
             ) : null}
             {accessEnvironment ? (
@@ -3760,7 +3788,7 @@ function ConnectionsSettingsContent({
                         : null
                     }
                     isRevokingOtherClients={isRevokingOtherDesktopClients}
-                    onRevokeOtherClients={handleRevokeOtherDesktopClients}
+                    onRevokeOtherClients={requestRevokeOtherClients}
                   />
                 ) : undefined
               }
@@ -3781,6 +3809,22 @@ function ConnectionsSettingsContent({
               </ScrollArea>
             </FoldedSettingsSection>
           ) : null}
+          {canReadAccess &&
+          connectDevices !== null &&
+          (connectDeviceRequests.length > 0 || connectDevices.length > 0) ? (
+            <ConnectDeviceApprovalSettings
+              environmentId={accessEnvironmentId}
+              requests={connectDeviceRequests}
+              devices={connectDevices}
+              canWrite={canWriteAccess}
+              requestRevoke={requestConnectRevoke}
+            />
+          ) : null}
+          <RevokeConnectDeviceDialog
+            request={pendingConnectRevoke}
+            onClose={() => setPendingConnectRevoke(null)}
+            requireApproval={requireConnectApproval}
+          />
           <AlertDialog
             open={isDesktopServerExposureDialogOpen && canManageLocalBackend}
             onOpenChange={(open) => {

@@ -1,13 +1,17 @@
 import {
   type AdvertisedEndpoint,
+  type AuthClientMetadata,
   type AuthGrantScope,
   AuthTerminalOperateScope,
   AuthTerminalReadScope,
   type DesktopBridge,
   type DesktopServerExposureState,
   type DesktopUpdateState,
+  type DesktopSshEnvironmentTarget,
   type DesktopWslState,
   type EnvironmentId,
+  type ServerAuthPolicy,
+  type ServerDirectEndpoint,
 } from "@t3tools/contracts";
 import {
   getDesktopUpdateDownloadedVersion,
@@ -147,6 +151,86 @@ export async function applyWslEnableSelection(input: {
   return await bridge.setWslBackendEnabled(true);
 }
 
+const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+export function formatAccessTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return accessTimestampFormatter.format(parsed);
+}
+
+export function parseManualDesktopSshTarget(input: {
+  readonly host: string;
+  readonly username: string;
+  readonly port: string;
+}): DesktopSshEnvironmentTarget {
+  const rawHost = input.host.trim();
+  if (rawHost.length === 0) {
+    throw new Error("SSH host or alias is required.");
+  }
+
+  let hostname = rawHost;
+  let username = input.username.trim() || null;
+  let port: number | null = null;
+
+  const atIndex = hostname.lastIndexOf("@");
+  if (atIndex > 0) {
+    const inlineUsername = hostname.slice(0, atIndex).trim();
+    hostname = hostname.slice(atIndex + 1).trim();
+    if (!username && inlineUsername.length > 0) {
+      username = inlineUsername;
+    }
+  }
+
+  const bracketedHostMatch = /^\[([^\]]+)\](?::(\d+))?$/u.exec(hostname);
+  if (bracketedHostMatch) {
+    hostname = bracketedHostMatch[1]!.trim();
+    if (bracketedHostMatch[2]) {
+      port = Number.parseInt(bracketedHostMatch[2], 10);
+    }
+  } else {
+    const colonSegments = hostname.split(":");
+    if (colonSegments.length === 2 && /^\d+$/u.test(colonSegments[1] ?? "")) {
+      hostname = colonSegments[0]!.trim();
+      port = Number.parseInt(colonSegments[1]!, 10);
+    }
+  }
+
+  const rawPort = input.port.trim();
+  if (rawPort.length > 0) {
+    port = /^\d+$/u.test(rawPort) ? Number.parseInt(rawPort, 10) : Number.NaN;
+  }
+
+  if (hostname.length === 0) {
+    throw new Error("SSH host or alias is required.");
+  }
+
+  if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
+    throw new Error("SSH port must be between 1 and 65535.");
+  }
+
+  return {
+    alias: hostname,
+    hostname,
+    username,
+    port,
+  };
+}
+
+/** A loopback server advertises a direct endpoint only once its Tailscale Serve URL answers. */
+export function isServerNetworkAccessible(input: {
+  readonly authPolicy: ServerAuthPolicy | null;
+  readonly directEndpoints: ReadonlyArray<ServerDirectEndpoint> | undefined;
+}): boolean {
+  if (input.authPolicy === "remote-reachable") return true;
+  return input.authPolicy === "loopback-browser" && (input.directEndpoints?.length ?? 0) > 0;
+}
+
 /** An explicit choice while it is listed, else the primary, else a connected environment. */
 export function resolveAccessEnvironmentId(input: {
   readonly primaryEnvironmentId: EnvironmentId | null;
@@ -164,4 +248,25 @@ export function resolveAccessEnvironmentId(input: {
     (input.environments.find((environment) => environment.connected) ?? input.environments[0])
       ?.environmentId ?? null
   );
+}
+
+/** A short name for a T3 Connect device: its label, or what it runs on. */
+export function connectDeviceName({
+  client,
+}: {
+  readonly client?: AuthClientMetadata | undefined;
+}): string {
+  return client?.label ?? client?.os ?? client?.browser ?? "this device";
+}
+
+/** How a T3 Connect device describes itself. It can say anything, so the code is what to trust. */
+export function describeConnectDeviceClient({
+  client,
+}: {
+  readonly client?: AuthClientMetadata | undefined;
+}): string {
+  const bits = [client?.label, client?.os, client?.browser, client?.ipAddress].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  return bits.length > 0 ? [...new Set(bits)].join(" · ") : "Unknown device";
 }

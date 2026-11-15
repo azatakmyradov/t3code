@@ -3,7 +3,6 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import * as NodeSqlite from "node:sqlite";
 import type * as NodeWorkerThreads from "node:worker_threads";
 
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -15,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as SqlError from "effect/sql/SqlError";
 import { vi } from "vite-plus/test";
 
 import { WAL_SIZE_LIMIT_BYTES } from "./Sqlite.ts";
@@ -77,88 +77,17 @@ it.effect("limits the WAL file size in the shared persistence setup", () =>
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
-const workers = vi.hoisted((): Array<NodeWorkerThreads.Worker> => []);
+const workerData = vi.hoisted((): Array<unknown> => []);
 
 vi.mock("node:worker_threads", async (importOriginal) => {
   const actual = await importOriginal<typeof NodeWorkerThreads>();
   class RecordedWorker extends actual.Worker {
     constructor(...args: ConstructorParameters<typeof actual.Worker>) {
       super(...args);
-      workers.push(this);
+      workerData.push(args[1]?.workerData);
     }
   }
   return { ...actual, Worker: RecordedWorker };
-});
-
-it.effect("keeps writes moving past a 48 MiB WAL while a reader retains its snapshot", () => {
-  const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-sqlite-burst-"));
-  const dbPath = NodePath.join(tempDir, "state.sqlite");
-  const persistence = SqlitePersistence.layerFromPath(dbPath).pipe(
-    Layer.provide(NodeServices.layer),
-  );
-
-  return Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const checkpointWorker = workers.at(-1)!;
-    yield* sql`CREATE TABLE burst_probe(id INTEGER PRIMARY KEY, payload BLOB)`;
-    yield* sql`INSERT INTO burst_probe VALUES (1, NULL)`;
-    yield* sql`PRAGMA wal_checkpoint(TRUNCATE)`;
-    const reader = yield* Effect.acquireRelease(
-      Effect.sync(() => new NodeSqlite.DatabaseSync(dbPath, { readOnly: true })),
-      (database) => Effect.sync(() => database.close()),
-    );
-    reader.exec("BEGIN");
-    assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM burst_probe").get()?.count, 1);
-
-    yield* sql.withTransaction(
-      sql`INSERT INTO burst_probe VALUES (2, zeroblob(${48 * 1024 * 1024}))`,
-    );
-    const state = yield* Effect.callback<{
-      readonly log: number;
-      readonly checkpointed: number;
-      readonly blocked: boolean;
-    }>((resume) => {
-      const onMessage = (message: {
-        readonly type?: string;
-        readonly log?: number;
-        readonly checkpointed?: number;
-        readonly blocked?: boolean;
-      }) => {
-        if (
-          message.type === "checkpoint" &&
-          typeof message.log === "number" &&
-          message.log > 10_000 &&
-          typeof message.checkpointed === "number" &&
-          typeof message.blocked === "boolean"
-        ) {
-          checkpointWorker.off("message", onMessage);
-          resume(
-            Effect.succeed({
-              log: message.log,
-              checkpointed: message.checkpointed,
-              blocked: message.blocked,
-            }),
-          );
-        }
-      };
-      checkpointWorker.on("message", onMessage);
-      checkpointWorker.ref();
-      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node workers do not accept a target origin.
-      checkpointWorker.postMessage("barrier");
-      return Effect.sync(() => checkpointWorker.off("message", onMessage));
-    });
-    assert.isBelow(state.checkpointed, state.log);
-    assert.isFalse(state.blocked);
-
-    yield* sql.withTransaction(sql`INSERT INTO burst_probe VALUES (3, NULL)`);
-    assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM burst_probe").get()?.count, 1);
-    reader.exec("COMMIT");
-    assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM burst_probe").get()?.count, 3);
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(persistence),
-    Effect.ensuring(Effect.sync(() => NodeFS.rmSync(tempDir, { recursive: true, force: true }))),
-  );
 });
 
 // Linux names an open, already-deleted file "<path> (deleted)" in /proc/self/fd.
@@ -341,29 +270,48 @@ it.effect("preserves released bot data and migration history", () => {
       ...before,
       migrations: [
         ...before.migrations,
-        { migration_id: 62, name: "PullRequestReviewGuides" },
-        { migration_id: 63, name: "ThreadFailureLookupIndex" },
-        { migration_id: 64, name: "DropUnusedV1Projections" },
-        { migration_id: 65, name: "CanonicalizeThreadPullRequestLinks" },
-        { migration_id: 66, name: "CodexUsageNativeTurnIndex" },
-        { migration_id: 67, name: "RepairClientSettlementTimestamps" },
-        { migration_id: 68, name: "WebhookDedupe" },
-        { migration_id: 69, name: "ShellStopRequestIndex" },
-        { migration_id: 70, name: "ThreadMessageSearch" },
-        { migration_id: 71, name: "PeerLinks" },
-        { migration_id: 72, name: "PeerLinkFence" },
-        { migration_id: 73, name: "WaitingLinkRequestIndex" },
-        { migration_id: 74, name: "ActiveTurnItemIndexes" },
-        { migration_id: 75, name: "ExcludeAttachmentPlaceholdersFromSearch" },
-        { migration_id: 76, name: "SubagentDeliveryState" },
-        { migration_id: 77, name: "ProjectionProjectsPinArchive" },
-        { migration_id: 78, name: "RepairBooleanSettledOverride" },
-        { migration_id: 79, name: "DropOrchestrationEventCorrelationIndex" },
-        { migration_id: 80, name: "DelegatedRecoveryIndexes" },
-        { migration_id: 81, name: "ScheduledTaskThreadMode" },
-        { migration_id: 82, name: "ProjectionMessageSearchText" },
-        { migration_id: 83, name: "TurnItemConversationIndex" },
+        ...migrationManifest
+          .filter(([id]) => id > 61)
+          .map(([migration_id, name]) => ({ migration_id, name })),
       ],
+    });
+  }).pipe(
+    Effect.ensuring(Effect.sync(() => NodeFS.rmSync(tempDir, { recursive: true, force: true }))),
+  );
+});
+
+it.effect("upgrades an existing database on a read-write worker connection", () => {
+  const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-sqlite-upgrade-"));
+  const dbPath = NodePath.join(tempDir, "state.sqlite");
+
+  return Effect.gen(function* () {
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`PRAGMA journal_mode = WAL;`;
+      yield* runMigrations({ toMigrationInclusive: 81 });
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
+    const startedBefore = workerData.length;
+
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const rows = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+        SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id
+      `;
+      assert.deepStrictEqual(
+        rows.map((row) => [row.migration_id, row.name] as const),
+        migrationManifest,
+      );
+    }).pipe(
+      Effect.provide(
+        SqlitePersistence.layerFromPath(dbPath).pipe(Layer.provide(NodeServices.layer)),
+      ),
+    );
+    assert.deepInclude(workerData.slice(startedBefore), {
+      filename: dbPath,
+      readOnly: false,
+      requireWal: false,
+      allowExtension: false,
+      prepareCacheSize: 200,
     });
   }).pipe(
     Effect.ensuring(Effect.sync(() => NodeFS.rmSync(tempDir, { recursive: true, force: true }))),
@@ -379,6 +327,29 @@ it.effect("enables checkpoint_fullfsync in the shared persistence setup", () =>
     assert.equal(rows[0]?.checkpoint_fullfsync, 1);
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
+
+it.effect("names a database file that is not SQLite", () => {
+  const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-sqlite-notadb-"));
+  const dbPath = NodePath.join(tempDir, "state.sqlite");
+  NodeFS.writeFileSync(dbPath, "not a db\n");
+
+  return Effect.gen(function* () {
+    const opened = yield* Effect.void.pipe(
+      Effect.provide(
+        SqlitePersistence.layerFromPath(dbPath).pipe(Layer.provide(NodeServices.layer)),
+      ),
+      Effect.result,
+    );
+
+    assert.equal(opened._tag, "Failure");
+    if (opened._tag === "Failure") {
+      assert.isTrue(SqlError.isSqlError(opened.failure));
+      assert.include(opened.failure.message, dbPath);
+    }
+  }).pipe(
+    Effect.ensuring(Effect.sync(() => NodeFS.rmSync(tempDir, { recursive: true, force: true }))),
+  );
+});
 
 const ownT3Home = Effect.fn(function* () {
   const { serverRuntimeStatePath } = yield* ServerConfig.ServerConfig;

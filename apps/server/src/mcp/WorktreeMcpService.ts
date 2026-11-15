@@ -300,10 +300,11 @@ const make = Effect.gen(function* () {
               branch: worktree.worktree.refName,
               worktreePath,
               expectedWorktreePath: null,
+              // Binding detaches the session and ends the caller; a later send could lose the race.
               ...(input.continuationPrompt === undefined
                 ? {}
                 : {
-                    worktreeContinuation: {
+                    continuation: {
                       messageId: ids.continuationMessageId,
                       text: input.continuationPrompt,
                     },
@@ -331,13 +332,17 @@ const make = Effect.gen(function* () {
         // Binding and continuation events share the detach effect's commit, so
         // even an immediately executing detach sees the durable queued message.
         const bound = yield* recheckAndBind;
-        const queued = bound.storedEvents.some(
-          ({ event }) => event.type === "run.created" && event.payload.status === "queued",
-        );
         const continuation: WorktreeMcpContinuationStatus =
           input.continuationPrompt === undefined
             ? { status: "skipped" }
-            : { status: "scheduled", delivery: queued ? "queued" : "started" };
+            : {
+                status: "scheduled",
+                delivery: bound.storedEvents.some(
+                  ({ event }) => event.type === "run.created" && event.payload.status !== "queued",
+                )
+                  ? "started"
+                  : "queued",
+              };
 
         yield* vcsStatusBroadcaster
           .refreshStatus(worktreePath)

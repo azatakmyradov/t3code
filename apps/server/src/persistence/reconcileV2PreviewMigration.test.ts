@@ -63,6 +63,18 @@ describe("V2 preview upgrade", () => {
         [81, "ScheduledTaskThreadMode"],
         [82, "ProjectionMessageSearchText"],
         [83, "TurnItemConversationIndex"],
+        [84, "CommandReadIndexes"],
+        [85, "LastExecutedRunIndex"],
+        [86, "TurnItemCounts"],
+        [87, "QueuedTurnInputIndex"],
+        [88, "ProjectionProjectsCustomTitle"],
+        [89, "TurnItemTypeStatusIndex"],
+        [90, "ShellThreadReadIndexes"],
+        [91, "AuthConnectDevices"],
+        [92, "AuthConnectDeniedRequests"],
+        [93, "QueuedTurnInputIndexJsonValid"],
+        [94, "ProviderTurnAttemptIndex"],
+        [95, "TurnItemMessageOrdinalIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -169,6 +181,18 @@ describe("V2 preview upgrade", () => {
         [81, "ScheduledTaskThreadMode"],
         [82, "ProjectionMessageSearchText"],
         [83, "TurnItemConversationIndex"],
+        [84, "CommandReadIndexes"],
+        [85, "LastExecutedRunIndex"],
+        [86, "TurnItemCounts"],
+        [87, "QueuedTurnInputIndex"],
+        [88, "ProjectionProjectsCustomTitle"],
+        [89, "TurnItemTypeStatusIndex"],
+        [90, "ShellThreadReadIndexes"],
+        [91, "AuthConnectDevices"],
+        [92, "AuthConnectDeniedRequests"],
+        [93, "QueuedTurnInputIndexJsonValid"],
+        [94, "ProviderTurnAttemptIndex"],
+        [95, "TurnItemMessageOrdinalIndex"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

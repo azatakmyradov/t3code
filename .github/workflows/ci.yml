@@ -31,7 +31,7 @@ jobs:
       rust: ${{ steps.changes.outputs.rust }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           sparse-checkout: |
@@ -84,7 +84,7 @@ jobs:
             exit 1
           fi
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -108,14 +108,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -131,7 +131,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
@@ -142,7 +142,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libsecret-1-dev pkg-config
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -173,7 +173,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
@@ -185,7 +185,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends build-essential libsecret-1-dev pkg-config
           command -v cc
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -196,19 +196,24 @@ jobs:
         run: vp run --parallel --concurrency-limit 2 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' --filter '!@t3tools/client-runtime' --filter '!@t3tools/shared' --filter '!@t3tools/contracts' test
 
   test_web:
-    name: Test Web and Shared
+    name: Test Web and Shared ${{ matrix.shard }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # One hosted runner cannot hold the whole browser suite; headless Chromium closes partway.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -220,7 +225,7 @@ jobs:
 
       - name: Cache Chromium
         id: chromium_cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
@@ -239,12 +244,14 @@ jobs:
 
       # The web suite needs the runner to itself for its large cold imports.
       - name: Test web
-        run: vp run --filter @t3tools/web test
+        run: vp run --filter @t3tools/web test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
       - name: Test shared client packages
+        if: matrix.shard == 1
         run: vp run --parallel --concurrency-limit 2 --filter @t3tools/client-runtime --filter @t3tools/shared --filter @t3tools/contracts test
 
       # Browser tests run source modules; this boots the production chunk graph.
       - name: Boot the built web client
+        if: matrix.shard == 1
         run: |
           vp run --filter @t3tools/web build
           node apps/web/scripts/verify-built-boot.ts
@@ -259,14 +266,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -288,14 +295,14 @@ jobs:
         shard: [1, 2]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -313,7 +320,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
@@ -321,8 +328,9 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: stable
           components: rustfmt
 
       - name: Check Rust formatting
@@ -344,7 +352,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
@@ -352,7 +360,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
@@ -374,7 +382,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             /*
@@ -383,7 +391,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1.15.0
         with:
           node-version-file: package.json
           cache: true
