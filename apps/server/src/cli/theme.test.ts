@@ -15,6 +15,7 @@ import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/cli";
 
 import { cli } from "../binCli.ts";
+import { MAX_THEME_FILE_BYTES } from "../environmentTheme.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
@@ -460,7 +461,7 @@ describe("t3-fork theme", () => {
     Effect.gen(function* () {
       const baseDir = makeBaseDir();
       const themeFile = NodePath.join(baseDir, "huge.json");
-      const padding = "x".repeat(40 * 1024);
+      const padding = "x".repeat(MAX_THEME_FILE_BYTES);
       NodeFS.writeFileSync(
         themeFile,
         `{ "name": "Huge", "appearance": "dark", "canvas": "#1a1b26", "accent": "#7aa2f7", "note": "${padding}" }\n`,
