@@ -196,9 +196,14 @@ jobs:
         run: vp run --parallel --concurrency-limit 2 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' --filter '!@t3tools/client-runtime' --filter '!@t3tools/shared' --filter '!@t3tools/contracts' test
 
   test_web:
-    name: Test Web and Shared
+    name: Test Web and Shared ${{ matrix.shard }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # One hosted runner cannot hold the whole browser suite; headless Chromium closes partway.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -239,12 +244,14 @@ jobs:
 
       # The web suite needs the runner to itself for its large cold imports.
       - name: Test web
-        run: vp run --filter @t3tools/web test
+        run: vp run --filter @t3tools/web test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
       - name: Test shared client packages
+        if: matrix.shard == 1
         run: vp run --parallel --concurrency-limit 2 --filter @t3tools/client-runtime --filter @t3tools/shared --filter @t3tools/contracts test
 
       # Browser tests run source modules; this boots the production chunk graph.
       - name: Boot the built web client
+        if: matrix.shard == 1
         run: |
           vp run --filter @t3tools/web build
           node apps/web/scripts/verify-built-boot.ts
