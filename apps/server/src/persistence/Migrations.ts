@@ -104,6 +104,8 @@ import Migration0093 from "./Migrations/093_QueuedTurnInputIndexJsonValid.ts";
 import Migration0094 from "./Migrations/094_ProviderTurnAttemptIndex.ts";
 import Migration0095 from "./Migrations/095_TurnItemMessageOrdinalIndex.ts";
 import Migration0096 from "./Migrations/096_ProjectionProjectsTrackedFolders.ts";
+import Migration0097 from "./Migrations/097_TurnItemInlineWorkOutput.ts";
+import Migration0098 from "./Migrations/098_RepairStaleTitleRegeneration.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -205,6 +207,8 @@ export const migrationEntries = [
   [95, "TurnItemMessageOrdinalIndex", Migration0095],
   // Fork-only id for tracked folders shipped ahead of upstream; keep it after upstream ships its own.
   [96, "ProjectionProjectsTrackedFolders", Migration0096],
+  [97, "TurnItemInlineWorkOutput", Migration0097],
+  [98, "RepairStaleTitleRegeneration", Migration0098],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -282,9 +286,10 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
   return (row?.latestId ?? 0) < latestMigrationId || (row?.previewRows ?? 0) > 0;
 });
 
-// Upstream's ids from 61 on are this fork's ids minus one, because the fork released
-// Bots at 61. Shift only a known upstream history, preserving its schema, data, and
-// migration timestamps, then record Bots. Unknown later histories must fail untouched.
+// The fork released Bots at 61 and tracked folders at 96 ahead of upstream, so upstream's ids
+// from 61 on map to this fork's ids by name. Shift only a known upstream history, preserving its
+// schema, data, and migration timestamps, then record the fork-only migrations it would skip.
+// Unknown later histories must fail untouched.
 const UPSTREAM_MIGRATIONS_FROM_61 = [
   "PullRequestReviewGuides",
   "ThreadFailureLookupIndex",
@@ -320,7 +325,19 @@ const UPSTREAM_MIGRATIONS_FROM_61 = [
   "QueuedTurnInputIndexJsonValid",
   "ProviderTurnAttemptIndex",
   "TurnItemMessageOrdinalIndex",
+  "TurnItemInlineWorkOutput",
+  "RepairStaleTitleRegeneration",
 ] as const;
+
+const FORK_ONLY_MIGRATIONS = [
+  [61, "Bots", Migration0061],
+  [96, "ProjectionProjectsTrackedFolders", Migration0096],
+] as const;
+
+const forkMigrationId = (upstreamId: number) => {
+  const name = UPSTREAM_MIGRATIONS_FROM_61[upstreamId - 61];
+  return migrationEntries.find(([, entryName]) => entryName === name)![0];
+};
 
 const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(function* (
   throughId?: number,
@@ -351,8 +368,9 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         });
       }
       const latestUpstreamId = Math.max(...recorded.map((row) => row.migration_id));
-      // Shifting the latest entry up one would exceed a caller's requested migration limit.
-      if (throughId !== undefined && throughId < latestUpstreamId + 1) return [];
+      const latestForkId = forkMigrationId(latestUpstreamId);
+      // Shifting the latest entry would exceed a caller's requested migration limit.
+      if (throughId !== undefined && throughId < latestForkId) return [];
       yield* assertV2MigrationsCanRun(60);
       const earlierHistory = yield* sql<{ readonly migration_id: number; readonly name: string }>`
         SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id < ${FIRST_V2_MIGRATION_ID}
@@ -370,15 +388,19 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
             "Cannot upgrade upstream migration history with missing or unknown earlier migrations.",
         });
       }
-      yield* Migration0061;
+      // The Migrator skips ids below the highest recorded, so apply those fork-only ones here.
+      const skippedForkMigrations = FORK_ONLY_MIGRATIONS.filter(([id]) => id < latestForkId);
+      for (const [, , migration] of skippedForkMigrations) yield* migration;
       // Move later entries first to avoid primary-key collisions.
       for (let id = latestUpstreamId; id >= 61; id--) {
-        yield* sql`UPDATE effect_sql_migrations SET migration_id = ${id + 1}
+        yield* sql`UPDATE effect_sql_migrations SET migration_id = ${forkMigrationId(id)}
           WHERE migration_id = ${id} AND name = ${UPSTREAM_MIGRATIONS_FROM_61[id - 61]!}`;
       }
-      yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (61, 'Bots')`;
+      for (const [id, name] of skippedForkMigrations) {
+        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
+      }
       yield* assertV2MigrationsCanRun(throughId);
-      return [[61, "Bots"]] as const;
+      return skippedForkMigrations.map(([id, name]) => [id, name] as const);
     }),
   );
 });
@@ -397,13 +419,14 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
   // The desktop waits past its readiness budget until the finished line follows this one.
-  if (yield* hasPendingMigrations()) yield* Effect.log(DATABASE_MIGRATIONS_STARTED_MESSAGE);
+  const hasPending = yield* hasPendingMigrations();
+  if (hasPending) yield* Effect.log(DATABASE_MIGRATIONS_STARTED_MESSAGE);
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
-  const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
-  const upstreamMigrations = includesV2
-    ? yield* reconcileUpstreamMigrations(toMigrationInclusive)
-    : [];
+  // The reconcile takes the write lock; CLI startup must not contend with the server for a no-op.
+  const previewMigrations = includesV2 && hasPending ? yield* reconcileV2PreviewMigration() : [];
+  const upstreamMigrations =
+    includesV2 && hasPending ? yield* reconcileUpstreamMigrations(toMigrationInclusive) : [];
   if (includesV2) {
     yield* assertV2MigrationsCanRun(toMigrationInclusive);
   }
