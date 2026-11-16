@@ -9,8 +9,8 @@ vi.mock("react", async (importOriginal) => ({
 }));
 vi.mock("./useHandleNewThread", () => ({ useNewThreadHandler: () => openProjectDraft }));
 vi.mock("~/state/environments", () => ({
-  useEnvironments: () => ({ environments: [] }),
-  useEnvironmentProviders: () => new Map(),
+  readEnvironment: () => undefined,
+  readEnvironmentProviders: () => [],
 }));
 vi.mock("~/composerDraftStore", async (importOriginal) => {
   const original = await importOriginal<typeof import("~/composerDraftStore")>();

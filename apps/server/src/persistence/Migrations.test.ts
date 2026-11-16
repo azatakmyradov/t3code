@@ -53,13 +53,19 @@ const botTables = Effect.gen(function* () {
   `;
 });
 
+const forkOnlyMigrations = new Set(["Bots", "ProjectionProjectsTrackedFolders"]);
+// Upstream numbers its migrations from 61 without the fork-only ones.
+const upstreamEntries = migrationEntries
+  .filter(([id, name]) => id > 60 && !forkOnlyMigrations.has(name))
+  .map(([forkId, name, migration], index) => ({ id: 61 + index, forkId, name, migration }));
+const latestUpstreamId = Math.max(...upstreamEntries.map(({ id }) => id));
+const forkIdOfUpstream = (id: number) => upstreamEntries.find((entry) => entry.id === id)!.forkId;
+
 const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: 60 });
-  // Upstream's ids from 61 on are this fork's ids minus one.
-  for (const [forkId, name, migration] of migrationEntries) {
-    const id = forkId - 1;
-    if (id < 61 || id > throughId) continue;
+  for (const { id, name, migration } of upstreamEntries) {
+    if (id > throughId) continue;
     yield* migration;
     const createdAt = `2026-10-01 12:${String(id - 61).padStart(2, "0")}:00`;
     yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at) VALUES (${id}, ${name}, ${createdAt})`;
@@ -147,7 +153,7 @@ describe("runMigrations", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect.each(Array.from({ length: 34 }, (_, index) => index + 61))(
+  it.effect.each(Array.from({ length: latestUpstreamId - 60 }, (_, index) => index + 61))(
     "reconciles upstream %s without replaying its migrations",
     (id) =>
       Effect.gen(function* () {
@@ -164,16 +170,21 @@ describe("runMigrations", () => {
         const peers = id >= 71 ? yield* sql`SELECT * FROM peer_environment_links` : [];
         assert.deepStrictEqual(yield* botTables, []);
 
+        const forkId = forkIdOfUpstream(id);
         assert.deepStrictEqual(yield* runMigrations(), [
           [61, "Bots"],
-          ...migrationManifest.filter(([migrationId]) => migrationId > id + 1),
+          ...(forkId > 96 ? [[96, "ProjectionProjectsTrackedFolders"] as const] : []),
+          ...migrationManifest.filter(([migrationId]) => migrationId > forkId),
         ]);
 
         assert.deepStrictEqual(yield* history, migrationManifest);
         assert.deepStrictEqual(yield* sql`SELECT * FROM pull_request_review_guides`, guides);
         assert.deepStrictEqual(
-          yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id >= 62 AND migration_id <= ${id + 1} ORDER BY migration_id`,
-          upstreamHistory.map((row) => ({ ...row, migration_id: row.migration_id + 1 })),
+          yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id >= 62 AND migration_id <= ${forkId} AND name NOT IN ('Bots', 'ProjectionProjectsTrackedFolders') ORDER BY migration_id`,
+          upstreamHistory.map((row) => ({
+            ...row,
+            migration_id: forkIdOfUpstream(row.migration_id),
+          })),
         );
         assert.deepStrictEqual(yield* sql`SELECT * FROM peer_environment_links`, peers);
         assert.lengthOf(yield* botTables, 5);
@@ -425,12 +436,18 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("upgrades a database at exactly 54", () =>
+  it.effect("upgrades a database at exactly 54, then rechecks it without a write lock", () =>
     Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 54 });
       assert.deepStrictEqual(yield* runMigrations(), v2Migrations);
       assert.deepStrictEqual(yield* history, migrationManifest);
       assert.isAbove(yield* v2TableCount, 0);
+
+      // query_only rejects BEGIN IMMEDIATE, which CLI startup would otherwise take on the live database.
+      yield* sql`PRAGMA query_only = ON`;
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* history, migrationManifest);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
