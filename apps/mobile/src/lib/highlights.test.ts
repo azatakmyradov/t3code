@@ -88,3 +88,20 @@ it.each([
     expect(new Set(tokens.flat().map((token) => token.color)).size).toBeGreaterThan(1);
   }
 });
+
+it.each(["sage-x3", "x3", "4gl", "sage-x3-4gl", "adonix", "TRT/ZDEMO.src", "TRT/ZDEMO.SRC"])(
+  "highlights Sage X3 in %s",
+  (hint) => {
+    const language = resolveHighlightLanguage(
+      hint.includes("/") ? { path: hint } : { language: hint },
+    );
+    const code = '$ACTION\r\nLocal Char MESSAGE(80)\r\nMESSAGE = "Hello" # comment';
+    for (const scheme of ["light", "dark"] as const) {
+      const lines = highlightCode(code, language, scheme);
+      expect(lines.map((line) => line.map((token) => token.content).join("")).join("\r\n")).toBe(
+        code,
+      );
+      expect(new Set(lines.flat().map((token) => token.color)).size).toBeGreaterThan(3);
+    }
+  },
+);

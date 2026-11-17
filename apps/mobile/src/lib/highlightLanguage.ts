@@ -1,3 +1,4 @@
+import { isSageX3Language } from "@t3tools/client-runtime/sage-x3-language";
 import "@t3tools/client-runtime/assembly-highlighting";
 import {
   getFiletypeFromFileName,
@@ -22,8 +23,9 @@ export function resolveHighlightLanguage(input: {
   readonly path?: string;
 }): string {
   const hinted = input.language?.trim().toLowerCase();
-  if (hinted && highlightLanguageId(hinted) !== 0) return hinted;
+  if (hinted && (isSageX3Language(hinted) || highlightLanguageId(hinted) !== 0)) return hinted;
   const detected = input.path ? getFiletypeFromFileName(input.path)?.toLowerCase() : undefined;
-  if (detected && highlightLanguageId(detected) !== 0) return detected;
+  if (detected && (isSageX3Language(detected) || highlightLanguageId(detected) !== 0))
+    return detected;
   return "text";
 }

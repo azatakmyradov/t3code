@@ -227,6 +227,17 @@ describe("GitHubRest", () => {
               expect(input.args).toEqual(["config", "get", "http_unix_socket"]);
               return Effect.succeed(TestSourceControlHost.processOutput(`${socketPath}\n`));
             }
+            if (input.args[0] === "api") {
+              expect(input.args).toEqual([
+                "api",
+                "--hostname",
+                "github.com",
+                "user",
+                "--jq",
+                ".login",
+              ]);
+              return Effect.succeed(TestSourceControlHost.processOutput("proxy-user\n"));
+            }
             expect(input.args.slice(0, 2)).toEqual(["auth", "token"]);
             return Effect.succeed(TestSourceControlHost.processOutput("placeholder\n"));
           },

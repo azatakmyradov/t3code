@@ -9,6 +9,10 @@ describe("dialect file types", () => {
     ["src/init.luau", "lua"],
     ["styles/page.xsl", "xml"],
     ["styles/page.xslt", "xml"],
+    ...["src", "SRC", "4gl", "4GL", "adx", "ADX", "x3", "X3"].map((ext) => [
+      `TRT/ZDEMO.${ext}`,
+      "sage-x3",
+    ]),
   ])("%s highlights as %s", (path, language) => {
     expect(getFiletypeFromFileName(path)).toBe(language);
   });
@@ -29,3 +33,19 @@ it.each([
     expect(new Set(tokens.flat().map((token) => token.color)).size).toBeGreaterThan(1);
   }
 });
+
+it.each(["sage-x3", "x3", "4gl", "sage-x3-4gl", "adonix"])(
+  "highlights Sage X3 in %s",
+  async (language) => {
+    const highlighter = await getSyntaxHighlighterPromise(language);
+    const code =
+      '$ACTION\nLocal Char MESSAGE(80)\nIf fstat = 0\n  MESSAGE = "Hello" # comment\nEndif';
+    for (const theme of Object.values(DIFF_THEME_NAMES)) {
+      const { tokens } = highlighter.codeToTokens(code, { lang: language, theme });
+      expect(tokens.map((line) => line.map((token) => token.content).join("")).join("\n")).toBe(
+        code,
+      );
+      expect(new Set(tokens.flat().map((token) => token.color)).size).toBeGreaterThan(3);
+    }
+  },
+);
