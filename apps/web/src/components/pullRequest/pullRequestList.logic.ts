@@ -460,16 +460,19 @@ export function partitionPullRequestsWithPriority<Entry extends PullRequestListE
   authored: ReadonlyArray<Entry>,
   reviewRequested: ReadonlyArray<Entry>,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
-  const authoredByKey = new Map(authored.map((entry) => [pullRequestEntryKey(entry), entry]));
+  // Matched by URL and reading account: each list may hold the pull request under a different
+  // environment, while repositories that read it as different accounts stay separate rows.
+  const keyOf = (entry: Entry) =>
+    JSON.stringify([entry.url, entry.viewer ?? null, entry.expectedAccountId ?? null]);
+  const authoredByKey = new Map(authored.map((entry) => [keyOf(entry), entry]));
   const reviewByKey = new Map(
-    reviewRequested.flatMap((entry) => {
-      const key = pullRequestEntryKey(entry);
-      return authoredByKey.has(key) ? [] : [[key, entry] as const];
-    }),
+    reviewRequested.flatMap((entry) =>
+      authoredByKey.has(keyOf(entry)) ? [] : [[keyOf(entry), entry] as const],
+    ),
   );
   const others: Entry[] = [];
   for (const entry of entries) {
-    const key = pullRequestEntryKey(entry);
+    const key = keyOf(entry);
     if (authoredByKey.has(key)) {
       authoredByKey.set(key, entry);
     } else if (reviewByKey.has(key)) {
@@ -602,10 +605,13 @@ export function mergePullRequestLists(
       );
     }
     for (const entry of answer.entries) {
-      const key = JSON.stringify([environmentId, entry.url]);
-      const held = entries.get(key);
-      if (held === undefined || entry.updatedAt > held.updatedAt) {
-        entries.set(key, { ...entry, environmentId });
+      const held = entries.get(entry.url);
+      // The first environment to answer keeps a pull request that several of them read.
+      if (
+        held === undefined ||
+        (held.environmentId === environmentId && entry.updatedAt > held.updatedAt)
+      ) {
+        entries.set(entry.url, { ...entry, environmentId });
       }
     }
     errors.push(...answer.errors.map((error) => ({ ...error, environmentId })));

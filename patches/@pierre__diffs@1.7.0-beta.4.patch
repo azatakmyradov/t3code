@@ -262,6 +262,19 @@ index 0000000000000000000000000000000000000000..5352ff84b8a09b4385c3f2bfe7dce8fa
 +export function createTextmateFallback(languages = []) {
 +  return createHighlighterCoreSync({ themes: [], langs: languages, engine: createJavaScriptRegexEngine() });
 +}
+diff --git a/dist/utils/parsePatchFiles.js b/dist/utils/parsePatchFiles.js
+index 48568bd..f27123f 100644
+--- a/dist/utils/parsePatchFiles.js
++++ b/dist/utils/parsePatchFiles.js
+@@ -339,7 +339,7 @@ function parsePatchFiles(data, options = {}) {
+ 	return patches;
+ }
+ function decodeDiffFileName(value, stripGitPrefix = false) {
+-	const rawName = value.trim();
++	const rawName = value.replace(/[\t\r\n]+$/, "");
+ 	const name = rawName.startsWith("\"") ? parseQuotedDiffFileName(rawName)?.fileName ?? rawName : rawName;
+ 	return stripGitPrefix && (name.startsWith("a/") || name.startsWith("b/")) ? name.slice(2) : name;
+ }
 diff --git a/dist/worker/WorkerPoolManager.js b/dist/worker/WorkerPoolManager.js
 index 936d0c0a461b0a17afb319862f423ae476a31453..c9657f64737660402a59da05ffa6dad9ddd91608 100644
 --- a/dist/worker/WorkerPoolManager.js

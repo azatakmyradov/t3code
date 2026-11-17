@@ -110,6 +110,11 @@ import {
   type PullRequestListSort,
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
+import { SavedViewsMenu } from "../components/SavedViewsMenu";
+import {
+  PULL_REQUEST_SAVED_VIEWS,
+  pullRequestSavedViewPatch,
+} from "../components/pullRequest/pullRequestSavedViews";
 import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
 import { pullRequestFilterProjects } from "@t3tools/client-runtime/pull-request-project-filter";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
@@ -200,18 +205,18 @@ function getShortcutContext() {
 export interface PullRequestsSearch extends PullRequestListPreferences {
   readonly environmentId?: EnvironmentId;
   readonly projectId?: ProjectId;
-  readonly host?: string;
+  readonly host?: string | undefined;
   readonly repository?: string;
   readonly number?: number;
-  readonly selectedProjectId?: ProjectId;
-  readonly selectedHost?: string;
-  readonly selectedAccountId?: string;
+  readonly selectedProjectId?: ProjectId | undefined;
+  readonly selectedHost?: string | undefined;
+  readonly selectedAccountId?: string | undefined;
   /**
    * Which server the selected pull request was read from. A project id only names a project on
    * its own server, so this is what tells two servers holding one project apart. Optional: a
    * link without it still opens, resolved by project id alone where that is unambiguous.
    */
-  readonly selectedEnvironmentId?: EnvironmentId;
+  readonly selectedEnvironmentId?: EnvironmentId | undefined;
 }
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
@@ -1373,6 +1378,8 @@ function PullRequestsRouteView() {
   const searchInput = (
     <PullRequestSearchInput
       value={search.q ?? ""}
+      label="Search pull requests"
+      placeholder="Search pull requests, or label:bug"
       busy={typedQuery.length > 0 && (!querySettled || showingCarried)}
       onChange={(query) => updateListScope({ q: query || undefined })}
       onSubmit={(query) => updateListScope({ q: query || undefined })}
@@ -1633,6 +1640,13 @@ function PullRequestsRouteView() {
     searchInput,
     sortMenu,
     filtersMenu,
+    savedViewsMenu: (
+      <SavedViewsMenu
+        kind={PULL_REQUEST_SAVED_VIEWS}
+        preferences={search}
+        onApply={(preferences) => updateListScope(pullRequestSavedViewPatch(preferences))}
+      />
+    ),
     rightPanelControl: !pullRequestsSupported ? null : (
       <span
         aria-hidden
@@ -2419,6 +2433,7 @@ function PullRequestsColumn({
   searchInput,
   sortMenu,
   filtersMenu,
+  savedViewsMenu,
   rightPanelControl,
   titlebarControls,
   rightPanelOpen,
@@ -2439,6 +2454,7 @@ function PullRequestsColumn({
   searchInput: ReactNode;
   sortMenu: ReactNode;
   filtersMenu: ReactNode;
+  savedViewsMenu: ReactNode;
   rightPanelControl: ReactNode;
   titlebarControls: ReactNode;
   rightPanelOpen: boolean;
@@ -2573,6 +2589,7 @@ function PullRequestsColumn({
               </div>
               {sortMenu}
               {filtersMenu}
+              {savedViewsMenu}
               <CompactFilterMenu
                 label="Filter by provider"
                 outlined

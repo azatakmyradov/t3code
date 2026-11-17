@@ -61,7 +61,11 @@ import {
   type SourceControlManagedCliDiscoverySpec,
 } from "@t3tools/source-control-core/server/discovery";
 import * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
-import { readSourceControlHostSettings } from "@t3tools/source-control-core/shared/definition";
+import {
+  parseGitRemoteHost,
+  readSourceControlHostSettings,
+  unknownRemoteProvider,
+} from "@t3tools/source-control-core/shared/definition";
 
 import * as GitHubClient from "../shared/definition.ts";
 import {
@@ -149,8 +153,8 @@ export function parseGitHubAuth(
             settings.hosts[host]?.enabled === false ||
             !authStatus.accounts.some((account) => account.host === host && account.authenticated),
         )
-          ? "Every GitHub host gh is signed in to is turned off in Settings → Source Control."
-          : "The GitHub account chosen in Settings is no longer signed in. Sign in again or choose another account in Settings → Source Control.",
+          ? "Every GitHub host gh is signed in to is turned off in Settings → Source control & issues."
+          : "The GitHub account chosen in Settings is no longer signed in. Sign in again or choose another account in Settings → Source control & issues.",
       }),
       ...accounts,
     };
@@ -301,9 +305,9 @@ export const makeDiscovery = Effect.gen(function* () {
                   status: "unauthenticated",
                   host: "github.com",
                   detail: savedToken
-                    ? "GitHub refused the token saved in Settings. Replace or remove it in Settings → Source Control."
+                    ? "GitHub refused the token saved in Settings. Replace or remove it in Settings → Source control & issues."
                     : signedIn
-                      ? `GitHub refused the ${appName} sign-in. Sign in again in Settings → Source Control.`
+                      ? `GitHub refused the ${appName} sign-in. Sign in again in Settings → Source control & issues.`
                       : `GitHub refused the token in ${tokenSource}. Replace it, or unset it to use \`gh auth login\`.`,
                 })),
           ...accounts,
@@ -343,6 +347,30 @@ class GitHubFailure extends Schema.TaggedError<GitHubFailure>()("GitHubFailure",
 }) {}
 
 const failure = (detail: string, cause?: unknown) => new GitHubFailure({ detail, cause });
+
+// A gh login confirms a GitHub Enterprise Server whose hostname does not identify its provider.
+const refineRepositoryIdentity: NonNullable<
+  SourceControlProvider.SourceControlProvider["Service"]["refineRepositoryIdentity"]
+> = Effect.fn("GitHubSourceControlProvider.refineRepositoryIdentity")(function* ({
+  identity,
+  resolveContext,
+}) {
+  if (!identity.rootPath || (identity.provider !== undefined && identity.provider !== "unknown"))
+    return identity;
+  const remote = parseGitRemoteHost(identity.locator.remoteUrl);
+  if (remote === null) return identity;
+  const context = yield* resolveContext({
+    cwd: identity.rootPath,
+    context: {
+      provider: unknownRemoteProvider(remote),
+      remoteName: identity.locator.remoteName,
+      remoteUrl: identity.locator.remoteUrl,
+    },
+  });
+  return context?.provider.kind === "github"
+    ? { ...identity, provider: SourceControlProviderKind.make("github") }
+    : identity;
+});
 
 const PULL_REQUEST_NOT_FOUND = "Pull request not found. Check the PR number or URL and try again.";
 const REPOSITORY_NOT_FOUND = "Repository not found. Check the owner and name and try again.";
@@ -984,6 +1012,7 @@ export const make = Effect.gen(function* () {
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: SourceControlProviderKind.make("github"),
+    refineRepositoryIdentity,
     resolveRemoteWebHost: Effect.fn("GitHubSourceControlProvider.resolveRemoteWebHost")(
       ({ context }) => Effect.succeed(gitHubApiHostForRemote(context.remoteUrl)),
     ),

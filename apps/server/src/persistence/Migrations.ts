@@ -106,6 +106,8 @@ import Migration0095 from "./Migrations/095_TurnItemMessageOrdinalIndex.ts";
 import Migration0096 from "./Migrations/096_ProjectionProjectsTrackedFolders.ts";
 import Migration0097 from "./Migrations/097_TurnItemInlineWorkOutput.ts";
 import Migration0098 from "./Migrations/098_RepairStaleTitleRegeneration.ts";
+import Migration0099 from "./Migrations/099_IssueTrackerBindings.ts";
+import Migration0100 from "./Migrations/100_ActiveShellIndexIndexes.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -209,6 +211,8 @@ export const migrationEntries = [
   [96, "ProjectionProjectsTrackedFolders", Migration0096],
   [97, "TurnItemInlineWorkOutput", Migration0097],
   [98, "RepairStaleTitleRegeneration", Migration0098],
+  [99, "IssueTrackerBindings", Migration0099],
+  [100, "ActiveShellIndexIndexes", Migration0100],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -327,6 +331,8 @@ const UPSTREAM_MIGRATIONS_FROM_61 = [
   "TurnItemMessageOrdinalIndex",
   "TurnItemInlineWorkOutput",
   "RepairStaleTitleRegeneration",
+  "IssueTrackerBindings",
+  "ActiveShellIndexIndexes",
 ] as const;
 
 const FORK_ONLY_MIGRATIONS = [
