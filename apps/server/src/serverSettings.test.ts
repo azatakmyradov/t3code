@@ -77,11 +77,17 @@ const layerServerSettingsWithSecrets = () =>
     ),
   );
 
-const layerFailingSecretStore = (cause: ServerSecretStore.SecretStoreError) =>
+const layerFailingSecretStore = (
+  cause: ServerSecretStore.SecretStoreError,
+  secretNames?: ReadonlyArray<string>,
+) =>
   Layer.succeed(
     ServerSecretStore.ServerSecretStore,
     ServerSecretStore.ServerSecretStore.of({
-      get: () => Effect.fail(cause),
+      get: (name) =>
+        secretNames === undefined || secretNames.includes(name)
+          ? Effect.fail(cause)
+          : Effect.succeedNone,
       set: () => Effect.void,
       create: () => Effect.void,
       getOrCreateRandom: () => Effect.succeed(new Uint8Array()),
@@ -2664,7 +2670,12 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         cause: new Error("Secret backend unavailable"),
       });
       const layerSettings = ServerSettingsModule.layer.pipe(
-        Layer.provide(layerFailingSecretStore(cause)),
+        Layer.provide(
+          layerFailingSecretStore(cause, [
+            "bitbucket-access-token",
+            `github-token-${Buffer.from("github.com", "utf8").toString("base64url")}`,
+          ]),
+        ),
         Layer.provide(ManagedPolicy.layerTest()),
         Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
         Layer.provideMerge(
