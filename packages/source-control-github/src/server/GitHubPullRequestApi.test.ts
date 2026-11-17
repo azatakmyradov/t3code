@@ -4231,19 +4231,19 @@ layer("GitHubPullRequestApi.layer", (it) => {
   it.effect("carries on from a cursor without asking for the whole diff again", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(Effect.fail(diffRefused));
-      mockedExecute.mockReturnValueOnce(Effect.succeed(output(pullRequestFiles(100, 0))));
+      mockedExecute.mockReturnValueOnce(Effect.succeed(output(pullRequestFiles(30, 0))));
       const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
       const target = { cwd: "/w", repository: "acme/web", host: "github.com", number: 7 };
 
       const first = yield* cli.getPullRequestDiff(target);
       assert.isNotNull(first.nextCursor);
-      mockedExecute.mockReturnValueOnce(Effect.succeed(output(pullRequestFiles(4, 100))));
+      mockedExecute.mockReturnValueOnce(Effect.succeed(output(pullRequestFiles(4, 30))));
       const second = yield* cli.getPullRequestDiff({ ...target, cursor: first.nextCursor });
 
       assert.isNull(second.nextCursor);
-      expect(second.patch).toContain("diff --git a/src/file100.ts b/src/file100.ts");
+      expect(second.patch).toContain("diff --git a/src/file30.ts b/src/file30.ts");
       assert.strictEqual(mockedExecute.mock.calls.length, 3);
-      assert.strictEqual(pathAt(2), "repos/acme/web/pulls/7/files?per_page=100&page=2");
+      assert.strictEqual(pathAt(2), "repos/acme/web/pulls/7/files?per_page=30&page=2");
     }),
   );
 
@@ -4294,7 +4294,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
   it.effect("pages inside a commit the way it pages the pull request's own files", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(
-        Effect.succeed(output(`{"files":${pullRequestFiles(100, 0)}}`)),
+        Effect.succeed(output(`{"files":${pullRequestFiles(30, 0)}}`)),
       );
       const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
       const target = {
@@ -4308,13 +4308,13 @@ layer("GitHubPullRequestApi.layer", (it) => {
       const first = yield* cli.getPullRequestDiff(target);
       assert.isNotNull(first.nextCursor);
       mockedExecute.mockReturnValueOnce(
-        Effect.succeed(output(`{"files":${pullRequestFiles(4, 100)}}`)),
+        Effect.succeed(output(`{"files":${pullRequestFiles(4, 30)}}`)),
       );
       const second = yield* cli.getPullRequestDiff({ ...target, cursor: first.nextCursor });
 
       assert.isNull(second.nextCursor);
-      expect(second.patch).toContain("src/file100.ts");
-      assert.strictEqual(pathAt(1), "repos/acme/web/commits/a1b2c3d?per_page=100&page=2");
+      expect(second.patch).toContain("src/file30.ts");
+      assert.strictEqual(pathAt(1), "repos/acme/web/commits/a1b2c3d?per_page=30&page=2");
     }),
   );
 

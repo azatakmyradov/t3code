@@ -460,16 +460,19 @@ export function partitionPullRequestsWithPriority<Entry extends PullRequestListE
   authored: ReadonlyArray<Entry>,
   reviewRequested: ReadonlyArray<Entry>,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
-  // Matched by URL: each list may hold the pull request under a different environment.
-  const authoredByKey = new Map(authored.map((entry) => [entry.url, entry]));
+  // Matched by URL and reading account: each list may hold the pull request under a different
+  // environment, while repositories that read it as different accounts stay separate rows.
+  const keyOf = (entry: Entry) =>
+    JSON.stringify([entry.url, entry.viewer ?? null, entry.expectedAccountId ?? null]);
+  const authoredByKey = new Map(authored.map((entry) => [keyOf(entry), entry]));
   const reviewByKey = new Map(
     reviewRequested.flatMap((entry) =>
-      authoredByKey.has(entry.url) ? [] : [[entry.url, entry] as const],
+      authoredByKey.has(keyOf(entry)) ? [] : [[keyOf(entry), entry] as const],
     ),
   );
   const others: Entry[] = [];
   for (const entry of entries) {
-    const key = entry.url;
+    const key = keyOf(entry);
     if (authoredByKey.has(key)) {
       authoredByKey.set(key, entry);
     } else if (reviewByKey.has(key)) {

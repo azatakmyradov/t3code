@@ -2724,13 +2724,13 @@ const canBind = (port) =>
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-archive-launch-" });
       const home = `${root}/home`;
-      const stateDir = `${home}/.t3/ssh-launch/test-state`;
+      const stateDir = `${home}/${FORK_HOME_DIRECTORY}/ssh-launch/test-state`;
       const fakeT3 = `${root}/fake-t3.cjs`;
       yield* fs.makeDirectory(stateDir, { recursive: true });
       yield* fs.writeFileString(`${stateDir}/port`, `${yield* freeLoopbackPort}\n`);
       yield* fs.writeFileString(fakeT3, FAKE_T3);
       for (const version of versions) {
-        const runtimeDir = `${home}/.t3/runtime/versions/${version}`;
+        const runtimeDir = `${home}/${FORK_HOME_DIRECTORY}/runtime/versions/${version}`;
         yield* fs.makeDirectory(runtimeDir, { recursive: true });
         yield* fs.writeFileString(
           `${runtimeDir}/t3`,
@@ -2743,7 +2743,7 @@ const canBind = (port) =>
         .readFileString(`${stateDir}/pid`)
         .pipe(Effect.map((pid) => Number(pid.trim())));
       const readServerVersion = fs
-        .readFileString(`${home}/.t3/userdata/server-runtime.json`)
+        .readFileString(`${home}/${FORK_HOME_DIRECTORY}/userdata/server-runtime.json`)
         .pipe(Effect.map((raw) => (JSON.parse(raw) as { serverVersion: string }).serverVersion));
       // Launched servers outlive the script, so stop each PID it recorded.
       const launchedPids = new Set<number>();
