@@ -1,3 +1,4 @@
+import "@t3tools/client-runtime/sage-x3-highlighting";
 import { toHtml } from "hast-util-to-html";
 import { disposeHighlighter, getSharedHighlighter } from "@pierre/diffs";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
@@ -5,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { createIncrementalHighlightedDocument } from "./incrementalHighlighting";
 
 const samples = {
+  "sage-x3":
+    '$ACTION\n/* block\ncomment */\nLocal Char MESSAGE(80)\nMESSAGE = "Hello" # comment\nReturn\n',
   typescript: "/* multi\nline comment */\nconst x = `template\n${1 + 2}`;\nconst re = /abc/;\n",
   python: '#!/usr/bin/python\nx = """multi\nline"""\nprint(x)\n',
   bash: "#!/bin/bash\ncat <<EOF\nhello\nEOF\necho hi\n",

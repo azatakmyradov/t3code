@@ -1,0 +1,290 @@
+{
+  "name": "sage-x3",
+  "scopeName": "source.x3",
+  "information_for_contributors": [
+    "Copied from x3-toolkitv2/editors/vscode/syntaxes/x3.tmLanguage.json. Keep language rules in sync with that grammar."
+  ],
+  "patterns": [
+    {
+      "include": "#client-path"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#date-literal"
+    },
+    {
+      "include": "#colon-label"
+    },
+    {
+      "include": "#dollar-label"
+    },
+    {
+      "include": "#inline-label"
+    },
+    {
+      "include": "#routine-declaration"
+    },
+    {
+      "include": "#call-statement"
+    },
+    {
+      "include": "#class-reference"
+    },
+    {
+      "include": "#keywords-routines"
+    },
+    {
+      "include": "#keywords-declarations"
+    },
+    {
+      "include": "#keywords-control"
+    },
+    {
+      "include": "#keywords-calls"
+    },
+    {
+      "include": "#keywords-database"
+    },
+    {
+      "include": "#keywords-screens"
+    },
+    {
+      "include": "#keywords-objects"
+    },
+    {
+      "include": "#keywords-sequential-io"
+    },
+    {
+      "include": "#keywords-connections"
+    },
+    {
+      "include": "#word-operators"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#system-variables"
+    },
+    {
+      "include": "#builtin-functions"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+  "repository": {
+    "client-path": {
+      "comment": "`#@\"path\"` client-side path literal; must win over `#` comments.",
+      "name": "string.other.client-path.x3",
+      "match": "#@\"(?:[^\"\\\\]|\\\\.)*\""
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.x3",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
+          "name": "comment.line.number-sign.x3",
+          "match": "#.*$"
+        },
+        {
+          "name": "comment.line.double-slash.x3",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "comment": "A string ends at the first quote that matches its opener; strings never span lines.",
+      "patterns": [
+        {
+          "name": "string.quoted.double.x3",
+          "match": "\"[^\"\\r\\n]*\""
+        },
+        {
+          "name": "string.quoted.single.x3",
+          "match": "'[^'\\r\\n]*'"
+        }
+      ]
+    },
+    "date-literal": {
+      "comment": "`[12/31/2024]`; must win over class references.",
+      "name": "constant.other.date.x3",
+      "match": "\\[[0-9]{1,2}/[0-9]{1,2}/[0-9]{1,4}\\]"
+    },
+    "dollar-label": {
+      "comment": "`$LABEL` Gosub/Goto target; a `$` inside an identifier is not a label.",
+      "name": "entity.name.label.x3",
+      "match": "(?<![\\w$])\\$[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "inline-label": {
+      "comment": "A label inside a line: a bare name opening a one-line Else arm (`Else ZBAR Endif`, `Else : ZBAR : ...`), which the compiler reads as a label, or `NAME:` after a `:` separator (`While ZA : ZBAR: ...`). Keywords are excluded.",
+      "match": "(?i)(?:(?<![\\w$])(else)(?:\\s+|\\s*:\\s*(?=[A-Za-z_][A-Za-z0-9_]*\\s*(?::(?!=)|endif(?![\\w$]))))|(?<=:)\\s*(?=[A-Za-z_][A-Za-z0-9_]*:(?!=)))(?!(?:actzo|additm|addmen|adxifs|adxirs|adxium|affzo|allocgroup|anasql|and|append|as|asc|askui|assign|at|blbfile|boolean|boxact|boxclr|boxinp|break|button|by|call|callilog|calliu|callmet|callocx|callui|case|char|chgfmt|chgstl|chgtbk|chgtfd|chgtzn|choose|clbfile|clldap|close|coded|columns|commit|const|continue|curr|currbox|date|datesyst|datetime|dbgaff|dbgbox|decimal|default|dela|delete|deletebykey|desc|disable|discombo|dislbox|diszo|dlgbox|double|edi|effzo|else|elsif|enable|end|endbox|endcase|endif|envzo|errbox|execsql|extended|false|field|file|fillbox|filter|first|float|flush|fmet|fmethod|folder|for|formula|freegroup|freeinstance|freezeinstance|from|fstat|func|funciu|funprog|getseq|getui|global|gosub|goto|grizo|hint|hlpbox|if|infbox|infimg|inftxt|inpbox|insa|instance|integer|invfol|iomode|key|kill|last|leftbox|libelle|link|listbox|listimp|local|lock|lockwait|logicclose|look|mask|maxrows|men|mesbox|method|mkstat|nap|newinstance|next|nohint|nolign|nolign1|nop|not|nxldap|nxt|onerrgo|onevent|onintgo|onkey|opadxd|openi|openio|openo|opldap|opsock|or|order|parseinstance|pick|pickbox|pmt|prev|putseq|qstbox|raz|rdseq|read|readb|readl|readlock|readpatchline|reb|reckey|repeat|report|resume|return|rewrite|rewritebykey|rollback|rptfile|rptstat|run|saizo|schar|seek|selbox|seldest|selimp|send|setgus|setinstance|setinstancenosys|setlbox|setlob|setmode|setmok|shortint|sized|sleep|smallint|sorta|sql|srldapbs|srldaplv|srldaptr|stability|starting|status|step|subprog|supli|syrrecv|syrsend|system|then|this|time|tinyint|titcol|titled|to|transmask|trbegin|treebox|true|unlock|until|update|using|uuident|value|variable|wend|when|where|while|with|write|writeb|wrnbox|wrseq|xor|zc|zoncou|zonsor|zonsui)(?![\\w$]))([A-Za-z_][A-Za-z0-9_]*)(?:(:)(?!=)|(?=\\s*(?::(?!=)|endif(?![\\w$])|$)))",
+      "captures": {
+        "1": {
+          "name": "keyword.control.x3"
+        },
+        "2": {
+          "name": "entity.name.label.x3"
+        },
+        "3": {
+          "name": "punctuation.separator.label.x3"
+        }
+      }
+    },
+    "colon-label": {
+      "comment": "Legacy `LABEL:` at line start; the colon is immediate and not part of `:=`.",
+      "match": "^\\s*([A-Za-z_][A-Za-z0-9_$]*)(:)(?!=)",
+      "captures": {
+        "1": {
+          "name": "entity.name.label.x3"
+        },
+        "2": {
+          "name": "punctuation.separator.label.x3"
+        }
+      }
+    },
+    "routine-declaration": {
+      "comment": "`Subprog NAME(...)`, `Funprog NAME(...)`, `Method NAME(...)`, `Fmethod NAME(...)`.",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(subprog|funprog|method|fmethod)(?![\\w$])\\s+([A-Za-z_][A-Za-z0-9_$]*)",
+      "captures": {
+        "1": {
+          "name": "storage.type.function.x3"
+        },
+        "2": {
+          "name": "entity.name.function.x3"
+        }
+      }
+    },
+    "call-statement": {
+      "comment": "`Call NAME` / `Gosub NAME`; an optional `From MODULE` follows.",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(call|gosub)(?![\\w$])\\s+([A-Za-z_][A-Za-z0-9_$]*)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.x3"
+        },
+        "2": {
+          "name": "entity.name.function.x3"
+        }
+      }
+    },
+    "class-reference": {
+      "comment": "`[ABV]FIELD` table buffer / `[M:MSK]` mask / `[L]` local class references.",
+      "match": "(\\[)([A-Za-z_][A-Za-z0-9_]*)(?:(:)([A-Za-z_][A-Za-z0-9_]*))?(\\])",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.class-reference.begin.x3"
+        },
+        "2": {
+          "name": "entity.name.type.class-reference.x3"
+        },
+        "3": {
+          "name": "punctuation.separator.class-reference.x3"
+        },
+        "4": {
+          "name": "entity.name.type.class-reference.x3"
+        },
+        "5": {
+          "name": "punctuation.definition.class-reference.end.x3"
+        }
+      }
+    },
+    "keywords-routines": {
+      "name": "storage.modifier.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(subprog|funprog|method|fmethod|end|value|variable|const)(?![\\w$])"
+    },
+    "keywords-declarations": {
+      "name": "storage.modifier.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(local|global|default|instance|sized|file|mask|close|logicclose|columns|extended|link|append|assign|kill)(?![\\w$])"
+    },
+    "keywords-control": {
+      "patterns": [
+        {
+          "name": "keyword.control.x3",
+          "match": "(?i)(?:^|(?<=[^\\w$]))(if|then|elsif|else|endif|case|when|endcase|for|to|step|next|while|wend|repeat|until|break|continue|return|resume|nop|dbgaff|onerrgo|onintgo)(?![\\w$])"
+        },
+        {
+          "comment": "`Break 2` may also be spelled `Break2`.",
+          "name": "keyword.control.x3",
+          "match": "(?i)(?<![\\w$])break[0-9]+(?![\\w$])"
+        }
+      ]
+    },
+    "keywords-calls": {
+      "name": "keyword.control.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(call|gosub|goto|callui|calliu|callilog|getui|askui|callocx|send|setgus|readpatchline|onevent|onkey|from|fmet|func|funciu|this)(?![\\w$])"
+    },
+    "keywords-database": {
+      "name": "keyword.other.database.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(read|readlock|anasql|maxrows|readb|readl|look|write|writeb|rewrite|rewritebykey|delete|deletebykey|update|flush|filter|where|with|order|by|key|asc|desc|first|last|prev|curr|nxt|reckey|hint|nohint|stability|as|sql|execsql|system|trbegin|commit|rollback|lock|lockwait|unlock)(?![\\w$])"
+    },
+    "keywords-screens": {
+      "name": "keyword.other.screen.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(raz|affzo|actzo|effzo|envzo|grizo|diszo|enable|disable|chgfmt|chgstl|chgtbk|chgtfd|chgtzn|dela|insa|sorta|titcol|infbox|errbox|wrnbox|endbox|qstbox|selbox|selimp|seldest|listimp|titled|hlpbox|infimg|inftxt|inpbox|dbgbox|dlgbox|mesbox|at|button|coded|folder|invfol|listbox|leftbox|pickbox|treebox|boxact|boxclr|boxinp|fillbox|setlbox|pick|dislbox|choose|starting|addmen|additm|saizo|setmok|supli|discombo|transmask|field|setmode)(?![\\w$])"
+    },
+    "keywords-objects": {
+      "name": "keyword.other.object.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(newinstance|allocgroup|parseinstance|setinstance|setinstancenosys|freezeinstance|freegroup|freeinstance|callmet|setlob)(?![\\w$])"
+    },
+    "keywords-sequential-io": {
+      "name": "keyword.other.io.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(openi|openo|openio|iomode|adxifs|adxirs|adxium|rdseq|wrseq|getseq|putseq|seek|using|sleep)(?![\\w$])"
+    },
+    "keywords-connections": {
+      "name": "keyword.other.connection.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(opldap|srldaplv|srldapbs|srldaptr|nxldap|clldap|opsock|opadxd|report|rptstat|rptfile|syrsend|syrrecv|run|nap|edi|pmt|reb|men|formula)(?![\\w$])"
+    },
+    "word-operators": {
+      "name": "keyword.operator.logical.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(and|or|xor|not)(?![\\w$])"
+    },
+    "types": {
+      "name": "storage.type.primitive.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(integer|smallint|decimal|double|float|char|schar|clbfile|blbfile|uuident|date|datetime|time|boolean|shortint|tinyint|libelle)(?![\\w$])"
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.x3",
+          "match": "(?i)(?:^|(?<=[^\\w$]))(true|false)(?![\\w$])"
+        },
+        {
+          "name": "constant.language.null.x3",
+          "match": "(?i)(?<![\\w$])null(?![\\w$])"
+        }
+      ]
+    },
+    "system-variables": {
+      "name": "variable.language.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(status|zc|zoncou|zonsor|zonsui|nolign|nolign1|fstat|currbox|mkstat|datesyst)(?![\\w$])"
+    },
+    "builtin-functions": {
+      "comment": "Engine functions, only when invoked: `num$(...)`, `mess(...)`.",
+      "name": "support.function.builtin.x3",
+      "match": "(?i)(?:^|(?<=[^\\w$]))(abs|arr|clalev|evalue|find|format\\$|left\\$|len|max|mess|mid\\$|min|nbrecord|nday|num\\$|right\\$|sum|val|year)(?=\\s*\\()"
+    },
+    "numbers": {
+      "name": "constant.numeric.x3",
+      "match": "(?<![\\w$])[0-9]+(\\.[0-9]+)?(?![\\w$])"
+    },
+    "operators": {
+      "name": "keyword.operator.x3",
+      "match": ":=|\\+=|-=|\\*=|/=|<=|>=|<>|~=|\\.\\.|[=+\\-*/%^!&|<>@]"
+    }
+  },
+  "displayName": "Sage X3 4GL",
+  "aliases": ["x3", "4gl", "sage-x3-4gl", "adonix"]
+}

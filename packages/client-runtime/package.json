@@ -570,6 +570,18 @@
     "./provider-instance-ids": {
       "types": "./src/providerInstanceIds.ts",
       "default": "./src/providerInstanceIds.ts"
+    },
+    "./sage-x3-highlighting": {
+      "types": "./src/sageX3Highlighting.ts",
+      "default": "./src/sageX3Highlighting.ts"
+    },
+    "./sage-x3-language": {
+      "types": "./src/sageX3Language.ts",
+      "default": "./src/sageX3Language.ts"
+    },
+    "./sage-x3-grammar": {
+      "types": "./src/syntax/sage-x3.tmLanguage.json",
+      "default": "./src/syntax/sage-x3.tmLanguage.json"
     }
   },
   "scripts": {

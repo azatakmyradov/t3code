@@ -27,6 +27,7 @@ export const CODE_BLOCK_LANGUAGES = [
   { id: "r", label: "R" },
   { id: "ruby", label: "Ruby" },
   { id: "rust", label: "Rust" },
+  { id: "sage-x3", label: "Sage X3 4GL" },
   { id: "scala", label: "Scala" },
   { id: "scss", label: "SCSS" },
   { id: "sql", label: "SQL" },
@@ -45,6 +46,10 @@ export type CodeBlockLanguage = { readonly id: string; readonly label: string };
 
 const LANGUAGE_ALIASES: Record<string, string> = {
   assembly: "asm",
+  "4gl": "sage-x3",
+  adonix: "sage-x3",
+  x3: "sage-x3",
+  "sage-x3-4gl": "sage-x3",
   cs: "csharp",
   "c++": "cpp",
   js: "javascript",

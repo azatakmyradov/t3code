@@ -1,3 +1,5 @@
+import { isSageX3Language } from "@t3tools/client-runtime/sage-x3-language";
+import { tokenizeSageX3 } from "./sageX3Highlighting";
 import {
   embeddedScripts,
   withEmbeddedScripts,
@@ -42,6 +44,7 @@ export interface TokenizedCode {
 
 /** Keep native records compact; expand only lines a client will display. */
 export function tokenizeCode(code: string, language: string): TokenizedCode {
+  if (isSageX3Language(language)) return tokenizeSageX3(code);
   const id = highlightLanguageId(language);
   const buffer = id === 0 ? null : (nativeHighlights?.tokenize(code, id) ?? null);
   const records = buffer ? new Uint32Array(buffer) : null;
