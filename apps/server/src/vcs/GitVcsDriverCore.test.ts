@@ -586,7 +586,7 @@ it.effect.each(["root", "nested", "worktree"] as const)(
     }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("re-reads origin remote status after cache TTL expiry and bypassed invalidation", () =>
+it.effect("sees a new origin at once and a removed one after cache TTL expiry", () =>
   Effect.gen(function* () {
     const driver = yield* GitVcsDriver.GitVcsDriver;
     const cwd = yield* makeTmpDir();
@@ -596,15 +596,16 @@ it.effect("re-reads origin remote status after cache TTL expiry and bypassed inv
 
     assert.equal((yield* driver.statusDetailsLocal(cwd)).hasOriginRemote, false);
 
+    // A missing origin is not cached, so adding one shows without invalidation.
     yield* git(cwd, ["remote", "add", "origin", remote]);
+    assert.equal((yield* driver.statusDetailsLocal(cwd)).hasOriginRemote, true);
 
-    const stillCached = yield* driver.statusDetailsLocal(cwd);
-    assert.equal(stillCached.hasOriginRemote, false);
+    yield* git(cwd, ["remote", "remove", "origin"]);
+    assert.equal((yield* driver.statusDetailsLocal(cwd)).hasOriginRemote, true);
 
     yield* TestClock.adjust("6 minutes");
 
-    const afterExpiry = yield* driver.statusDetailsLocal(cwd);
-    assert.equal(afterExpiry.hasOriginRemote, true);
+    assert.equal((yield* driver.statusDetailsLocal(cwd)).hasOriginRemote, false);
   }).pipe(Effect.provide(layerTest)),
 );
 
@@ -614,7 +615,6 @@ it.effect("coalesces concurrent ref pages into one repository snapshot", () =>
       const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
       const spawnedArgs = yield* Ref.make<ReadonlyArray<ReadonlyArray<string>>>([]);
       const firstWorktreeScanStarted = yield* Deferred.make<void>();
-      const remoteNamesScanCompleted = yield* Deferred.make<void>();
       const delayFirstWorktreeScan = yield* Ref.make(true);
       const countingSpawner = ChildProcessSpawner.make((command) =>
         Effect.gen(function* () {
@@ -630,19 +630,7 @@ it.effect("coalesces concurrent ref pages into one repository snapshot", () =>
             yield* Deferred.succeed(firstWorktreeScanStarted, undefined);
             yield* Effect.sleep("8 seconds");
           }
-          const handle = yield* delegate.spawn(command);
-          const isRemoteNamesScan =
-            command.args.length === 3 &&
-            command.args[0] === "--git-dir" &&
-            command.args[2] === "remote";
-          return isRemoteNamesScan
-            ? ChildProcessSpawner.makeHandle({
-                ...handle,
-                exitCode: handle.exitCode.pipe(
-                  Effect.tap(() => Deferred.succeed(remoteNamesScanCompleted, undefined)),
-                ),
-              })
-            : handle;
+          return yield* delegate.spawn(command);
         }),
       );
       const driver = yield* makeGitVcsDriverCore().pipe(
@@ -668,8 +656,8 @@ it.effect("coalesces concurrent ref pages into one repository snapshot", () =>
       const initialRequest = yield* driver
         .listRefs({ cwd, refresh: true, limit: 100 })
         .pipe(Effect.forkChild({ startImmediately: true }));
+      // The worktree scan runs before the ref and remote scans, so the snapshot waits on it.
       yield* Deferred.await(firstWorktreeScanStarted);
-      yield* Deferred.await(remoteNamesScanCompleted);
       yield* TestClock.adjust("6 seconds");
       const laterRequests = yield* Effect.all(
         Array.from({ length: 30 }, (_, index) =>
@@ -698,7 +686,8 @@ it.effect("coalesces concurrent ref pages into one repository snapshot", () =>
         (args) => args.includes("worktree") && args.includes("--porcelain"),
       );
       assert.equal(snapshotRefScans.length, 1);
-      assert.equal(worktreeScans.length, 1);
+      // The joined refreshes share one occupancy re-check after the snapshot's own scan.
+      assert.equal(worktreeScans.length, 2);
 
       yield* driver.createRef({ cwd, refName: "feature/cache-invalidation" });
       const refreshed = yield* driver.listRefs({ cwd, limit: 100 });
@@ -1492,7 +1481,8 @@ describe("pullCurrentBranch", () => {
   const controlledStatusFetch = Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const cwd = yield* makeTmpDir();
-    yield* fs.makeDirectory(`${cwd}/.git`);
+    // Background fetches download into a private directory under objects.
+    yield* fs.makeDirectory(`${cwd}/.git/objects`, { recursive: true });
     const started = yield* Queue.unbounded<{
       cwd: string;
       release: Deferred.Deferred<ChildProcessSpawner.ExitCode>;
@@ -1511,7 +1501,8 @@ describe("pullCurrentBranch", () => {
       Effect.gen(function* () {
         if (!ChildProcess.isStandardCommand(command)) return makeNonRepositoryHandle();
         const workingDirectory = command.options.cwd ?? cwd;
-        const args = command.args;
+        // Upstream addresses some reads to the common Git directory.
+        const args = command.args[0] === "--git-dir" ? command.args.slice(2) : command.args;
         if (args.includes("fetch")) {
           const release = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
           yield* Ref.set(fetching, true);
@@ -1521,7 +1512,13 @@ describe("pullCurrentBranch", () => {
           yield* Effect.addFinalizer(() => Ref.set(fetching, false));
           return ChildProcessSpawner.makeHandle({
             ...makeSuccessfulHandle(""),
-            stderr: Stream.encodeText(Stream.make("fatal: remote unavailable\n")),
+            // A dry run that moves no refs is silent, so only a failure writes stderr.
+            stderr: Stream.fromEffect(Deferred.await(release)).pipe(
+              Stream.flatMap((code) =>
+                code === 0 ? Stream.empty : Stream.make("fatal: remote unavailable\n"),
+              ),
+              Stream.encodeText,
+            ),
             exitCode: Deferred.await(release),
           });
         }
@@ -1560,6 +1557,11 @@ describe("pullCurrentBranch", () => {
         if (args[0] === "rev-list") return makeSuccessfulHandle("0\t0\n");
         if (args.includes("refs/remotes/origin/HEAD"))
           return makeSuccessfulHandle("refs/remotes/origin/main\n");
+        if (
+          args[0] === "symbolic-ref" ||
+          (args.includes("--symbolic-full-name") && args.at(-1) === "HEAD")
+        )
+          return makeSuccessfulHandle("refs/heads/main\n");
         return makeSuccessfulHandle("main\n");
       }),
     );
@@ -1691,7 +1693,7 @@ describe("pullCurrentBranch", () => {
       const statuses = [];
       for (let i = 0; i < 4; i++) {
         const cwd = `${fixture.cwd}/repo-${i}`;
-        yield* fs.makeDirectory(`${cwd}/.git`, { recursive: true });
+        yield* fs.makeDirectory(`${cwd}/.git/objects`, { recursive: true });
         statuses.push(yield* fixture.status(cwd).pipe(Effect.forkScoped));
         yield* Queue.take(fixture.started);
       }
@@ -1703,9 +1705,10 @@ describe("pullCurrentBranch", () => {
       assert.equal(yield* Ref.get(fixture.attempts), 4);
 
       yield* TestClock.adjust(290_000);
-      assert.equal(yield* Ref.get(fixture.attempts), 5);
       for (let i = 0; i < 4; i++) yield* Queue.take(fixture.finalized);
+      // Each stalled fetch removes its object directory before it frees the slot.
       const healthy = yield* Queue.take(fixture.started);
+      assert.equal(yield* Ref.get(fixture.attempts), 5);
       assert.equal(
         NodeFS.realpathSync.native(healthy.cwd),
         NodeFS.realpathSync.native(fixture.cwd),
@@ -2312,7 +2315,7 @@ describe("pullCurrentBranch", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const cwd = yield* makeTmpDir();
-      yield* fs.makeDirectory(`${cwd}/.git`);
+      yield* fs.makeDirectory(`${cwd}/.git/objects`, { recursive: true });
       const started = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       const finalized = yield* Deferred.make<void>();
@@ -2331,19 +2334,22 @@ describe("pullCurrentBranch", () => {
           }
           const args = command.args;
           return makeSuccessfulHandle(
-            args.includes("--git-common-dir")
-              ? `${cwd}/.git\n`
-              : args.includes("--show-toplevel")
-                ? `${cwd}\n`
-                : args.includes("@{upstream}")
-                  ? "origin/main\n"
-                  : args[0] === "remote"
-                    ? "origin\n"
-                    : args[0] === "rev-list"
-                      ? "0\t0\n"
-                      : args.includes("refs/remotes/origin/HEAD")
-                        ? "refs/remotes/origin/main\n"
-                        : "main\n",
+            args[0] === "symbolic-ref" ||
+              (args.includes("--symbolic-full-name") && args.at(-1) === "HEAD")
+              ? "refs/heads/main\n"
+              : args.includes("--git-common-dir")
+                ? `${cwd}/.git\n`
+                : args.includes("--show-toplevel")
+                  ? `${cwd}\n`
+                  : args.includes("@{upstream}")
+                    ? "origin/main\n"
+                    : args[0] === "remote"
+                      ? "origin\n"
+                      : args[0] === "rev-list"
+                        ? "0\t0\n"
+                        : args.includes("refs/remotes/origin/HEAD")
+                          ? "refs/remotes/origin/main\n"
+                          : "main\n",
           );
         }),
       );
@@ -3025,7 +3031,8 @@ it.effect("backs off and logs failed fetch attempts across linked worktrees", ()
           if (!ChildProcess.isStandardCommand(command)) {
             return yield* Effect.die("expected a standard Git command");
           }
-          if (command.args.includes("fetch") && command.args.includes("--quiet")) {
+          // Each background fetch starts with a dry-run download.
+          if (command.args.includes("fetch") && command.args.includes("--dry-run")) {
             yield* Ref.update(fetchAttempts, (count) => count + 1);
             return makeNonRepositoryHandle();
           }

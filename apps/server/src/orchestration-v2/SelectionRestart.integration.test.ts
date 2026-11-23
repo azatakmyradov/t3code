@@ -713,9 +713,10 @@ it.live.each(["pooled", "exclusive"] as const)(
       );
       if (mode === "exclusive") {
         // regression: #39410 the handoff's tool call stayed running after its session closed.
+        // The fork cancels tool calls a workspace detach orphans (#36).
         assert.equal(
           projection.turnItems.find((item) => item.id === handoffToolId)?.status,
-          "interrupted",
+          "cancelled",
         );
       }
       assert.deepEqual(
