@@ -1,3 +1,4 @@
+import { FORK_HOME_DIRECTORY } from "@t3tools/shared/forkIdentity";
 import {
   type WorkflowCounts,
   type WorkflowHook,
@@ -193,8 +194,7 @@ export const disabled = Workflows.of({
 });
 export const layerDisabled = Layer.succeed(Workflows, disabled);
 
-export const OFF =
-  'Workflows are off on this server. Turn them on in its Settings → Labs → Workflows, or without a desktop, set "workflowsEnabled": true in userdata/settings.json in its T3 home (~/.t3 by default).';
+export const OFF = `Workflows are off on this server. Turn them on in its Settings → Labs → Workflows, or without a desktop, set "workflowsEnabled": true in userdata/settings.json in its T3 home (~/${FORK_HOME_DIRECTORY} by default).`;
 
 const refuseOff = Effect.fn("Workflows.off")(function* () {
   return yield* new WorkflowInputError({ problem: OFF });
