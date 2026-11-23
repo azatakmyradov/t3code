@@ -53,13 +53,26 @@ const botTables = Effect.gen(function* () {
   `;
 });
 
-const forkOnlyMigrations = new Set(["Bots", "ProjectionProjectsTrackedFolders"]);
-// Upstream numbers its migrations from 61 without the fork-only ones.
-const upstreamEntries = migrationEntries
-  .filter(([id, name]) => id > 60 && !forkOnlyMigrations.has(name))
-  .map(([forkId, name, migration], index) => ({ id: 61 + index, forkId, name, migration }));
+const trackedFolders = migrationEntries.find(
+  ([, name]) => name === "ProjectionProjectsTrackedFolders",
+)!;
+// Upstream numbers its migrations from 61 without Bots, and ships tracked folders after issue scopes.
+const upstreamOrder = migrationEntries
+  .filter(([id, name]) => id > 60 && name !== "Bots" && name !== trackedFolders[1])
+  .flatMap((entry) =>
+    entry[1] === "IssueTrackerAdditionalScopes" ? [entry, trackedFolders] : [entry],
+  );
+const upstreamEntries = upstreamOrder.map(([forkId, name, migration], index) => ({
+  id: 61 + index,
+  forkId,
+  name,
+  migration,
+}));
 const latestUpstreamId = Math.max(...upstreamEntries.map(({ id }) => id));
 const forkIdOfUpstream = (id: number) => upstreamEntries.find((entry) => entry.id === id)!.forkId;
+const latestForkIdOfUpstream = (id: number) =>
+  Math.max(...upstreamEntries.filter((entry) => entry.id <= id).map((entry) => entry.forkId));
+const upstreamTrackedFoldersId = upstreamEntries.find(({ name }) => name === trackedFolders[1])!.id;
 
 const seedUpstream = Effect.fn("seedUpstream")(function* (throughId: number) {
   const sql = yield* SqlClient.SqlClient;
@@ -170,21 +183,23 @@ describe("runMigrations", () => {
         const peers = id >= 71 ? yield* sql`SELECT * FROM peer_environment_links` : [];
         assert.deepStrictEqual(yield* botTables, []);
 
-        const forkId = forkIdOfUpstream(id);
+        const forkId = latestForkIdOfUpstream(id);
+        const upstreamHasTrackedFolders = id >= upstreamTrackedFoldersId;
         assert.deepStrictEqual(yield* runMigrations(), [
           [61, "Bots"],
-          ...(forkId > 96 ? [[96, "ProjectionProjectsTrackedFolders"] as const] : []),
+          ...(forkId > 96 && !upstreamHasTrackedFolders
+            ? [[96, "ProjectionProjectsTrackedFolders"] as const]
+            : []),
           ...migrationManifest.filter(([migrationId]) => migrationId > forkId),
         ]);
 
         assert.deepStrictEqual(yield* history, migrationManifest);
         assert.deepStrictEqual(yield* sql`SELECT * FROM pull_request_review_guides`, guides);
         assert.deepStrictEqual(
-          yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id >= 62 AND migration_id <= ${forkId} AND name NOT IN ('Bots', 'ProjectionProjectsTrackedFolders') ORDER BY migration_id`,
-          upstreamHistory.map((row) => ({
-            ...row,
-            migration_id: forkIdOfUpstream(row.migration_id),
-          })),
+          yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id >= 62 AND migration_id <= ${forkId} AND name != 'Bots' AND (name != 'ProjectionProjectsTrackedFolders' OR ${upstreamHasTrackedFolders ? 1 : 0}) ORDER BY migration_id`,
+          upstreamHistory
+            .map((row) => ({ ...row, migration_id: forkIdOfUpstream(row.migration_id) }))
+            .toSorted((a, b) => a.migration_id - b.migration_id),
         );
         assert.deepStrictEqual(yield* sql`SELECT * FROM peer_environment_links`, peers);
         assert.lengthOf(yield* botTables, 5);

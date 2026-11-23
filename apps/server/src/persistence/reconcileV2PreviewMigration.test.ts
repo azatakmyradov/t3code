@@ -80,6 +80,17 @@ describe("V2 preview upgrade", () => {
         [98, "RepairStaleTitleRegeneration"],
         [99, "IssueTrackerBindings"],
         [100, "ActiveShellIndexIndexes"],
+        [101, "BackgroundRecoveryIndexes"],
+        [102, "TurnStartReadIndexes"],
+        [103, "DelegatedTaskReadIndexes"],
+        [104, "ThreadItemCounts"],
+        [105, "IssueTrackerAdditionalScopes"],
+        [106, "TaskFolders"],
+        [107, "WorktreePathKeyIndex"],
+        [108, "DeferredSlashCommandIndex"],
+        [109, "AgentFeedback"],
+        [110, "IssueTrackerAccounts"],
+        [111, "Workflows"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -203,6 +214,17 @@ describe("V2 preview upgrade", () => {
         [98, "RepairStaleTitleRegeneration"],
         [99, "IssueTrackerBindings"],
         [100, "ActiveShellIndexIndexes"],
+        [101, "BackgroundRecoveryIndexes"],
+        [102, "TurnStartReadIndexes"],
+        [103, "DelegatedTaskReadIndexes"],
+        [104, "ThreadItemCounts"],
+        [105, "IssueTrackerAdditionalScopes"],
+        [106, "TaskFolders"],
+        [107, "WorktreePathKeyIndex"],
+        [108, "DeferredSlashCommandIndex"],
+        [109, "AgentFeedback"],
+        [110, "IssueTrackerAccounts"],
+        [111, "Workflows"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

@@ -14,7 +14,7 @@ import {
   RouteIcon,
   TerminalIcon,
 } from "lucide-react";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -47,7 +47,9 @@ import {
   type DesktopServerExposureState,
   type DesktopWslState,
   EnvironmentId,
+  allowsPreviewTunnel,
   connectReachabilityHelpUrl,
+  isManagedSettingPath,
   formatConnectReachable,
   managedCapabilityDenial,
   resolveEnvironmentMachineKind,
@@ -83,6 +85,7 @@ import {
   isServerNetworkAccessible,
   isWslSettingsRowVisible,
   parseManualDesktopSshTarget,
+  resolveCurrentOriginPairingUrl,
   missingTailscaleEndpointDescription,
   resolveTailscaleServeBaseUrl,
   selectQrEndpointOption,
@@ -93,7 +96,7 @@ import { useAccessEnvironment } from "./useAccessEnvironment";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { ManagedByOrganization } from "../ManagedPolicy";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 import { ConnectDeviceApprovalSettings } from "./ConnectDeviceApprovalSettings";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { EnvironmentRoutesList } from "./EnvironmentRoutesList";
@@ -110,6 +113,7 @@ import {
 } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
+import { addEnvironmentPrefillAtom } from "~/state/linkedThreadView";
 import { usePeerLinkHosts } from "~/state/peerLinks";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
@@ -159,10 +163,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "..
 import { AnimatedHeight } from "../AnimatedHeight";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Textarea } from "../ui/textarea";
-import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "@t3tools/shared/remote";
+import { getPairingTokenFromUrl } from "@t3tools/shared/remote";
 import { readHostedPairingRequest } from "../../hostedPairing";
 import {
-  isLoopbackHostname,
   type ServerClientSessionRecord,
   type ServerPairingLinkRecord,
 } from "~/environments/primary";
@@ -483,11 +486,6 @@ function resolveAdvertisedEndpointPairingUrl(
   return resolveDesktopPairingUrl(endpoint.httpBaseUrl, credential);
 }
 
-function resolveCurrentOriginPairingUrl(credential: string): string {
-  const url = new URL("/pair", window.location.href);
-  return setPairingTokenOnUrl(url, credential).toString();
-}
-
 function isHostedAppPairingUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -589,9 +587,9 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     endpointPairingUrl ??
     (credential && endpointUrl != null && endpointUrl !== ""
       ? (hostedPairingUrl ?? resolveDesktopPairingUrl(endpointUrl, credential))
-      : !servedByEnvironment || isLoopbackHostname(window.location.hostname)
-        ? null
-        : currentOriginPairingUrl);
+      : servedByEnvironment
+        ? currentOriginPairingUrl
+        : null);
   const [failedCopyValue, setFailedCopyValue] = useState<string | null>(null);
   const revealValue = failedCopyValue ?? shareablePairingUrl ?? credential ?? "";
   const isRevealValueUrl = revealValue !== credential;
@@ -1788,6 +1786,7 @@ function ConfiguredCloudLinkRow({
   readonly canManageRelay: boolean;
   readonly connectDeviceApproval: ConnectDeviceApprovalControl | null;
 }) {
+  const searchableSetting = useSearchableSetting();
   const updateEnvironmentSettings = useUpdateEnvironmentSettings(environmentId);
   const {
     isSignedIn,
@@ -2155,6 +2154,7 @@ function ConnectionsSettingsContent({
   readonly accessEnvironmentId: EnvironmentId | null;
   readonly accessEnvironmentPicker?: ReactNode;
 }) {
+  const searchableSetting = useSearchableSetting();
   const desktopBridge = window.desktopBridge;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { environments } = useEnvironments();
@@ -2271,6 +2271,18 @@ function ConnectionsSettingsContent({
   const [routeTarget, setRouteTarget] = useState<EnvironmentPresentation | null>(null);
   const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh">("remote");
   const [savedBackendHost, setSavedBackendHost] = useState("");
+  // Set by a read-only linked thread whose machine this client is about to pair with.
+  const [addPrefill, setAddPrefill] = useAtom(addEnvironmentPrefillAtom);
+  const [appliedAddPrefill, setAppliedAddPrefill] = useState(addPrefill);
+  if (addPrefill !== appliedAddPrefill) {
+    setAppliedAddPrefill(addPrefill);
+    if (addPrefill !== null) {
+      setRouteTarget(null);
+      setSavedBackendMode("remote");
+      setSavedBackendHost(addPrefill.host ?? "");
+    }
+  }
+  const expectedEnvironmentId = routeTarget?.environmentId ?? addPrefill?.environmentId;
   const [savedBackendPairingCode, setSavedBackendPairingCode] = useState("");
   const [savedBackendSshHost, setSavedBackendSshHost] = useState("");
   const [savedBackendSshUsername, setSavedBackendSshUsername] = useState("");
@@ -2630,6 +2642,7 @@ function ConnectionsSettingsContent({
     setSavedBackendSshPort("");
     setSavedBackendError(null);
     setAddBackendDialogOpen(false);
+    setAddPrefill(null);
   };
 
   const connectSavedBackendSshTarget = async (target: DesktopSshEnvironmentTarget) => {
@@ -2639,7 +2652,7 @@ function ConnectionsSettingsContent({
     const result = await connectSshEnvironment({
       target,
       label: "",
-      ...(routeTarget ? { expectedEnvironmentId: routeTarget.environmentId } : {}),
+      ...(expectedEnvironmentId ? { expectedEnvironmentId } : {}),
     });
     if (result._tag === "Failure") {
       if (session === savedBackendSessionRef.current && !isAtomCommandInterrupted(result)) {
@@ -2702,7 +2715,7 @@ function ConnectionsSettingsContent({
 
     const result = await connectPairing({
       ...remotePairingInput,
-      ...(routeTarget ? { expectedEnvironmentId: routeTarget.environmentId } : {}),
+      ...(expectedEnvironmentId ? { expectedEnvironmentId } : {}),
     });
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
@@ -3617,6 +3630,12 @@ function ConnectionsSettingsContent({
   );
 
   const accessServerConfig = accessEnvironment?.serverConfig ?? null;
+  const accessPolicy = accessServerConfig?.managedPolicy;
+  const previewTunnelDenial =
+    managedCapabilityDenial(accessPolicy, "previewTunnel") ??
+    (accessPolicy !== undefined && isManagedSettingPath(accessPolicy, "enablePreviewTunnel")
+      ? `Managed by ${accessPolicy.organization}.`
+      : undefined);
   const primarySettings = (
     <>
       {accessEnvironmentPicker}
@@ -3741,6 +3760,23 @@ function ConnectionsSettingsContent({
                         required: accessServerConfig.settings.requireConnectDeviceApproval,
                         canManage: canWriteAccess,
                       }
+                }
+              />
+            ) : null}
+            {accessServerConfig?.environment.capabilities.previewTunnelSetting ? (
+              <SettingsRow
+                title={searchableSetting("preview-tunnel").title}
+                description="Lets other devices open this machine's local servers: browser tabs loaded on the device, Open on this device, and port forwarding. Off: browser tabs stream from this machine."
+                managed={previewTunnelDenial}
+                control={
+                  <Switch
+                    checked={allowsPreviewTunnel(accessServerConfig)}
+                    disabled={!canWriteAccess}
+                    aria-label="Allow the preview tunnel"
+                    onCheckedChange={(enabled) =>
+                      void updateAccessSettings({ enablePreviewTunnel: enabled })
+                    }
+                  />
                 }
               />
             ) : null}
@@ -4124,7 +4160,7 @@ function ConnectionsSettingsContent({
               <ServerUpdatesAction targets={savedServerUpdateTargets} variant="ghost-muted" />
             ) : null}
             <Dialog
-              open={addBackendDialogOpen}
+              open={addBackendDialogOpen || addPrefill !== null}
               onOpenChange={(open) => {
                 if (open) {
                   setAddBackendDialogOpen(true);
@@ -4152,12 +4188,18 @@ function ConnectionsSettingsContent({
               <DialogPopup className="max-h-[80dvh] sm:max-w-3xl">
                 <DialogHeader>
                   <DialogTitle>
-                    {routeTarget ? `Add a route to ${routeTarget.label}` : "Add Environment"}
+                    {routeTarget
+                      ? `Add a route to ${routeTarget.label}`
+                      : addPrefill
+                        ? `Connect to ${addPrefill.label}`
+                        : "Add Environment"}
                   </DialogTitle>
                   <DialogDescription>
                     {routeTarget
                       ? "Pair this machine again over another address, such as its Tailscale name. It joins the existing routes instead of adding a second machine."
-                      : "Pair another environment to this client."}
+                      : addPrefill
+                        ? `Create a pairing code on ${addPrefill.label}, in its Settings → Sharing & access or with \`t3-fork auth pairing create\`, and enter it here.`
+                        : "Pair another environment to this client."}
                   </DialogDescription>
                 </DialogHeader>
                 <DialogPanel>

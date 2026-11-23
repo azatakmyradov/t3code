@@ -330,7 +330,14 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
       `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
   };
 
-  if (configuredBaseDir !== undefined) {
+  const path = yield* Path.Path;
+  // The server stores an explicit home's state in userdata, which for ~/.t3-fork (or upstream's
+  // ~/.t3) is a live install. Left implicit, dev state goes to the home's dev directory.
+  const hostHome = yield* HostProcess.HomeDirectory;
+  const isLiveHome = [FORK_HOME_DIRECTORY, ".t3"].some(
+    (directory) => resolvedBaseDir === path.join(hostHome, directory),
+  );
+  if (configuredBaseDir !== undefined && !isLiveHome) {
     output.T3CODE_HOME = resolvedBaseDir;
   } else {
     delete output.T3CODE_HOME;
@@ -922,8 +929,10 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     extendEnv: false,
     shell: spawnCommand.shell,
     // Its own process group: teardown signals the whole group, because vp
-    // does not pass SIGTERM on to Vite and the server.
-    detached: true,
+    // does not pass SIGTERM on to Vite and the server. Windows tears down with
+    // taskkill /T instead, and a detached shell there leaves vp to open a
+    // visible console of its own.
+    detached: (yield* HostProcess.Platform) !== "win32",
     forceKillAfter: "1500 millis",
   }).pipe(
     Effect.mapError(

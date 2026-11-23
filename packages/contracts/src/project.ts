@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
+import * as Struct from "effect/Struct";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
@@ -55,8 +56,18 @@ export const PROJECT_TRACKED_FOLDERS_MAX = 128;
 export const ProjectTrackedFolder = Schema.Struct({
   path: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  /**
+   * The server found this repository inside the project folder and keeps the entry in step with
+   * the disk. Absent on a folder someone added.
+   */
+  discovered: Schema.optional(Schema.Boolean),
 });
 export type ProjectTrackedFolder = typeof ProjectTrackedFolder.Type;
+
+/** The folders a caller adds to a project. Which repositories sit inside it is the server's to say. */
+export const ProjectAddedFolders = Schema.Array(
+  ProjectTrackedFolder.mapFields(Struct.omit(["discovered"])),
+).check(Schema.isMaxLength(PROJECT_TRACKED_FOLDERS_MAX));
 
 export const ProjectTrackedFolders = Schema.Array(ProjectTrackedFolder).check(
   Schema.isMaxLength(PROJECT_TRACKED_FOLDERS_MAX),
@@ -201,7 +212,7 @@ export const ProjectCreatePayload = Schema.Struct({
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
-  trackedFolders: Schema.optional(ProjectTrackedFolders),
+  trackedFolders: Schema.optional(ProjectAddedFolders),
 });
 export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 
@@ -215,7 +226,7 @@ export const ProjectUpdatePayload = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   trackedFolders: Schema.optional(
-    ProjectTrackedFolders.annotate({
+    ProjectAddedFolders.annotate({
       description: "Extra folders by absolute path. Replaces the whole list.",
     }),
   ),
@@ -240,6 +251,9 @@ export const ProjectMutation = Schema.Union([
     commandId: CommandId,
     projectId: ProjectId,
     ...ProjectUpdatePayload.fields,
+    // Applied to the list as the server has it, so two clients' edits do not undo each other.
+    trackFolders: Schema.optional(ProjectAddedFolders),
+    untrackFolders: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   }),
   Schema.Struct({
     type: Schema.Literal("project.delete"),

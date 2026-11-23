@@ -20,6 +20,7 @@ import {
   pullRequestEntryKey,
   pullRequestEntryViewer,
   pullRequestEnvironmentSetKey,
+  pullRequestListAnsweredEmpty,
   groupPullRequestsByInvolvement,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
@@ -1300,6 +1301,18 @@ describe("merging the environments' own listings", () => {
     ]);
 
     expect(merged?.errors).toEqual([{ ...error, environmentId: ENV_1 }]);
+  });
+
+  it("counts a listing with no rows as empty even when a project could not be read", () => {
+    const error = {
+      projectId: "project-1" as ProjectId,
+      projectTitle: "Web",
+      message: "acme/web could not be read.",
+    } as const;
+    const data = mergePullRequestLists([[ENV_1, answer({ errors: [error] })]]);
+
+    expect(pullRequestListAnsweredEmpty({ data, isPending: false, error: null })).toBe(true);
+    expect(pullRequestListAnsweredEmpty({ data, isPending: true, error: null })).toBe(false);
   });
 
   it("folds a host reached from two environments into one switcher row", () => {
