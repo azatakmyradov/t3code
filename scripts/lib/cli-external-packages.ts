@@ -41,21 +41,26 @@ export function isRuntimeExternalCliDependency(id: string): boolean {
   );
 }
 
-// Staged for the external Cursor SDK but also bundled: @effect/platform-node's NodeHttpClient
-// imports it as ESM, which a single-executable cannot resolve from disk.
-const BUNDLED_RUNTIME_DEPENDENCIES = ["undici"] as const;
+// A single executable cannot resolve NodeHttpClient's ESM undici import from disk, so it bundles
+// undici. Split builds must not: its chunk then exports only `default`, and `new _.Agent` throws.
+const EXECUTABLE_BUNDLED_RUNTIME_DEPENDENCIES = ["undici"] as const;
 
 /** Use neverBundle: false from alwaysBundle means no opinion and leaves transitive packages bundled. */
-export function isExternalCliDependency(id: string): boolean {
+export function isExternalCliDependency(id: string, executable = false): boolean {
   return (
     isRuntimeExternalCliDependency(id) &&
-    !BUNDLED_RUNTIME_DEPENDENCIES.some((name) => id === name || id.startsWith(`${name}/`))
+    !(
+      executable &&
+      EXECUTABLE_BUNDLED_RUNTIME_DEPENDENCIES.some(
+        (name) => id === name || id.startsWith(`${name}/`),
+      )
+    )
   );
 }
 
-export function shouldBundleCliDependency(id: string): boolean {
+export function shouldBundleCliDependency(id: string, executable = false): boolean {
   if (id.startsWith("node:")) return false;
-  return !isExternalCliDependency(id);
+  return !isExternalCliDependency(id, executable);
 }
 
 export function selectCliRuntimeExternalDependencies(
