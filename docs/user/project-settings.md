@@ -50,21 +50,8 @@ and other phone-only settings ignore the filter.
 
 ## Projects with several repositories
 
-A project can cover more than one folder: a plain folder that holds several repositories, a
-repository next to others it depends on, or the folders a `.code-workspace` file lists. Agents
-can then read and change every tracked folder from one thread.
-
-When you add a folder with the command palette or on mobile, T3 Code looks one level down for
-repositories and reads a `.code-workspace` file if there is one, then asks which to track. To
-change the list later, open **Settings → Projects**, choose the project, and use **Rescan**,
-**Add folder**, or **Remove** under **Repositories**. **Add folder** takes any folder on that
-machine, including one outside the project folder. Removing a folder from the list never deletes
-files.
-
-From a script, `t3 project add <path> --track-repos` tracks every repository it finds, and
-`--track <folder>` adds one by path.
-
-A thread that runs in its own worktree works only in the project's own folder.
+A project covers every repository inside its folder, and any folder you add under **Settings →
+Projects → Repositories**; see [Projects with several repositories](multi-repo-projects.md).
 
 ## Pin and archive projects
 

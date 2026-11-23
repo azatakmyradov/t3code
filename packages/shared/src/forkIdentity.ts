@@ -7,6 +7,9 @@ const FORK_NPM_SCOPE = "@azatakmyradov";
 export const FORK_NPM_PACKAGE = `${FORK_NPM_SCOPE}/${FORK_CLI_COMMAND}`;
 export const FORK_REPOSITORY = "azatakmyradov/t3code";
 export const FORK_DEFAULT_PORT = 4773;
+// Upstream's provider compatibility manifest names upstream releases, so the fork rates
+// providers as the upstream release its code matches. Raise it with each upstream sync.
+export const FORK_UPSTREAM_VERSION = "0.1.11";
 // Upstream Clerk allows this renderer origin; OAuth callbacks share its OS handler.
 export const FORK_DESKTOP_SCHEME = "t3code";
 export const FORK_MOBILE_SCHEME = "t3-fork";

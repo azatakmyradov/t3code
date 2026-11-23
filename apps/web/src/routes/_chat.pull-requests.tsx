@@ -102,6 +102,7 @@ import {
   pullRequestHostActions,
   comparePullRequestsByRecency,
   largestPullRequestReadCount,
+  pullRequestListAnsweredEmpty,
 } from "../components/pullRequest/pullRequestList.logic";
 import {
   pullRequestListPreferences,
@@ -158,7 +159,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip"
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
-import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { namedClipboardTarget, writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { toastManager } from "../components/ui/toast";
 import { registerCommands } from "../shortcuts/dispatcher";
 import { usePanelAnimationSettings, usePanelPresence } from "../panelAnimations";
@@ -615,11 +616,7 @@ function PullRequestsRouteView() {
     } satisfies PullRequestListInput,
   }));
   const baselineQuery = usePullRequestHostList(baselineTargets);
-  const baselineEmpty =
-    baselineQuery.data?.entries.length === 0 &&
-    baselineQuery.data.errors.length === 0 &&
-    !baselineQuery.isPending &&
-    baselineQuery.error === null;
+  const baselineEmpty = pullRequestListAnsweredEmpty(baselineQuery);
   const facetTargets = (() => {
     if (!filtersOpen) return NO_LIST_TARGETS;
     return environmentQueries.map(({ environmentId, projectIds }) => ({
@@ -1440,7 +1437,7 @@ function PullRequestsRouteView() {
         <PullRequestsUnavailableState
           error={listError}
           refreshing={listQuery.isPending}
-          onRetry={() => listQuery.refresh()}
+          onRetry={listQuery.retry}
         />
       ) : carriedToNothing ? (
         <PullRequestListGhost rows={7} />
@@ -1517,7 +1514,7 @@ function PullRequestsRouteView() {
       {listError && shownCount > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-surface px-3 py-2 text-xs">
           <span>{listError} Showing the last pull requests loaded.</span>
-          <Button size="xs" variant="outline" onClick={() => listQuery.refresh()}>
+          <Button size="xs" variant="outline" onClick={listQuery.retry}>
             Retry
           </Button>
         </div>
@@ -1722,13 +1719,16 @@ function PullRequestsRouteView() {
     event.stopPropagation();
     if (event.repeat) return;
     const url = openPanelPullRequestUrl;
-    void writeTextToClipboard(url, "pull request link").then(undefined, (error) => {
-      toastManager.add({
-        type: "error",
-        title: "Failed to copy PR link",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
-    });
+    void writeTextToClipboard(url, namedClipboardTarget("pull request link")).then(
+      undefined,
+      (error) => {
+        toastManager.add({
+          type: "error",
+          title: "Failed to copy PR link",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      },
+    );
   });
   const closeActiveSurfaceFromShortcut = useEffectEvent((event: KeyboardEvent) => {
     if (activePullRequestSurface === null) return;

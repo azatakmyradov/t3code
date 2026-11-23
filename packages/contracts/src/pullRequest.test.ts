@@ -1,4 +1,6 @@
 import { SourceControlProviderKind } from "./sourceControl.ts";
+import * as Exit from "effect/Exit";
+import * as Rpc from "effect/rpc/Rpc";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -6,7 +8,7 @@ import {
   PullRequestActionInput,
   PullRequestCapabilities,
   PullRequestChangeBreakdown,
-  PullRequestDetail,
+  type PullRequestDetail,
   PullRequestFilesViewedResult,
   PullRequestDiffStat,
   PullRequestListInput,
@@ -17,9 +19,18 @@ import {
   PullRequestSubmitReviewInput,
   resolvePullRequestAuthorFilter,
 } from "./pullRequest.ts";
+import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
 
 const decodeListResult = Schema.decodeUnknownSync(Schema.toCodecJson(PullRequestListResult));
-const decodeDetail = Schema.decodeUnknownSync(Schema.toCodecJson(PullRequestDetail));
+// Clients decode the detail inside the RPC's Exit, as the JSON serialization does.
+const decodeDetailExit = Schema.decodeUnknownSync(
+  Schema.toCodecJson(Rpc.exitSchema(WsRpcGroup.requests.get(WS_METHODS.pullRequestsDetail)!)),
+);
+const decodeDetail = (value: unknown): PullRequestDetail => {
+  const exit = decodeDetailExit({ _tag: "Success", value });
+  if (!Exit.isSuccess(exit)) throw new Error("expected a successful exit");
+  return exit.value as PullRequestDetail;
+};
 const decodeChangeBreakdown = Schema.decodeUnknownSync(
   Schema.toCodecJson(PullRequestChangeBreakdown),
 );

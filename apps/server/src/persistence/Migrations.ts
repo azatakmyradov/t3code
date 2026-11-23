@@ -108,6 +108,17 @@ import Migration0097 from "./Migrations/097_TurnItemInlineWorkOutput.ts";
 import Migration0098 from "./Migrations/098_RepairStaleTitleRegeneration.ts";
 import Migration0099 from "./Migrations/099_IssueTrackerBindings.ts";
 import Migration0100 from "./Migrations/100_ActiveShellIndexIndexes.ts";
+import Migration0101 from "./Migrations/101_BackgroundRecoveryIndexes.ts";
+import Migration0102 from "./Migrations/102_TurnStartReadIndexes.ts";
+import Migration0103 from "./Migrations/103_DelegatedTaskReadIndexes.ts";
+import Migration0104 from "./Migrations/104_ThreadItemCounts.ts";
+import Migration0105 from "./Migrations/105_IssueTrackerAdditionalScopes.ts";
+import Migration0106 from "./Migrations/106_TaskFolders.ts";
+import Migration0107 from "./Migrations/107_WorktreePathKeyIndex.ts";
+import Migration0108 from "./Migrations/108_DeferredSlashCommandIndex.ts";
+import Migration0109 from "./Migrations/109_AgentFeedback.ts";
+import Migration0110 from "./Migrations/110_IssueTrackerAccounts.ts";
+import Migration0111 from "./Migrations/111_Workflows.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -213,6 +224,17 @@ export const migrationEntries = [
   [98, "RepairStaleTitleRegeneration", Migration0098],
   [99, "IssueTrackerBindings", Migration0099],
   [100, "ActiveShellIndexIndexes", Migration0100],
+  [101, "BackgroundRecoveryIndexes", Migration0101],
+  [102, "TurnStartReadIndexes", Migration0102],
+  [103, "DelegatedTaskReadIndexes", Migration0103],
+  [104, "ThreadItemCounts", Migration0104],
+  [105, "IssueTrackerAdditionalScopes", Migration0105],
+  [106, "TaskFolders", Migration0106],
+  [107, "WorktreePathKeyIndex", Migration0107],
+  [108, "DeferredSlashCommandIndex", Migration0108],
+  [109, "AgentFeedback", Migration0109],
+  [110, "IssueTrackerAccounts", Migration0110],
+  [111, "Workflows", Migration0111],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -290,8 +312,8 @@ export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* 
   return (row?.latestId ?? 0) < latestMigrationId || (row?.previewRows ?? 0) > 0;
 });
 
-// The fork released Bots at 61 and tracked folders at 96 ahead of upstream, so upstream's ids
-// from 61 on map to this fork's ids by name. Shift only a known upstream history, preserving its
+// The fork released Bots at 61 and tracked folders at 96 ahead of upstream (which later shipped
+// tracked folders at 104), so upstream's ids from 61 on map to this fork's ids by name. Shift only a known upstream history, preserving its
 // schema, data, and migration timestamps, then record the fork-only migrations it would skip.
 // Unknown later histories must fail untouched.
 const UPSTREAM_MIGRATIONS_FROM_61 = [
@@ -333,6 +355,18 @@ const UPSTREAM_MIGRATIONS_FROM_61 = [
   "RepairStaleTitleRegeneration",
   "IssueTrackerBindings",
   "ActiveShellIndexIndexes",
+  "BackgroundRecoveryIndexes",
+  "TurnStartReadIndexes",
+  "DelegatedTaskReadIndexes",
+  "ThreadItemCounts",
+  "IssueTrackerAdditionalScopes",
+  "ProjectionProjectsTrackedFolders",
+  "TaskFolders",
+  "WorktreePathKeyIndex",
+  "DeferredSlashCommandIndex",
+  "AgentFeedback",
+  "IssueTrackerAccounts",
+  "Workflows",
 ] as const;
 
 const FORK_ONLY_MIGRATIONS = [
@@ -374,7 +408,7 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         });
       }
       const latestUpstreamId = Math.max(...recorded.map((row) => row.migration_id));
-      const latestForkId = forkMigrationId(latestUpstreamId);
+      const latestForkId = Math.max(...recorded.map((row) => forkMigrationId(row.migration_id)));
       // Shifting the latest entry would exceed a caller's requested migration limit.
       if (throughId !== undefined && throughId < latestForkId) return [];
       yield* assertV2MigrationsCanRun(60);
@@ -395,13 +429,17 @@ const reconcileUpstreamMigrations = Effect.fn("reconcileUpstreamMigrations")(fun
         });
       }
       // The Migrator skips ids below the highest recorded, so apply those fork-only ones here.
-      const skippedForkMigrations = FORK_ONLY_MIGRATIONS.filter(([id]) => id < latestForkId);
+      const recordedNames = new Set(recorded.map((row) => row.name));
+      const skippedForkMigrations = FORK_ONLY_MIGRATIONS.filter(
+        ([id, name]) => id < latestForkId && !recordedNames.has(name),
+      );
       for (const [, , migration] of skippedForkMigrations) yield* migration;
-      // Move later entries first to avoid primary-key collisions.
+      // Upstream's tracked folders map below later upstream ids, so park ids negative first.
       for (let id = latestUpstreamId; id >= 61; id--) {
-        yield* sql`UPDATE effect_sql_migrations SET migration_id = ${forkMigrationId(id)}
+        yield* sql`UPDATE effect_sql_migrations SET migration_id = ${-forkMigrationId(id)}
           WHERE migration_id = ${id} AND name = ${UPSTREAM_MIGRATIONS_FROM_61[id - 61]!}`;
       }
+      yield* sql`UPDATE effect_sql_migrations SET migration_id = -migration_id WHERE migration_id < 0`;
       for (const [id, name] of skippedForkMigrations) {
         yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
       }

@@ -1,11 +1,7 @@
 import { PROJECT_TRACKED_FOLDERS_MAX, type WorkspaceScannedFolder } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  appendTrackedFolders,
-  trackedFoldersFromSelection,
-  untrackedScannedFolders,
-} from "./projectTrackedFolders.ts";
+import { appendTrackedFolders, suggestedTrackedFolders } from "./projectTrackedFolders.ts";
 
 const scanned = (name: string, path = `/work/${name}`): WorkspaceScannedFolder => ({
   path,
@@ -14,35 +10,18 @@ const scanned = (name: string, path = `/work/${name}`): WorkspaceScannedFolder =
   source: "child",
 });
 
-describe("untrackedScannedFolders", () => {
-  it("offers only folders the project does not track, once each", () => {
+describe("suggestedTrackedFolders", () => {
+  it("offers what a workspace file lists and the project does not cover, once each", () => {
+    const listed = (name: string) => ({ ...scanned(name), source: "code-workspace" as const });
     expect(
-      untrackedScannedFolders(
-        [{ path: "/work/api", name: "API" }],
-        [scanned("api"), scanned("web"), scanned("web"), scanned("docs")],
-      ).map((folder) => folder.name),
-    ).toEqual(["web", "docs"]);
-  });
-});
-
-describe("trackedFoldersFromSelection", () => {
-  it("selects every scanned folder until one is deselected", () => {
-    const folders = [scanned("api"), scanned("web")];
-    expect(trackedFoldersFromSelection(folders, new Set())).toEqual([
-      { path: "/work/api", name: "api" },
-      { path: "/work/web", name: "web" },
+      suggestedTrackedFolders(
+        [{ path: "/work/api", name: "API", discovered: true }],
+        [listed("api"), listed("lib"), listed("lib"), scanned("web"), listed("x".repeat(200))],
+      ),
+    ).toEqual([
+      { path: "/work/lib", name: "lib" },
+      { path: `/work/${"x".repeat(200)}`, name: "x".repeat(128) },
     ]);
-    expect(trackedFoldersFromSelection(folders, new Set(["/work/api"]))).toEqual([
-      { path: "/work/web", name: "web" },
-    ]);
-  });
-
-  it("shortens a name the project schema would reject", () => {
-    const [folder] = trackedFoldersFromSelection(
-      [scanned("n".repeat(200), "/work/long")],
-      new Set(),
-    );
-    expect(folder?.name).toHaveLength(128);
   });
 });
 

@@ -221,6 +221,54 @@ effectIt.effect("keeps the prepared Windows PATH without probing", () =>
   }),
 );
 
+effectIt.effect(
+  "hydrates missing JAVA_HOME and feature flags from the login shell and keeps explicit ones",
+  () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() =>
+        vi
+          .spyOn(NodeChildProcess, "execFileSync")
+          .mockReturnValue(
+            [
+              "__T3CODE_ENV_PATH_START__",
+              "/opt/homebrew/bin",
+              "__T3CODE_ENV_PATH_END__",
+              "__T3CODE_ENV_JAVA_HOME_START__",
+              "/opt/homebrew/opt/openjdk@17",
+              "__T3CODE_ENV_JAVA_HOME_END__",
+              "__T3CODE_ENV_T3CODE_FEATURE_FLAGS_START__",
+              "tanstack_source",
+              "__T3CODE_ENV_T3CODE_FEATURE_FLAGS_END__",
+            ].join("\n"),
+          ),
+      ),
+      () =>
+        Effect.gen(function* () {
+          const missing: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+          const explicit: NodeJS.ProcessEnv = {
+            SHELL: "/bin/zsh",
+            PATH: "/usr/bin",
+            JAVA_HOME: "/custom/jdk",
+            T3CODE_FEATURE_FLAGS: "",
+          };
+
+          for (const env of [missing, explicit]) {
+            yield* fixPath().pipe(
+              Effect.provideService(HostProcess.Platform, "darwin"),
+              Effect.provideService(HostProcess.Environment, env),
+              Effect.provide(NodeServices.layer),
+            );
+          }
+
+          assert.equal(missing.JAVA_HOME, "/opt/homebrew/opt/openjdk@17");
+          assert.equal(explicit.JAVA_HOME, "/custom/jdk");
+          assert.equal(missing.T3CODE_FEATURE_FLAGS, "tanstack_source");
+          assert.equal(explicit.T3CODE_FEATURE_FLAGS, "");
+        }),
+      (probe) => Effect.sync(() => probe.mockRestore()),
+    ),
+);
+
 effectIt.effect("replaces a Path-spelled Windows PATH instead of adding a second key", () =>
   Effect.gen(function* () {
     const env: NodeJS.ProcessEnv = { Path: "C:\\Windows" };
