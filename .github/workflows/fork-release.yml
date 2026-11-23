@@ -170,7 +170,8 @@ jobs:
     secrets: inherit
     with:
       label: mac arm64
-      runner: macos-15
+      # The Apple Speech helper needs Xcode 26, the default only on macOS 26 images.
+      runner: macos-26
       platform: mac
       target: dmg
       arch: arm64
@@ -239,7 +240,7 @@ jobs:
     secrets: inherit
     with:
       label: mac x64
-      runner: macos-15-intel
+      runner: macos-26-intel
       platform: mac
       target: dmg
       arch: x64
