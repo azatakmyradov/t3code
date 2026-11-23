@@ -1802,9 +1802,9 @@ function ConfiguredCloudLinkRow({
   } = useCloudLinkController(environmentId);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
-  // Turning on needs relay configuration permission; turning off works from anywhere.
-  const showTunnelSwitch =
-    useT3ConnectTurnOn(environmentId).kind !== "on-host" || managedTunnelActive;
+  // Remote clients see the switch only when their session can link this environment.
+  const turnOnHere = useT3ConnectTurnOn(environmentId).kind === "here";
+  const showTunnelSwitch = window.desktopBridge !== undefined || turnOnHere;
 
   const disabledReason = !isSignedIn
     ? "Sign in to T3 Connect to manage this environment."
