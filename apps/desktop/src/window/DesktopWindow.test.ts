@@ -580,10 +580,10 @@ describe("DesktopWindow", () => {
           assert.deepEqual(
             menu.input.template.filter((item) => item.role),
             [
-              { role: "cut", enabled: false },
-              { role: "copy", enabled: true },
-              { role: "paste", enabled: true },
-              { role: "selectAll", enabled: true },
+              { role: "cut", label: "Cut", enabled: false },
+              { role: "copy", label: "Copy", enabled: true },
+              { role: "paste", label: "Paste", enabled: true },
+              { role: "selectAll", label: "Select All", enabled: true },
             ],
           );
           const correction = menu.input.template.find((item) => item.label === "hello");

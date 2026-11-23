@@ -771,12 +771,14 @@ export class GitHubPullRequestApi extends Context.Service<
     }) => Effect.Effect<void, GitHubPullRequestApiError>;
 
     readonly readCheckLogs: (input: {
+      readonly cwd: string;
       readonly host: string;
       readonly repository: string;
       readonly checks: ReadonlyArray<ProviderCheckReference>;
       readonly tailLines: number;
     }) => Effect.Effect<ReadonlyArray<ProviderCheckLog>, GitHubPullRequestApiError>;
     readonly rerunChecks: (input: {
+      readonly cwd: string;
       readonly host: string;
       readonly repository: string;
       readonly checks: ReadonlyArray<ProviderCheckReference>;
@@ -2961,7 +2963,12 @@ export const make = Effect.gen(function* () {
       const { owner, name } = parseRepositorySelector(input.repository);
       const readCheckRun = <A, E>(path: string, decode: (body: string) => Effect.Effect<A, E>) =>
         api
-          .rest({ host: input.host, operation: "readCheckRun", path })
+          .rest({
+            host: input.host,
+            credentialContext: { cwd: input.cwd },
+            operation: "readCheckRun",
+            path,
+          })
           .pipe(Effect.flatMap((response) => decode(response.body)));
       // A job that never started (billing block, skipped) or whose log expired has no log;
       // its check run (an Actions job id is its check run id) says why.
@@ -3012,6 +3019,7 @@ export const make = Effect.gen(function* () {
           return api
             .rest({
               host: input.host,
+              credentialContext: { cwd: input.cwd },
               operation: "readCheckLog",
               path: `repos/${owner}/${name}/actions/jobs/${jobId}/logs`,
               maxResponseBytes: CHECK_LOG_MAX_BYTES,
@@ -3050,7 +3058,12 @@ export const make = Effect.gen(function* () {
           if (jobId === null)
             return Effect.succeed({ check, jobId, runId: null, detail: NOT_A_JOB });
           return api
-            .rest({ host: input.host, operation: "readCheckJob", path: `${root}/jobs/${jobId}` })
+            .rest({
+              host: input.host,
+              credentialContext: { cwd: input.cwd },
+              operation: "readCheckJob",
+              path: `${root}/jobs/${jobId}`,
+            })
             .pipe(
               Effect.flatMap((response) => decodeActionsJob(response.body)),
               Effect.map((job) => ({ check, jobId, runId: job.run_id, detail: null })),
@@ -3072,17 +3085,26 @@ export const make = Effect.gen(function* () {
         byRun.set(entry.runId, [...(byRun.get(entry.runId) ?? []), entry]);
       }
       const post = (path: string) =>
-        api.rest({ host: input.host, operation: "rerunChecks", method: "POST", path }).pipe(
-          Effect.as<string | null>(null),
-          Effect.catchTags({
-            GitHubApiNotFoundError: (error) => Effect.succeed(error.message),
-            GitHubApiResponseError: (error) => Effect.succeed(error.message),
-          }),
-        );
+        api
+          .rest({
+            host: input.host,
+            credentialContext: { cwd: input.cwd },
+            operation: "rerunChecks",
+            method: "POST",
+            path,
+          })
+          .pipe(
+            Effect.as<string | null>(null),
+            Effect.catchTags({
+              GitHubApiNotFoundError: (error) => Effect.succeed(error.message),
+              GitHubApiResponseError: (error) => Effect.succeed(error.message),
+            }),
+          );
       const failedJobsOf = (runId: number) =>
         api
           .rest({
             host: input.host,
+            credentialContext: { cwd: input.cwd },
             operation: "readRunJobs",
             path: `${root}/runs/${runId}/jobs?filter=latest&per_page=100`,
           })

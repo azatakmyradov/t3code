@@ -1016,6 +1016,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
       });
       const external = { name: "Vercel", url: "https://vercel.com/octo/repo/deployments/1" };
       const logs = yield* api.readCheckLogs({
+        cwd: "/repo",
         host: "github.com",
         repository: "octo/repo",
         checks: [job(11, 10), external],
@@ -1025,7 +1026,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
         { name: "job 11", log: "build\nError: boom", truncated: true, detail: null },
         { name: "Vercel", log: null },
       ]);
-      const capped = { host: "github.com", repository: "octo/repo", tailLines: 5 };
+      const capped = { cwd: "/repo", host: "github.com", repository: "octo/repo", tailLines: 5 };
       expect(yield* api.readCheckLogs({ ...capped, checks: [job(13, 30)] })).toMatchObject([
         { log: "one long line", truncated: true },
       ]);
@@ -1038,6 +1039,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
       expect(refused._tag).toBe("GitHubApiAuthenticationError");
 
       const reruns = yield* api.rerunChecks({
+        cwd: "/repo",
         host: "github.com",
         repository: "octo/repo",
         checks: [

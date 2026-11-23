@@ -6,6 +6,20 @@ const testState = vi.hoisted(() => ({
   addToast: vi.fn(),
 }));
 
+// These tests call components as plain functions, so GT's hooks have no React context.
+vi.mock("gt-react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("gt-react")>();
+  const resolve = (text: string, values: Record<string, unknown> = {}) =>
+    actual.gtFallback(text, { ...values, $locale: "en" });
+  return {
+    ...actual,
+    useGT: () => resolve,
+    useMessages: () => resolve,
+    T: ({ children }: { children: ReactNode }) => children,
+    Var: ({ children }: { children: ReactNode }) => children,
+  };
+});
+
 vi.mock("../ui/toast", () => ({
   toastManager: { add: testState.addToast },
 }));

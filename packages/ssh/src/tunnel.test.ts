@@ -1024,10 +1024,11 @@ describe("ssh tunnel scripts", () => {
           return makeSuccessfulProcess("");
         }),
       );
+      // A stale forward answers with an error; one that never answers is kept as slow.
       const httpClient = HttpClient.make((request) =>
-        stale
-          ? Deferred.succeed(probeStarted, undefined).pipe(Effect.andThen(Effect.never))
-          : Effect.succeed(HttpClientResponse.fromWeb(request, new Response("", { status: 200 }))),
+        Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response("", { status: stale ? 502 : 200 })),
+        ).pipe(Effect.tap(() => (stale ? Deferred.succeed(probeStarted, undefined) : Effect.void))),
       );
       const layer = Layer.mergeAll(
         NodeServices.layer,
@@ -2681,9 +2682,12 @@ server.listen(Number(flag("--port")), "127.0.0.1", () => {
 
         const script = yield* fs.readFileString(launch);
         assert.include(script, 'wait_ready "60000"');
+        assert.include(script, 'wait_ready "2000"');
         yield* fs.writeFileString(
           launch,
-          script.replaceAll('wait_ready "60000"', 'wait_ready "1500"'),
+          script
+            .replaceAll('wait_ready "60000"', 'wait_ready "1500"')
+            .replaceAll('wait_ready "2000"', 'wait_ready "300"'),
         );
         process.kill(pid, "SIGSTOP");
         const result = yield* runLaunchScript;
