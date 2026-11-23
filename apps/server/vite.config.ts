@@ -141,9 +141,9 @@ export default mergeConfig(
       alias: { "jsonc-parser": "jsonc-parser/lib/esm/main.js" },
       deps: {
         // alwaysBundle=false has no opinion; neverBundle must retain transitive native acceleration.
-        alwaysBundle: shouldBundleCliDependency,
+        alwaysBundle: (id: string) => shouldBundleCliDependency(id, packExecutable),
         neverBundle: (id: string) =>
-          (packBootstrap && id === "./binMain.ts") || isExternalCliDependency(id),
+          (packBootstrap && id === "./binMain.ts") || isExternalCliDependency(id, packExecutable),
         onlyBundle: false,
       },
       banner: {

@@ -51,8 +51,13 @@ describe("shouldBundleCliDependency", () => {
     assert.strictEqual(shouldBundleCliDependency("node-gyp-build-optional-packages"), false);
   });
 
-  it("bundles undici for ESM importers while still staging it for Cursor", () => {
-    assert.strictEqual(shouldBundleCliDependency("undici"), true);
+  it("bundles undici only into the single executable while still staging it for Cursor", () => {
+    assert.strictEqual(shouldBundleCliDependency("undici", true), true);
+    assert.strictEqual(shouldBundleCliDependency("undici"), false);
+    assert.deepStrictEqual(
+      findInlinedExternalPackages("//#region node_modules/undici/index.js\n").inlined,
+      ["undici"],
+    );
     assert.deepStrictEqual(selectCliRuntimeExternalDependencies({ undici: "8.12.4" }), {
       undici: "8.12.4",
     });
