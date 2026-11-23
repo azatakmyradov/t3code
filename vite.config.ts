@@ -599,8 +599,9 @@ export default defineConfig({
         rules: { "t3code/no-untranslated-copy": "error" },
       },
       {
-        // T3 Fork keeps its own Connections and per-repository account pages in English.
+        // T3 Fork keeps its own Pull Requests, Connections and per-repository account pages in English.
         files: [
+          "apps/web/src/routes/_chat.pull-requests.tsx",
           "apps/web/src/components/settings/ConnectionsSettings.tsx",
           "apps/web/src/components/settings/SourceControlAccountSettings.tsx",
         ],

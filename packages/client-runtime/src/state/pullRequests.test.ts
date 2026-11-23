@@ -1411,20 +1411,35 @@ it.effect.each([undefined, "101"])(
           repository: "acme/web",
           ...(expectedAccountId ? { expectedAccountId } : {}),
         };
-        const first = atoms.runAction.run(registry, {
-          environmentId: TARGET.environmentId,
-          input: { ...reference, number: 1, action: "merge", resolveMergeMethod: () => "squash" },
-        });
+        const first = yield* Effect.forkChild(
+          Effect.exit(
+            atoms.runAction.run(registry, {
+              environmentId: TARGET.environmentId,
+              input: {
+                ...reference,
+                number: 1,
+                action: "merge",
+                resolveMergeMethod: () => "squash",
+              },
+            }),
+          ),
+          { startImmediately: true },
+        );
         yield* Deferred.await(started);
-        const second = atoms.runAction.run(registry, {
-          environmentId: TARGET.environmentId,
-          input: { ...reference, number: 2, action: "close" },
-        });
+        const second = yield* Effect.forkChild(
+          Effect.exit(
+            atoms.runAction.run(registry, {
+              environmentId: TARGET.environmentId,
+              input: { ...reference, number: 2, action: "close" },
+            }),
+          ),
+          { startImmediately: true },
+        );
         yield* PubSub.publish(refreshEvents, 1);
         expect(calls).toEqual(["detail:1"]);
         yield* Deferred.succeed(release, undefined);
-        const results = yield* Effect.promise(() => Promise.all([first, second]));
-        expect(results.every(AsyncResult.isSuccess)).toBe(true);
+        const results = [yield* Fiber.join(first), yield* Fiber.join(second)];
+        expect(results.every(Exit.isSuccess)).toBe(true);
         expect(calls).toEqual(["detail:1", "stack:1", "merge:1", "close:2"]);
       }),
     ),
@@ -2456,14 +2471,14 @@ it.effect.each([undefined, "101"])(
         }
         expect(initial.value.comments[0]?.body).toBe("old comment");
 
-        const update = yield* Effect.promise(() =>
+        const update = yield* Effect.exit(
           atoms.updateComment.run(registry, {
             environmentId: TARGET.environmentId,
             input: { ...reference, commentId: "comment-1", kind: "issue-comment", body: "updated" },
           }),
         );
 
-        expect(AsyncResult.isSuccess(update)).toBe(true);
+        expect(Exit.isSuccess(update)).toBe(true);
         expect(
           (yield* AtomRegistry.getResult(registry, activity, { suspendOnWaiting: true }))
             .comments[0]?.body,
@@ -2913,7 +2928,7 @@ it.effect("updates reviewer requests and enriched reviewers without rereading th
       yield* AtomRegistry.getResult(registry, activity, { suspendOnWaiting: true });
       yield* AtomRegistry.getResult(registry, candidates, { suspendOnWaiting: true });
       const request = (requested: boolean, reference = target) =>
-        Effect.promise(() =>
+        Effect.exit(
           atoms.requestReviewers.run(registry, {
             ...reference,
             input: { ...reference.input, reviewers: [{ id: "12", kind: "user" }], requested },
@@ -2933,12 +2948,12 @@ it.effect("updates reviewer requests and enriched reviewers without rereading th
       pauseActivity = true;
       registry.refresh(activity);
       yield* activityStarted.await;
-      expect(AsyncResult.isSuccess(yield* request(true))).toBe(true);
+      expect(Exit.isSuccess(yield* request(true))).toBe(true);
       expect(
         (yield* AtomRegistry.getResult(registry, activity, { suspendOnWaiting: true })).reviewers,
       ).toEqual([hostActor]);
       expect(reads).toBe(5);
-      expect(AsyncResult.isSuccess(yield* request(false))).toBe(true);
+      expect(Exit.isSuccess(yield* request(false))).toBe(true);
       expect((yield* AtomRegistry.getResult(registry, activity)).reviewers).toEqual([]);
 
       reviewed = true;

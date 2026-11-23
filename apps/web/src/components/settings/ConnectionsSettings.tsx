@@ -71,7 +71,7 @@ import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
-import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { namedClipboardTarget, useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
@@ -968,12 +968,24 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
     reportFailure: false,
   });
   const [dialogOpen, setDialogOpen] = useState(false);
+  const pairingDialogSessionRef = useRef(0);
   const [pairingLabel, setPairingLabel] = useState("");
   const [pairingScopes, setPairingScopes] = useState<ReadonlyArray<AuthGrantScope>>([
     ...AuthStandardClientScopes,
   ]);
   const selectedScopes = pairingScopes.filter((scope) => delegatableScopes.includes(scope));
   const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
+
+  const handlePairingDialogOpenChange = (open: boolean) => {
+    setDialogOpen(open);
+    if (!open) {
+      pairingDialogSessionRef.current += 1;
+      setPairingLabel("");
+      setPairingScopes(
+        AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
+      );
+    }
+  };
 
   const handleCreatePairingLink = async () => {
     if (
@@ -982,6 +994,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
       !selectedScopes.every((scope) => readEnvironmentScope(environmentId, scope))
     )
       return;
+    const dialogSession = pairingDialogSessionRef.current;
     setIsCreatingPairingLink(true);
     const trimmedLabel = pairingLabel.trim();
     const result = await createPairingCredential({
@@ -990,11 +1003,9 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
     });
     if (result._tag === "Success") {
       onPairingLinkCreated(result.value);
-      setPairingLabel("");
-      setPairingScopes(
-        AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
-      );
-      setDialogOpen(false);
+      if (dialogSession === pairingDialogSessionRef.current) {
+        handlePairingDialogOpenChange(false);
+      }
     } else if (!isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       const message = error instanceof Error ? error.message : "Failed to create pairing URL.";
@@ -1023,18 +1034,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
       >
         {isRevokingOtherClients ? "Revoking…" : "Revoke others"}
       </Button>
-      <Dialog
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) {
-            setPairingLabel("");
-            setPairingScopes(
-              AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
-            );
-          }
-        }}
-      >
+      <Dialog open={dialogOpen} onOpenChange={handlePairingDialogOpenChange}>
         <DialogTrigger
           render={
             <Button size="xs" variant="default">
@@ -1430,7 +1430,7 @@ function SavedBackendListRow({
   const isRemoving = removingEnvironmentId === environmentId;
   const errorTraceId = environment.connection.traceId;
   const { copyToClipboard: copyTraceIdToClipboard } = useCopyToClipboard<{ traceId: string }>({
-    target: "trace ID",
+    target: namedClipboardTarget("trace ID"),
     onError: (error) => {
       toastManager.add(
         stackedThreadToast({
@@ -1445,7 +1445,7 @@ function SavedBackendListRow({
     copyTraceIdToClipboard(traceId, { traceId });
   };
   const { copyToClipboard: copyMcpUrl } = useCopyToClipboard<{ url: string }>({
-    target: "MCP URL",
+    target: namedClipboardTarget("MCP URL"),
     onCopy: ({ url }) => {
       toastManager.add({
         type: "success",

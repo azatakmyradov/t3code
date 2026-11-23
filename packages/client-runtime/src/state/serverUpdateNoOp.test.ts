@@ -9,11 +9,12 @@ import {
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 
 import {
   AVAILABLE_CONNECTION_STATE,
@@ -175,7 +176,8 @@ const makeHarness = Effect.fn("ServerUpdateNoOpTest.makeHarness")(function* (
   );
   return {
     run: () =>
-      Effect.promise(() =>
+      Effect.exit(
+        // @effect-diagnostics-next-line anyUnknownInErrorContext:off - updateServer is typed with an unknown error
         atoms.updateServer.run(registry, {
           environmentId: TARGET.environmentId,
           input: { targetVersion: "1.3.0" },
@@ -207,7 +209,7 @@ it.effect.each(noopCases)(
         );
         for (let attempt = 0; attempt < 2; attempt++) {
           const result = yield* harness.run();
-          expect(AsyncResult.isSuccess(result) && result.value).toEqual(NO_UPDATE);
+          expect(Exit.isSuccess(result) && result.value).toEqual(NO_UPDATE);
           expect(harness.state()).toEqual({ status: "idle" });
         }
         expect(harness.requests).toEqual([
@@ -243,7 +245,7 @@ it.effect.each(errorCases)(
           Effect.fail(new ServerSelfUpdateError({ reason })),
           desktopManaged,
         );
-        expect(AsyncResult.isFailure(yield* harness.run())).toBe(true);
+        expect(Exit.isFailure(yield* harness.run())).toBe(true);
         expect(harness.state()).toMatchObject({
           status: "failed",
           message: `Server update failed: ${reason}`,
@@ -260,7 +262,7 @@ it.effect.each([
   Effect.scoped(
     Effect.gen(function* () {
       const harness = yield* makeHarness(true, Effect.succeed(NO_UPDATE), true, release);
-      expect(AsyncResult.isFailure(yield* harness.run())).toBe(true);
+      expect(Exit.isFailure(yield* harness.run())).toBe(true);
       expect(harness.requests).toEqual([]);
       expect(harness.state()).toMatchObject({
         status: "failed",
@@ -282,7 +284,7 @@ it.effect.each([false, true])(
           { distribution: "azatakmyradov/t3code", channel: "stable" },
           { distribution: "pingdotgg/t3code", channel: "stable" },
         );
-        expect(AsyncResult.isFailure(yield* harness.run())).toBe(true);
+        expect(Exit.isFailure(yield* harness.run())).toBe(true);
         expect(harness.requests).toEqual([]);
         expect(harness.effects()).toEqual({ commits: 0, lifecycleSubscriptions: 0, reconnects: 0 });
       }),

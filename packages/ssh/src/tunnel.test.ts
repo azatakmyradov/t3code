@@ -553,7 +553,7 @@ describe("ssh tunnel scripts", () => {
     { installed: ARCHIVE.archiveVersion, status: 1, reuses: false },
     { installed: "9.9.9", status: 0, reuses: false },
   ])(
-    "reuses a host t3 only at exactly the requested version: installed $installed, status $status",
+    "reuses a host t3-fork only at exactly the requested version: installed $installed, status $status",
     ({ installed, status, reuses }) => {
       const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-ssh-runner-"));
       try {
@@ -567,8 +567,14 @@ describe("ssh tunnel scripts", () => {
           { mode: 0o755 },
         );
         NodeFS.writeFileSync(
+          NodePath.join(bin, "t3-fork"),
+          `#!/bin/sh\ncase "$1" in --version) echo "t3-fork v${installed}"; exit ${status} ;; *) echo "host t3 $*" ;; esac\n`,
+          { mode: 0o755 },
+        );
+        // Upstream T3 Code at the same version must never run against the fork's home.
+        NodeFS.writeFileSync(
           NodePath.join(bin, "t3"),
-          `#!/bin/sh\ncase "$1" in --version) echo "t3 v${installed}"; exit ${status} ;; *) echo "host t3 $*" ;; esac\n`,
+          `#!/bin/sh\ncase "$1" in --version) echo "t3 v${ARCHIVE.archiveVersion}" ;; *) echo "upstream t3 $*" ;; esac\n`,
           { mode: 0o755 },
         );
         const runner = NodePath.join(root, "run-t3.sh");
@@ -3016,15 +3022,15 @@ const canBind = (port) =>
       }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  // An NFS home can carry a ~/.t3 symlink whose target exists only on another host.
-  it.live.skipIf(windowsHost)("launches through a ~/.t3 symlink whose target is missing", () =>
+  // An NFS home can carry a ~/.t3-fork symlink whose target exists only on another host.
+  it.live.skipIf(windowsHost)("launches through a ~/.t3-fork symlink whose target is missing", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-dangling-home-" });
       const home = `${root}/home`;
       const target = `${root}/shared/t3`;
       yield* fs.makeDirectory(home, { recursive: true });
-      yield* fs.symlink(target, `${home}/.t3`);
+      yield* fs.symlink(target, `${home}/.t3-fork`);
       const launch = `${root}/launch.sh`;
       yield* fs.writeFileString(
         launch,
