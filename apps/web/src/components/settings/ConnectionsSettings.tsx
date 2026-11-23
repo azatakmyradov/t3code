@@ -180,6 +180,7 @@ import {
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { RemoveT3ConnectEnvironmentDialog } from "../clerk/RemoveT3ConnectEnvironmentDialog";
 import { useCloudLinkController } from "~/cloud/useCloudLinkController";
+import { useT3ConnectTurnOn } from "~/cloud/useT3ConnectTurnOn";
 import { authEnvironment } from "~/state/auth";
 import { environmentCatalog } from "~/connection/catalog";
 import {
@@ -1801,6 +1802,9 @@ function ConfiguredCloudLinkRow({
   } = useCloudLinkController(environmentId);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
+  // Turning on needs relay configuration permission; turning off works from anywhere.
+  const showTunnelSwitch =
+    useT3ConnectTurnOn(environmentId).kind !== "on-host" || managedTunnelActive;
 
   const disabledReason = !isSignedIn
     ? "Sign in to T3 Connect to manage this environment."
@@ -1895,7 +1899,7 @@ function ConfiguredCloudLinkRow({
 
   return (
     <>
-      {window.desktopBridge ? (
+      {showTunnelSwitch ? (
         <SettingsRow
           title={searchableSetting("t3-connect").title}
           description={
