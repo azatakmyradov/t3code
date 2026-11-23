@@ -174,14 +174,13 @@ describe("WSL command deadlines", () => {
     const started = yield* Deferred.make<void>();
     const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
     const released = yield* Deferred.make<void>();
-    const spawner = ChildProcessSpawner.make(() =>
-      Effect.acquireRelease(
-        Deferred.succeed(started, undefined).pipe(
-          Effect.as(
+    const spawner = ChildProcessSpawner.make((command) =>
+      command._tag === "StandardCommand" && command.command === "reg.exe"
+        ? Effect.succeed(
             ChildProcessSpawner.makeHandle({
-              pid: ChildProcessSpawner.ProcessId(1),
-              exitCode: Deferred.await(exited),
-              isRunning: Deferred.isDone(exited).pipe(Effect.map((done) => !done)),
+              pid: ChildProcessSpawner.ProcessId(2),
+              exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+              isRunning: Effect.succeed(false),
               kill: () => Effect.void,
               unref: Effect.succeed(Effect.void),
               stdin: Sink.drain,
@@ -191,10 +190,27 @@ describe("WSL command deadlines", () => {
               getInputFd: () => Sink.drain,
               getOutputFd: () => Stream.empty,
             }),
+          )
+        : Effect.acquireRelease(
+            Deferred.succeed(started, undefined).pipe(
+              Effect.as(
+                ChildProcessSpawner.makeHandle({
+                  pid: ChildProcessSpawner.ProcessId(1),
+                  exitCode: Deferred.await(exited),
+                  isRunning: Deferred.isDone(exited).pipe(Effect.map((done) => !done)),
+                  kill: () => Effect.void,
+                  unref: Effect.succeed(Effect.void),
+                  stdin: Sink.drain,
+                  stdout: Stream.empty,
+                  stderr: Stream.empty,
+                  all: Stream.empty,
+                  getInputFd: () => Sink.drain,
+                  getOutputFd: () => Stream.empty,
+                }),
+              ),
+            ),
+            () => Deferred.succeed(released, undefined),
           ),
-        ),
-        () => Deferred.succeed(released, undefined),
-      ),
     );
     const environment = yield* DesktopWslEnvironment.pipe(
       Effect.provide(
@@ -285,6 +301,7 @@ describe("WSL runtime cache", () => {
       "/mnt/c/Program Files/T3 Code/wsl-runtime.tar.gz",
       "1.2.3-x64",
       "b".repeat(64),
+      null,
     );
 
     expect(script).toContain('runtime_parent="$HOME/.t3-fork/wsl-runtime"');
@@ -321,6 +338,7 @@ describe("WSL runtime cache", () => {
       "/mnt/c/Program Files/T3 Code/wsl-runtime.tar.gz",
       "1.2.3-x64",
       "b".repeat(64),
+      null,
     );
 
     const expected = "b".repeat(64);
@@ -343,6 +361,7 @@ describe("WSL runtime cache", () => {
       "/mnt/c/Program Files/T3 Code/wsl-runtime.tar.gz",
       "sha256-" + "c".repeat(64),
       "b".repeat(64),
+      null,
     );
 
     expect(script).toContain('grep -qF -- "$1/" /proc/[0-9]*/cmdline 2>/dev/null');
@@ -367,6 +386,7 @@ describe("WSL runtime cache", () => {
       "/mnt/c/Program Files/T3 Code/wsl-runtime.tar.gz",
       "1.2.3-x64",
       "b".repeat(64),
+      null,
     );
 
     expect(script).toContain(`  sha256sum "$1/t3" 2>/dev/null | cut -d ' ' -f 1`);
@@ -394,6 +414,7 @@ describe("WSL runtime cache", () => {
       "/mnt/c/Program Files/T3 Code/wsl-runtime.tar.gz",
       "1.2.3-x64",
       "b".repeat(64),
+      null,
     );
 
     expect(script).toContain('if ! runtime_entry_runs "$runtime_tmp"; then');
@@ -415,7 +436,7 @@ describe("WSL runtime cache", () => {
   });
 
   it("prunes completed runtimes except the current and newest previous cache", () => {
-    const script = buildWslRuntimePruneScript("1.2.3/x64");
+    const script = buildWslRuntimePruneScript("1.2.3/x64", null);
 
     expect(script).toContain('current_runtime="$runtime_parent/1.2.3_x64"');
     expect(script).toContain('[ "$candidate" -nt "$previous_runtime" ]');
@@ -426,7 +447,7 @@ describe("WSL runtime cache", () => {
   });
 
   it("never deletes a runtime another backend is running from", () => {
-    const script = buildWslRuntimePruneScript("1.2.3/x64");
+    const script = buildWslRuntimePruneScript("1.2.3/x64", null);
 
     expect(script).toContain('  grep -qF -- "$1/" /proc/[0-9]*/cmdline 2>/dev/null');
     expect(script).toContain('  ! runtime_in_use "$candidate" || continue');
@@ -440,7 +461,7 @@ describe("WSL runtime cache", () => {
   });
 
   it("sweeps orphaned install scratch directories the ready-marker loops cannot see", () => {
-    const script = buildWslRuntimePruneScript("1.2.3/x64");
+    const script = buildWslRuntimePruneScript("1.2.3/x64", null);
 
     expect(script).toContain(
       'for scratch in "$runtime_parent"/.*.tmp.* "$runtime_parent"/.*.stale.*; do',
@@ -775,7 +796,7 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
         'touch -d "1 minute ago" "$runtime_parent/sha256-previous"',
         `HOME=${sh(`${fixture.work}/home`)}`,
         "export HOME",
-        buildWslRuntimePruneScript("sha256-current"),
+        buildWslRuntimePruneScript("sha256-current", null),
         `test ! -e ${sh(fixture.runtimeRoot)}`,
       ].join("\n"),
     );
@@ -799,7 +820,7 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
         'touch -d "180 minutes ago" "$stale"',
         `HOME=${sh(`${fixture.work}/home`)}`,
         "export HOME",
-        buildWslRuntimePruneScript(fixture.runtimeId),
+        buildWslRuntimePruneScript(fixture.runtimeId, null),
         'test ! -e "$stale"',
       ].join("\n"),
     );
